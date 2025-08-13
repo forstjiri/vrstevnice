@@ -46,7 +46,8 @@ import forestNoise2 from './assets/forest-noise-2.svg?url';
 import forestNoise3 from './assets/forest-noise-3.svg?url';
 import forestNoise4 from './assets/forest-noise-4.svg?url';
 
-maplibregl.setWorkerUrl(new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).href);
+const maplibreWorkerUrl = new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url);
+maplibregl.setWorkerUrl(maplibreWorkerUrl.href);
 
 // Tileserver URL: localhost in dev, proxied through same-origin in prod
 const TILESERVER_URL = import.meta.env.DEV ? 'http://localhost:2323' : '';
@@ -282,11 +283,23 @@ export default function Map() {
     contextMenu = buildContextMenu([
       {
         label: 'Přidat zastávku',
-        action: () => addStop({
-          lat: lngLat.lat,
-          lng: lngLat.lng,
-          name: `${lngLat.lat.toFixed(5)}, ${lngLat.lng.toFixed(5)}`,
-        }),
+        action: () => {
+          const fallback = `${lngLat.lat.toFixed(5)}, ${lngLat.lng.toFixed(5)}`;
+          addStop({ lat: lngLat.lat, lng: lngLat.lng, name: fallback });
+          fetch(`/api/geocode?q=${encodeURIComponent(`${lngLat.lat},${lngLat.lng}`)}`)
+            .then((response) => response.json() as Promise<{ name?: string }[]>)
+            .then((results) => {
+              const name = results[0]?.name;
+              if (name) {
+                setStops(planner.stops.map((stop) => (
+                  stop.lat === lngLat.lat && stop.lng === lngLat.lng
+                    ? { ...stop, name: `${fallback} - ${name}` }
+                    : stop
+                )));
+              }
+            })
+            .catch(() => {});
+        },
       },
       {
         label: 'Otevřít na Mapy.cz',
@@ -368,6 +381,7 @@ export default function Map() {
         style: `${TILESERVER_URL}/styles/basic/style.json?v=2`,
         center: mapCamera() ? [mapCamera()!.lon, mapCamera()!.lat] : [15.47, 49.82], // [lng, lat]
         zoom: mapCamera()?.zoom ?? 7,
+        maxZoom: 14,
         bearing: mapCamera()?.bearing ?? 0,
         pitch: mapCamera()?.pitch ?? 0,
         attributionControl: {
@@ -382,6 +396,18 @@ export default function Map() {
 
     // TypeScript: map is guaranteed defined after successful construction
     const m = map;
+    // Expose the instance before style loading so production failures are diagnosable.
+    window.__map = m;
+
+    // WebGL runtime errors (context loss, GPU reset). Tile/source errors also
+    // fire 'error' — filter to fatal GPU failures only.
+    m.on('error', (e) => {
+      const err = (e as { error?: Error }).error;
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      if (/webgl|gpu|context.*lost|failed.*render/i.test(msg)) {
+        setWebglFailed(true);
+      }
+    });
 
     const topRightCorner = m.getContainer().querySelector('.maplibregl-ctrl-top-right');
     if (topRightCorner instanceof HTMLDivElement) {
@@ -621,8 +647,17 @@ export default function Map() {
       } catch {}
 
       // ── Terrain DEM sources ──
+      // MapLibre 6+ recommends separate raster-dem sources for terrain vs hillshade
+      // to improve rendering quality (avoids the "same source" runtime warning).
       try {
         m.addSource('terrain-dem', {
+          type: 'raster-dem',
+          tiles: ['/api/terrain/{z}/{x}/{y}'],
+          encoding: 'terrarium',
+          tileSize: 256,
+          maxzoom: 14,
+        });
+        m.addSource('hillshade-dem', {
           type: 'raster-dem',
           tiles: ['/api/terrain/{z}/{x}/{y}'],
           encoding: 'terrarium',
@@ -633,7 +668,7 @@ export default function Map() {
           {
             id: 'hillshade',
             type: 'hillshade',
-            source: 'terrain-dem',
+            source: 'hillshade-dem',
             layout: {
               visibility: mapControls.hillshadeOn ? 'visible' : 'none',
             },
@@ -1052,7 +1087,25 @@ export default function Map() {
         lat: s.lat,
         lng: s.lng,
         map: m,
-        onDragEnd: (lat, lng) => updateStop(i, lat, lng),
+        onDragEnd: (lat, lng) => {
+          updateStop(i, lat, lng);
+          const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          fetch(`/api/geocode?q=${encodeURIComponent(`${lat},${lng}`)}`)
+            .then((response) => response.json() as Promise<{ name?: string }[]>)
+            .then((geocodeResults) => {
+              const name = geocodeResults[0]?.name;
+              if (name) {
+                setStops(planner.stops.map((stop, index) => (
+                  index === i
+                    ? {
+                      ...stop, lat, lng, name: `${fallback} - ${name}`,
+                    }
+                    : stop
+                )));
+              }
+            })
+            .catch(() => {});
+        },
       });
       if (i < stopMarkers.length) stopMarkers[i] = marker;
       else stopMarkers.push(marker);
