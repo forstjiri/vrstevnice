@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 import type { Stop, RouteResponse } from '@vrstevnice/shared';
 import { persistedStore, persistedSignal } from './persist';
 
@@ -12,35 +12,61 @@ declare global {
 // inputs have changed since the last successful route calculation.
 let inputsDirty = false;
 
-export const [planner, setPlanner] = persistedStore(
-  {
-    stops: [] as Stop[],
-    elevation: 0.4,
-    roadAvoid: 0.9,
-    cycleway: 0.9,
-    showPOI: false,
-    route: null as RouteResponse | null,
-  },
-  {
-    name: 'vrstevnice.planner',
-    serialize: (v) => JSON.stringify(inputsDirty ? { ...v, route: null } : v),
-  },
-);
+const ctx = createRoot(() => {
+  const [planner, setPlanner] = persistedStore(
+    {
+      stops: [] as Stop[],
+      elevation: 0.4,
+      roadAvoid: 0.9,
+      cycleway: 0.9,
+      showPOI: false,
+      route: null as RouteResponse | null,
+    },
+    {
+      name: 'vrstevnice.planner',
+      serialize: (v) => JSON.stringify(inputsDirty ? { ...v, route: null } : v),
+    },
+  );
 
-// Transient UI state
-export const [loading, setLoading] = createSignal(false);
-export const [error, setError] = createSignal<string | null>(null);
-export const [sheetOpen, setSheetOpen] = createSignal(false);
-export const [activeTab, setActiveTab] = persistedSignal<'planner' | 'terrain' | 'chart'>(
-  'planner',
-  { name: 'vrstevnice.active-tab' },
-);
+  // Transient UI state
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [sheetOpen, setSheetOpen] = createSignal(false);
+  const [activeTab, setActiveTab] = persistedSignal<'planner' | 'terrain' | 'chart'>(
+    'planner',
+    { name: 'vrstevnice.active-tab' },
+  );
 
-// Route regeneration function (registered by Stops component on mount)
-const [regenerateFn, setRegenerateFn] = createSignal<() => Promise<void>>(async () => {});
-export { setRegenerateFn };
+  // Route regeneration function (registered by Stops component on mount)
+  const [regenerateFn, setRegenerateFn] = createSignal<() => Promise<void>>(async () => {});
+
+  return {
+    planner,
+    setPlanner,
+    loading,
+    setLoading,
+    error,
+    setError,
+    sheetOpen,
+    setSheetOpen,
+    activeTab,
+    setActiveTab,
+    regenerateFn,
+    setRegenerateFn,
+  };
+});
+
+export const {
+  planner, setPlanner,
+  loading, setLoading,
+  error, setError,
+  sheetOpen, setSheetOpen,
+  activeTab, setActiveTab,
+  setRegenerateFn,
+} = ctx;
+
 export function regenerateRoute() {
-  return regenerateFn()();
+  return ctx.regenerateFn()();
 }
 
 // ── Planner actions — mark route stale on input changes ──

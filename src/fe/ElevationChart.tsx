@@ -1,5 +1,5 @@
 import {
-  createEffect, onCleanup, onMount, Show,
+  createEffect, createMemo, createSignal, onCleanup, onMount, Show,
 } from 'solid-js';
 import type { ElevationPoint } from '@vrstevnice/shared';
 import {
@@ -12,10 +12,15 @@ import {
 // The frontend consumes the routing workspace source directly to keep Vite HMR working.
 // eslint-disable-next-line import-x/no-relative-packages, import-x/no-useless-path-segments
 import { slopeSpeedKmh } from '../routing/index';
-import { planner } from './appStore';
+import { planner, loading, regenerateRoute } from './appStore';
 import { setHoveredPoint } from './hoverStore';
 import { rideAnimation, setCameraTarget, updateRideAnimation } from './rideAnimationStore';
-import { effectiveSunDateTime, shadowRouteActive } from './mapControlsStore';
+import {
+  effectiveSunDateTime,
+  mapControls,
+  mapControlActions,
+  shadowRouteActive,
+} from './mapControlsStore';
 import {
   DEFAULT_ROAD_CLASS_COLOR,
   DEFAULT_SURFACE_COLOR,
@@ -61,6 +66,15 @@ export default function ElevationChart() {
   let cachedSunExposure: number[] = [];
   // Slope-based cumulative travel times (ms from start)
   let cachedSlopeTimes: number[] = [];
+  const [sunExposureVersion, setSunExposureVersion] = createSignal(0);
+
+  const avgSunExposure = createMemo(() => {
+    sunExposureVersion();
+    const exp = cachedSunExposure;
+    if (exp.length === 0) return null;
+    const sum = exp.reduce((a, b) => a + b, 0);
+    return Math.round((sum / exp.length) * 100);
+  });
 
   function setupCanvas() {
     if (!container || !canvas) return;
@@ -855,6 +869,7 @@ export default function ElevationChart() {
         sp.map((s) => s.sunExposure),
         1,
       );
+      setSunExposureVersion((v) => v + 1);
 
       // Slope-based cumulative travel times
       cachedSlopeTimes = r.slopeBasedTimes ?? [];
@@ -914,6 +929,31 @@ export default function ElevationChart() {
               />
             </label>
           </div>
+          <Show when={mapControls.hillshadeOn && route()}>
+            <div class="chart-shadow-toggle">
+              <button
+                class={`btn-toggle btn-toggle-label btn-toggle-sm${
+                  mapControls.shadowRouteOn ? ' active' : ''
+                }`}
+                onClick={() => {
+                  const next = !mapControls.shadowRouteOn;
+                  mapControlActions.setShadowRouteOn(next);
+                  if (next && planner.route && !loading()) {
+                    setTimeout(() => {
+                      if (planner.route && !loading() && shadowRouteActive()) regenerateRoute();
+                    }, 0);
+                  }
+                }}
+              >
+                ☀️ Slunce na trase
+              </button>
+              <Show when={mapControls.shadowRouteOn && avgSunExposure() !== null}>
+                <span class="chart-shadow-avg">
+                  průměr {avgSunExposure()} % slunce
+                </span>
+              </Show>
+            </div>
+          </Show>
         </div>
       </div>
     </Show>

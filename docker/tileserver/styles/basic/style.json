@@ -12,7 +12,9 @@
   "sources": {
     "openmaptiles": {
       "type": "vector",
-      "url": "mbtiles://cz.mbtiles"
+      "tiles": ["/data/openmaptiles/{z}/{x}/{y}.pbf"],
+      "minzoom": 0,
+      "maxzoom": 14
     }
   },
   "sprite": "https://openmaptiles.github.io/maptiler-basic-gl-style/sprite",

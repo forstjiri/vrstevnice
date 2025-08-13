@@ -1,4 +1,4 @@
-import { createMemo } from 'solid-js';
+import { createMemo, createRoot } from 'solid-js';
 import { formatLocalDate, parseLocalDateTime } from '@vrstevnice/shared';
 import { rideAnimation } from './rideAnimationStore';
 import { persistedStore } from './persist';
@@ -7,21 +7,57 @@ const now = new Date();
 
 export const DEFAULT_TERRAIN_EXAGGERATION = 2.2;
 
-// ── State (persisted to localStorage) ──
+const ctx = createRoot(() => {
+  // ── State (persisted to localStorage) ──
+  const [mapControls, setMapControls] = persistedStore(
+    {
+      terrainOn: false,
+      hillshadeOn: false,
+      contoursOn: true,
+      shadowRouteOn: false,
+      hillshadeIntensity: 0.8,
+      terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
+      sunDate: formatLocalDate(now),
+      sunMinutes: now.getHours() * 60 + now.getMinutes(),
+    },
+    { name: 'vrstevnice.map-controls' },
+  );
 
-export const [mapControls, setMapControls] = persistedStore(
-  {
-    terrainOn: false,
-    hillshadeOn: false,
-    contoursOn: true,
-    shadowRouteOn: false,
-    hillshadeIntensity: 0.8,
-    terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
-    sunDate: formatLocalDate(now),
-    sunMinutes: now.getHours() * 60 + now.getMinutes(),
-  },
-  { name: 'vrstevnice.map-controls' },
-);
+  // ── Derived: ride animation time ──
+  const animatedSunDateTime = createMemo(() => {
+    if (!mapControls.hillshadeOn) return null;
+    const anim = rideAnimation();
+    if (!anim.playing || !anim.baseDateTime) return null;
+    const base = parseLocalDateTime(anim.baseDateTime);
+    if (!base) return null;
+    return new Date(base.getTime() + anim.elapsedMs);
+  });
+
+  const effectiveSunDate = createMemo(() => {
+    const animated = animatedSunDateTime();
+    return animated ? formatLocalDate(animated) : mapControls.sunDate;
+  });
+
+  const effectiveSunMinutes = createMemo(() => {
+    const animated = animatedSunDateTime();
+    return animated ? animated.getHours() * 60 + animated.getMinutes() : mapControls.sunMinutes;
+  });
+
+  const effectiveSunDateTime = createMemo(
+    () => composeLocalDateTime(effectiveSunDate(), effectiveSunMinutes()),
+  );
+
+  return {
+    mapControls,
+    setMapControls,
+    effectiveSunDate,
+    effectiveSunMinutes,
+    effectiveSunDateTime,
+  };
+});
+
+export const { mapControls, setMapControls } = ctx;
+export const { effectiveSunDate, effectiveSunMinutes, effectiveSunDateTime } = ctx;
 
 // ── Actions (enforce invariants) ──
 
@@ -64,32 +100,6 @@ export const hillshadeActive = (): boolean => mapControls.terrainOn && mapContro
 
 /** Shadow route is active when hillshade + shadow route toggle are on */
 export const shadowRouteActive = (): boolean => hillshadeActive() && mapControls.shadowRouteOn;
-
-// ── Derived: ride animation time ──
-
-const animatedSunDateTime = createMemo(() => {
-  if (!mapControls.hillshadeOn) return null;
-  const anim = rideAnimation();
-  if (!anim.playing || !anim.baseDateTime) return null;
-  const base = parseLocalDateTime(anim.baseDateTime);
-  if (!base) return null;
-  return new Date(base.getTime() + anim.elapsedMs);
-});
-
-export const effectiveSunDate = createMemo(() => {
-  const animated = animatedSunDateTime();
-  return animated ? formatLocalDate(animated) : mapControls.sunDate;
-});
-
-export const effectiveSunMinutes = createMemo(() => {
-  const animated = animatedSunDateTime();
-  return animated ? animated.getHours() * 60 + animated.getMinutes() : mapControls.sunMinutes;
-});
-
-/** Composed datetime string for current effective sun position (user or animated) */
-export const effectiveSunDateTime = createMemo(
-  () => composeLocalDateTime(effectiveSunDate(), effectiveSunMinutes()),
-);
 
 // ── Helpers ──
 

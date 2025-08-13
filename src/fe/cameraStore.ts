@@ -1,3 +1,4 @@
+import { createRoot } from 'solid-js';
 import { persistedSignal } from './persist';
 
 export interface MapCamera {
@@ -8,6 +9,6 @@ export interface MapCamera {
   pitch: number;
 }
 
-export const [mapCamera, setMapCamera] = persistedSignal<MapCamera | null>(null, {
+export const [mapCamera, setMapCamera] = createRoot(() => persistedSignal<MapCamera | null>(null, {
   name: 'vrstevnice.map-camera',
-});
+}));

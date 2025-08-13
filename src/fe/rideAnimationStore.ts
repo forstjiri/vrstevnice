@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 import { persistedSignal } from './persist';
 
 interface RideAnimationState {
@@ -16,23 +16,32 @@ interface RideAnimationState {
   baseDateTime: string | null;
 }
 
-// Persisted speed preference — restored on reload
-const [rideSpeed, setRideSpeed] = persistedSignal<number>(10, {
-  name: 'vrstevnice.ride-speed',
-});
+const ctx = createRoot(() => {
+  // Persisted speed preference — restored on reload
+  const [rideSpeed, setRideSpeed] = persistedSignal<number>(10, {
+    name: 'vrstevnice.ride-speed',
+  });
 
-const [rideAnimation, setRideAnimation] = createSignal<RideAnimationState>({
-  playing: false,
-  speed: rideSpeed(),
-  currentDistance: 0,
-  elapsedMs: 0,
-  currentDateTime: null,
-  baseDateTime: null,
+  const [rideAnimation, setRideAnimation] = createSignal<RideAnimationState>({
+    playing: false,
+    speed: rideSpeed(),
+    currentDistance: 0,
+    elapsedMs: 0,
+    currentDateTime: null,
+    baseDateTime: null,
+  });
+
+  return {
+    rideSpeed,
+    setRideSpeed,
+    rideAnimation,
+    setRideAnimation,
+  };
 });
 
 function updateRideAnimation(partial: Partial<RideAnimationState>) {
-  setRideAnimation((prev) => ({ ...prev, ...partial }));
-  if (partial.speed !== undefined) setRideSpeed(partial.speed);
+  ctx.setRideAnimation((prev) => ({ ...prev, ...partial }));
+  if (partial.speed !== undefined) ctx.setRideSpeed(partial.speed);
 }
 
 // Camera target — mutable ref, NOT a signal (avoid re-render in rAF)
@@ -67,6 +76,5 @@ function setCameraTarget(
   if (preZoom !== null) cameraTarget.preZoom = preZoom;
 }
 
-export {
-  rideAnimation, setRideAnimation, updateRideAnimation, cameraTarget, setCameraTarget,
-};
+export const { rideAnimation, setRideAnimation } = ctx;
+export { updateRideAnimation, cameraTarget, setCameraTarget };

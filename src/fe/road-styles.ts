@@ -149,7 +149,7 @@ const ROAD_STYLES: Record<RoadKind, RoadStyle> = {
     line: road('#d2d2d2', 10, 0.8), sortKey: 30, legend: 'Silnice II. třídy',
   },
   tertiary: {
-    line: road('#d9d9d6', 2.5, 0.8), sortKey: 40, legend: 'Silnice III. třídy',
+    line: road('#f8f8f8', 5, 1), sortKey: 40, legend: 'Silnice III. třídy',
   },
   minor: { line: road('#f5f5f2', 1.8, 0.9), sortKey: 50 },
   service: { line: road('#f2f1ed', 2, 0.9), sortKey: 60 },

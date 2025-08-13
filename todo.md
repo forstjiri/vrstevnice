@@ -1,18 +1,4 @@
 # Chyby
-- Proč tam je 
-```text
-poi_labelpoiz16.2
-📍 50.825483, 15.018803
-
-{
-  "class": "office",
-  "subclass": "insurance",
-  "name_int": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
-  "name_de": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
-  "rank": 1,
-  "name:latin": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
-  "name_en": "Jan Dvořák, Pojištění - zpro
-```
 
 - Při pohybu mapou mít uniformní detaily podle nejlepšího, ne že budou vidět v různých blocích různé detaily a prvky
 

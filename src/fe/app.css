@@ -315,13 +315,10 @@ body {
   font-family: var(--font);
   border: 2px solid #fff;
   box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
-  cursor: grab;
   user-select: none;
 }
 
-.stop-marker-dot:active {
-  cursor: grabbing;
-}
+/* grab/grabbing cursor is provided by MapLibre 6.1+ for draggable markers */
 
 /* ── POI markers (divIcon) ───────────── */
 
@@ -506,6 +503,12 @@ body {
   opacity: 0.7;
 }
 
+.stop-coordinates {
+  color: var(--color-text-muted);
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+}
+
 .maplibregl-ctrl-attrib.maplibregl-compact-show {
   opacity: 1;
 }
@@ -518,7 +521,7 @@ body {
   max-width: min(290px, calc(100vw - 32px));
   padding: 10px 12px;
   color: #24313a;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgb(255 255 255 / 96%);
   font-size: 11px;
   line-height: 1.25;
   white-space: normal;
@@ -560,7 +563,7 @@ body {
   background-image: repeating-linear-gradient(90deg, var(--legend-line) 0 6px, transparent 6px 10px);
 }
 
-@media (max-width: 480px) {
+@media (width <= 480px) {
   .map-legend {
     max-height: min(60vh, 390px);
     overflow-y: auto;
@@ -811,7 +814,7 @@ body {
   padding: 4px;
   gap: 2px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--color-surface);
   box-shadow: 0 3px 10px rgb(0 0 0 / 12%);
 }
@@ -880,7 +883,7 @@ body {
   .workspace-is-closed .workspace-tab-list {
     padding: 0;
     border: 0;
-    border-radius: 0;
+    border-radius: var(--radius);
     background: transparent;
     box-shadow: none;
     gap: 8px;

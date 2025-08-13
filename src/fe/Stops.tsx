@@ -4,7 +4,6 @@ import {
 import * as maplibregl from 'maplibre-gl';
 import { Search } from '@kobalte/core/search';
 import { Button } from '@kobalte/core/button';
-import { Separator } from '@kobalte/core/separator';
 import { Progress } from '@kobalte/core/progress';
 import { Tooltip } from '@kobalte/core/tooltip';
 import { ToggleButton } from '@kobalte/core/toggle-button';
@@ -18,7 +17,6 @@ import {
   planner,
   setStops,
   removeStop,
-  moveStop,
   setRoute,
   clearRoute,
   setLoading,
@@ -26,7 +24,6 @@ import {
   loading,
   error,
   setRegenerateFn,
-  regenerateRoute,
   setElevation,
   setRoadAvoid,
   setCycleway,
@@ -34,10 +31,8 @@ import {
 } from './appStore';
 import { mapCamera } from './cameraStore';
 import {
-  mapControls,
-  mapControlActions,
-  shadowRouteActive,
   effectiveSunDateTime,
+  shadowRouteActive,
 } from './mapControlsStore';
 
 export default function Stops() {
@@ -176,6 +171,19 @@ export default function Stops() {
   };
 
   const canCompute = () => planner.stops.length >= 2 && !loading();
+
+  async function gpsStopName(lat: number, lng: number): Promise<string> {
+    const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    try {
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(`${lat},${lng}`)}`);
+      const geocodeResults = await response.json() as { name?: string }[];
+      return geocodeResults[0]?.name
+        ? `${fallback} - ${geocodeResults[0].name}`
+        : fallback;
+    } catch {
+      return fallback;
+    }
+  }
   const routeButtonLabel = () => {
     if (loading()) return '⏳ Výpočet…';
     return planner.route ? 'Přegenerovat trasu' : 'Vytvořit trasu';
@@ -234,10 +242,9 @@ export default function Stops() {
                     const gps = detectAndParseGPS(text);
                     if (gps) {
                       e.preventDefault();
-                      setStops([
-                        ...planner.stops,
-                        { lat: gps.lat, lng: gps.lng, name: `${gps.lat}, ${gps.lng}` },
-                      ]);
+                      gpsStopName(gps.lat, gps.lng).then((name) => {
+                        setStops([...planner.stops, { lat: gps.lat, lng: gps.lng, name }]);
+                      });
                       setResults([]);
                       (e.target as HTMLInputElement).value = '';
                     }
@@ -272,32 +279,20 @@ export default function Stops() {
               return (
                 <div class="stop">
                   <span class={`stop-badge ${badgeClass()}`}>{index() + 1}</span>
-                  <span class="stop-name">{stop.name}</span>
+                  <span class="stop-name">
+                    <Show
+                      when={stop.name.match(/^(\S+,\s*\S+)(?:\s+-\s+(.+))?$/)}
+                      fallback={stop.name}
+                    >
+                      {(parts) => (
+                        <>
+                          <small class="stop-coordinates">{parts()[1]}</small>
+                          {parts()[2] && ` - ${parts()[2]}`}
+                        </>
+                      )}
+                    </Show>
+                  </span>
                   <div class="stop-actions">
-                    <Show when={!isFirst()}>
-                      <Tooltip openDelay={400}>
-                        <Tooltip.Trigger
-                          as={Button}
-                          class="btn-ghost-sm"
-                          onClick={() => moveStop(index(), -1)}
-                        >
-                          ↑
-                        </Tooltip.Trigger>
-                        <Tooltip.Content class="tooltip">Nahoru</Tooltip.Content>
-                      </Tooltip>
-                    </Show>
-                    <Show when={!isLast()}>
-                      <Tooltip openDelay={400}>
-                        <Tooltip.Trigger
-                          as={Button}
-                          class="btn-ghost-sm"
-                          onClick={() => moveStop(index(), 1)}
-                        >
-                          ↓
-                        </Tooltip.Trigger>
-                        <Tooltip.Content class="tooltip">Dolů</Tooltip.Content>
-                      </Tooltip>
-                    </Show>
                     <Tooltip openDelay={400}>
                       <Tooltip.Trigger
                         as={Button}
