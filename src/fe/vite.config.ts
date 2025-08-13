@@ -38,7 +38,7 @@ function maplibreWorkerShared(): Plugin {
       if (!existsSync(outDir)) return;
 
       const files = readdirSync(outDir);
-      const workerFile = files.find(f => f.includes('maplibre-gl-worker') && f.endsWith('.mjs'));
+      const workerFile = files.find((f: string) => f.includes('maplibre-gl-worker') && f.endsWith('.mjs'));
 
       if (!workerFile) return;
 
