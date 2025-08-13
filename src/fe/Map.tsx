@@ -218,6 +218,7 @@ export default function Map() {
     lng: string;
     lat: string;
     zoom: string;
+    osmId?: { type: 'node' | 'way'; id: number };
     properties: Record<string, JsonValue>;
   } | null>(null);
   let sunDateTime = formatLocalDateTime(new Date());
@@ -309,6 +310,20 @@ export default function Map() {
           '_blank',
         ),
       },
+      {
+        label: 'OpenStreetMap',
+        action: () => window.open(
+          `https://www.openstreetmap.org/?mlat=${lngLat.lat.toFixed(6)}&mlon=${lngLat.lng.toFixed(6)}#map=16/${lngLat.lat.toFixed(6)}/${lngLat.lng.toFixed(6)}`,
+          '_blank',
+        ),
+      },
+      {
+        label: 'Google Maps',
+        action: () => window.open(
+          `https://www.google.com/maps/@${lngLat.lat.toFixed(7)},${lngLat.lng.toFixed(7)},16z`,
+          '_blank',
+        ),
+      },
     ]);
     const mapContainer = m.getContainer();
     const menuW = 180;
@@ -381,7 +396,6 @@ export default function Map() {
         style: `${TILESERVER_URL}/styles/basic/style.json?v=2`,
         center: mapCamera() ? [mapCamera()!.lon, mapCamera()!.lat] : [15.47, 49.82], // [lng, lat]
         zoom: mapCamera()?.zoom ?? 7,
-        maxZoom: 14,
         bearing: mapCamera()?.bearing ?? 0,
         pitch: mapCamera()?.pitch ?? 0,
         attributionControl: {
@@ -505,13 +519,17 @@ export default function Map() {
     const locationControl: maplibregl.IControl = {
       onAdd: () => {
         const group = document.createElement('div');
-        group.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        group.className = 'maplibregl-ctrl maplibregl-ctrl-group maplibregl-ctrl-geolocate';
         const button = document.createElement('button');
-        button.className = 'maplibregl-ctrl-icon maplibregl-ctrl-geolocate';
+        button.className = 'maplibregl-ctrl-geolocate';
         button.type = 'button';
         button.title = 'Najít moji polohu';
         button.setAttribute('aria-label', 'Najít moji polohu');
         button.addEventListener('click', requestUserLocation);
+        const icon = document.createElement('span');
+        icon.className = 'maplibregl-ctrl-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        button.appendChild(icon);
         group.appendChild(button);
         return group;
       },
@@ -941,7 +959,11 @@ export default function Map() {
     });
     m.on('click', (e) => {
       if (untrack(inspectMode)) {
-        const features = m.queryRenderedFeatures(e.point);
+        // Pass a plain object — MapLibre's Point instance from the event
+        // (worker shared-chunk class) can take an empty code path in
+        // queryRenderedFeatures, while a plain {x, y} object works.
+        const queryPoint = { x: e.point.x, y: e.point.y } as unknown as maplibregl.PointLike;
+        const features = m.queryRenderedFeatures(queryPoint);
         if (features.length > 0) {
           const f = features[0];
           const p = (f.properties ?? {}) as Record<string, JsonValue>;
@@ -980,12 +1002,28 @@ export default function Map() {
           Object.entries(p).forEach(([k, v]) => {
             if (!skip.has(k)) propsToShow[k] = v;
           });
+          // Vector tile feature id — real OSM id for simple geometries.
+          // Multi-geometries are merged by planetiler → synthetic ids, skip those.
+          // The topmost feature may be an app layer (route, markers) without ids —
+          // scan all queried features for the first one with a usable OSM id.
+          const simpleGeom = (t: string | undefined) =>
+            t === 'Point' || t === 'LineString' || t === 'Polygon';
+          const idFeature = features.find((feat) =>
+            typeof feat.id === 'number' && simpleGeom(feat.geometry?.type));
+          let osmId: { type: 'node' | 'way'; id: number } | undefined;
+          if (idFeature && typeof idFeature.id === 'number') {
+            osmId = {
+              type: idFeature.geometry?.type === 'Point' ? 'node' : 'way',
+              id: idFeature.id,
+            };
+          }
           setInspectInfo({
             layerId: String(f.layer?.id ?? 'unknown'),
             sourceLayer: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
             lng: e.lngLat.lng.toFixed(6),
             lat: e.lngLat.lat.toFixed(6),
             zoom: m.getZoom().toFixed(1),
+            osmId,
             properties: propsToShow,
           });
         } else {
@@ -1476,6 +1514,20 @@ export default function Map() {
                         <div class="map-inspect-gps">
                           📍 {info.lat}, {info.lng}
                         </div>
+                        {info.osmId && (
+                          <a
+                            class="map-inspect-osm-link"
+                            href={`https://www.openstreetmap.org/${info.osmId.type}/${info.osmId.id}#map=19/${info.lat}/${info.lng}&layers=CNDG`}
+                            target="_blank"
+                            rel="noopener"
+                          >🌐 {info.osmId.type}/{info.osmId.id} na OSM</a>
+                        )}
+                        <a
+                          class="map-inspect-osm-link map-inspect-osm-dim"
+                          href={`https://www.openstreetmap.org/#map=19/${info.lat}/${info.lng}&layers=CNDG`}
+                          target="_blank"
+                          rel="noopener"
+                        >🗺️ souřadnice v OSM</a>
                         {Object.keys(props).length > 0 && (
                           <pre class="map-inspect-pre">{JSON.stringify(props, null, 2)}</pre>
                         )}

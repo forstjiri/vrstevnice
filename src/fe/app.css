@@ -638,6 +638,20 @@ body {
   margin-bottom: 4px;
 }
 
+.map-inspect-osm-link {
+  display: block;
+  font-size: 11px;
+  color: var(--color-accent);
+  text-decoration: none;
+  margin-bottom: 4px;
+}
+.map-inspect-osm-link:hover {
+  text-decoration: underline;
+}
+.map-inspect-osm-dim {
+  opacity: 0.7;
+}
+
 .map-inspect-name {
   font-size: 13px;
   font-weight: 600;
