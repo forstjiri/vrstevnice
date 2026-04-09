@@ -1,0 +1,8 @@
+{
+  "name": "@vrstevnice/shared",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "main": "./index.ts"
+}

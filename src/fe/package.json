@@ -1,0 +1,21 @@
+{
+  "name": "@vrstevnice/fe",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vrstevnice/shared": "workspace:*",
+    "@elysiajs/eden": "^1.4.0",
+    "@kobalte/core": "^0.13.0",
+    "solid-js": "^1.9.0",
+    "leaflet": "^1.9.0"
+  },
+  "devDependencies": {
+    "@vrstevnice/be": "workspace:*",
+    "vite": "^8.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}
