@@ -22,4 +22,5 @@ export interface RouteResponse {
 export interface RouteRequest {
   stops: Stop[]
   elevationCoefficient: number
+  roadAvoidanceCoefficient: number
 }

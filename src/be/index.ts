@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
-import type { GeocodeResult, RouteResponse } from '@vrstevnice/shared'
+import type { GeocodeResult, RouteRequest, RouteResponse } from '@vrstevnice/shared'
 import { db, routes } from './db'
 
 const VALHALLA_URL = process.env.VALHALLA_URL || 'https://valhalla1.openstreetmap.de'
@@ -79,13 +79,20 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .post('/route', async ({ body }) => {
-    const { stops, elevationCoefficient } = body
+    const { stops, elevationCoefficient, roadAvoidanceCoefficient } = body
 
     const locations = stops.map(s => ({
       lat: s.lat,
       lon: s.lng,
       type: 'break' as const,
     }))
+
+    // Build use_roads from coefficient: 0 = avoid all road classes, 1 = allow all
+    const roadClasses = ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link'] as const
+    const use_roads = roadClasses.reduce<Record<string, number>>((acc, cls) => {
+      acc[cls] = roadAvoidanceCoefficient
+      return acc
+    }, {})
 
     const res = await fetch(`${VALHALLA_URL}/route`, {
       method: 'POST',
@@ -96,6 +103,7 @@ const app = new Elysia({ prefix: '/api' })
         costing_options: {
           bicycle: {
             use_hills: elevationCoefficient,
+            use_roads,
           },
         },
         units: 'kilometers',
@@ -174,6 +182,7 @@ const app = new Elysia({ prefix: '/api' })
         name: t.String(),
       })),
       elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+      roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
     }),
     response: t.Object({
       geometry: t.Array(t.Array(t.Number())),

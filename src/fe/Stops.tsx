@@ -13,6 +13,7 @@ export default function Stops() {
   const { treaty, stops, setStops, route, setRoute, loading, setLoading, mapBounds } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([0.5])
+  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([0.2])
 
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
@@ -99,6 +100,7 @@ export default function Stops() {
       const body: RouteRequest = {
         stops: stops(),
         elevationCoefficient: elevCoeff()[0],
+        roadAvoidanceCoefficient: roadAvoidCoeff()[0],
       }
       const { data, error } = await treaty.api.route.post(body)
       if (!error && data) {
@@ -207,6 +209,25 @@ export default function Stops() {
         >
           <div class="slider-label">
             <Slider.Label>Kopcovitost</Slider.Label>
+            <Slider.ValueLabel />
+          </div>
+          <Slider.Track class="slider-track">
+            <Slider.Fill class="slider-range" />
+            <Slider.Thumb class="slider-thumb">
+              <Slider.Input class="slider-input" />
+            </Slider.Thumb>
+          </Slider.Track>
+        </Slider>
+
+        <Slider
+          value={roadAvoidCoeff()}
+          onChange={setRoadAvoidCoeff}
+          minValue={0}
+          maxValue={1}
+          step={0.05}
+        >
+          <div class="slider-label">
+            <Slider.Label>Vyhnutí silnicím</Slider.Label>
             <Slider.ValueLabel />
           </div>
           <Slider.Track class="slider-track">
