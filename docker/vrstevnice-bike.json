@@ -1,0 +1,12 @@
+{
+  "speed": [
+    { "if": "road_environment == FERRY", "limit_to": "ferry_speed" },
+    { "else": "", "limit_to": "bike_average_speed" }
+  ],
+  "priority": [
+    { "if": "true", "multiply_by": "bike_priority" },
+    { "if": "bike_road_access == NO", "multiply_by": "0" },
+    { "if": "!bike_access && (!backward_bike_access || roundabout)", "multiply_by": "0" },
+    { "else_if": "!bike_access && backward_bike_access", "multiply_by": "0.2" }
+  ]
+}

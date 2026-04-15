@@ -1,0 +1,50 @@
+graphhopper:
+
+  datareader.file: ""
+  graph.location: graph-cache
+
+  ##### Routing Profiles ####
+
+  profiles:
+    - name: bike
+      weighting: custom
+      custom_model_files: [vrstevnice-bike.json]
+
+  # No CH preparation — custom models require flexible mode
+  profiles_ch: []
+
+  # No LM preparation — using pure flexible mode
+  profiles_lm: []
+
+  #### Encoded Values ####
+  # Required for custom model rules at runtime
+  graph.encoded_values: |
+    road_class, road_environment, surface, cycleway, bike_network,
+    average_slope, max_slope, get_off_bike,
+    bike_access, bike_average_speed, bike_priority, bike_road_access,
+    car_access, car_average_speed, foot_access, country, roundabout, max_speed, ferry_speed
+
+  #### Elevation ####
+  graph.elevation.provider: srtm
+  # Use RAM for elevation cache — faster at the cost of memory
+  graph.elevation.dataaccess: RAM_STORE
+
+  #### Import ####
+  # Required by newer GH versions — empty string means no highways ignored
+  import.osm.ignored_highways: ''
+
+  #### Subnetworks ####
+  prepare.min_network_size: 200
+
+  #### Routing ####
+  routing.max_visited_nodes: 5000000
+  routing.snap_preventions_default: tunnel, bridge, ferry
+
+#### Server ####
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+  admin_connectors:
+    - type: http
+      port: 8990

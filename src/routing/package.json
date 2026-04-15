@@ -1,0 +1,11 @@
+{
+  "name": "@vrstevnice/routing",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "main": "./index.ts",
+  "dependencies": {
+    "@vrstevnice/shared": "workspace:*"
+  }
+}

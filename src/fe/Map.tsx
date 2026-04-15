@@ -17,6 +17,11 @@ export default function Map() {
       maxZoom: 19,
     }).addTo(map)
 
+    L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm-lite/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
+      maxZoom: 19,
+    }).addTo(map)
+
     const updateBounds = () => {
       const b = map.getBounds()
       setMapBounds({ south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() })

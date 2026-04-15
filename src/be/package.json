@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@vrstevnice/shared": "workspace:*",
+    "@vrstevnice/routing": "workspace:*",
     "elysia": "^1.4.0",
     "@elysiajs/cors": "^1.4.0",
     "drizzle-orm": "^0.45.0"

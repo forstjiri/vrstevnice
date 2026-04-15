@@ -1,0 +1,28 @@
+services:
+  graphhopper:
+    image: israelhikingmap/graphhopper:latest
+    container_name: vrstevnice-gh
+    restart: unless-stopped
+    ports:
+      - "8989:8989"
+    volumes:
+      - gh-data:/data
+      - ./docker/graphhopper-config.yml:/graphhopper/config-example.yml:ro
+      - ./docker/vrstevnice-bike.json:/graphhopper/vrstevnice-bike.json:ro
+      - ./data/czech-republic-latest.osm.pbf:/data/czech-republic-latest.osm.pbf:ro
+    environment:
+      JAVA_OPTS: "-Xmx3g -Xms2g"
+    command:
+      - "-i"
+      - "/data/czech-republic-latest.osm.pbf"
+      - "-o"
+      - "/data/graph-cache"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8989/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+volumes:
+  gh-data:

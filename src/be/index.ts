@@ -1,42 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
-import type { GeocodeResult, RouteRequest, RouteResponse } from '@vrstevnice/shared'
+import type { GeocodeResult, RouteResponse } from '@vrstevnice/shared'
+import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse } from '@vrstevnice/routing'
 import { db, routes } from './db'
-
-const VALHALLA_URL = process.env.VALHALLA_URL || 'https://valhalla1.openstreetmap.de'
-
-/** Decode a Valhalla polyline6 encoded string into [lat, lng][] pairs. */
-function decodePolyline6(str: string): [number, number][] {
-  const precision = 6
-  const factor = 10 ** precision
-  const result: [number, number][] = []
-  let index = 0
-  let lat = 0
-  let lng = 0
-
-  function decodeVarint(): number {
-    let shift = 0
-    let value = 0
-    let byte: number
-    do {
-      byte = str.charCodeAt(index++) - 63
-      value |= (byte & 0x1f) << shift
-      shift += 5
-    } while (byte & 0x20)
-    return value
-  }
-
-  while (index < str.length) {
-    const latDelta = decodeVarint()
-    const lngDelta = decodeVarint()
-    // Decode the sign: if bit 0 is set, the value is negative
-    lat += (latDelta & 1) ? ~(latDelta >> 1) : latDelta >> 1
-    lng += (lngDelta & 1) ? ~(lngDelta >> 1) : lngDelta >> 1
-    result.push([lat / factor, lng / factor])
-  }
-
-  return result
-}
 
 const app = new Elysia({ prefix: '/api' })
   .use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }))
@@ -81,92 +47,14 @@ const app = new Elysia({ prefix: '/api' })
   .post('/route', async ({ body }) => {
     const { stops, elevationCoefficient, roadAvoidanceCoefficient } = body
 
-    const locations = stops.map(s => ({
-      lat: s.lat,
-      lon: s.lng,
-      type: 'break' as const,
-    }))
-
-    // Build use_roads from coefficient: 0 = avoid all road classes, 1 = allow all
-    const roadClasses = ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link'] as const
-    const use_roads = roadClasses.reduce<Record<string, number>>((acc, cls) => {
-      acc[cls] = roadAvoidanceCoefficient
-      return acc
-    }, {})
-
-    const res = await fetch(`${VALHALLA_URL}/route`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        locations,
-        costing: 'bicycle',
-        costing_options: {
-          bicycle: {
-            use_hills: elevationCoefficient,
-            use_roads,
-          },
-        },
-        units: 'kilometers',
-      }),
-    })
-
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Valhalla error: ${res.status} ${text}`)
-    }
-
-    const data = await res.json()
-    const leg = data.trip?.legs?.[0]
-
-    if (!leg) {
-      throw new Error('No route found')
-    }
-
-    // Decode Valhalla's polyline6 encoded string into [lat, lng][]
-    const shapeStr = leg.shape as string | undefined
-    const coords: [number, number][] = shapeStr
-      ? decodePolyline6(shapeStr)
-      : []
-
-    // Fetch elevation profile via Valhalla /height endpoint
-    let elevationGain = 0
-    let elevationLoss = 0
-    if (coords.length > 1) {
-      try {
-        const heightRes = await fetch(`${VALHALLA_URL}/height`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shape: coords.map(c => ({ lat: c[0], lon: c[1] })),
-            resample_distance: 50,
-          }),
-        })
-        if (heightRes.ok) {
-          const heightData = await heightRes.json()
-          const heights: number[] = heightData.height ?? []
-          for (let i = 1; i < heights.length; i++) {
-            const diff = heights[i] - heights[i - 1]
-            if (diff > 0) elevationGain += diff
-            else elevationLoss += Math.abs(diff)
-          }
-        }
-      } catch {
-        // Elevation fetch failed — proceed with zero gain/loss
-      }
-    }
-
-    const routeData: RouteResponse = {
-      geometry: coords,
-      distance: data.trip?.summary?.length || 0,
-      duration: data.trip?.summary?.time || 0,
-      elevationGain: Math.round(elevationGain),
-      elevationLoss: Math.round(elevationLoss),
-    }
+    const customModel = buildCustomModel(elevationCoefficient, roadAvoidanceCoefficient)
+    const ghResult = await fetchRouteFromGH(stops, customModel)
+    const routeData = convertGHToRouteResponse(ghResult)
 
     await db.insert(routes).values({
       name: `Trasa ${new Date().toISOString()}`,
       stops: JSON.stringify(stops),
-      geometry: JSON.stringify(coords),
+      geometry: JSON.stringify(routeData.geometry),
       distance: routeData.distance,
       duration: routeData.duration,
       elevationGain: routeData.elevationGain,

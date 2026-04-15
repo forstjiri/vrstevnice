@@ -29,5 +29,10 @@ tmp/
 .bg-shell/
 src/be/data*
 
+# ── Docker / GraphHopper ──
+data/
+*.pbf
+graph-cache/
+
 # ── GSD baseline (auto-generated) ──
 .gsd-id
