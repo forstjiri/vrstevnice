@@ -3,6 +3,14 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@vrstevnice/shared": ["src/shared/index.ts"],
+      "@vrstevnice/routing": ["src/routing/index.ts"],
+      "@vrstevnice/be": ["src/be/index.ts"],
+      "@vrstevnice/fe": ["src/fe/App.tsx"]
+    },
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

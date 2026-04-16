@@ -1,4 +1,4 @@
-import type { Stop, RouteResponse } from '@vrstevnice/shared'
+import type { Stop, RouteResponse, ElevationPoint } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,7 +215,59 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     duration: Math.round(ghResult.duration / 1000),        // ms → seconds
     elevationGain: Math.round(ghResult.elevationGain),
     elevationLoss: Math.round(ghResult.elevationLoss),
+    elevationProfile: computeElevationProfile(ghResult.geometry),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Elevation profile
+// ---------------------------------------------------------------------------
+
+const EARTH_RADIUS_M = 6_371_000
+
+/**
+ * Compute cumulative-distance elevation profile from GH [lon, lat, ele] coordinates.
+ *
+ * Returns an array of {distance, elevation} points where distance is cumulative
+ * haversine distance in meters from the start of the route.
+ * Points with NaN/undefined elevation are excluded.
+ */
+export function computeElevationProfile(
+  coords: Array<[number, number, number]>,
+): ElevationPoint[] {
+  const profile: ElevationPoint[] = []
+  let cumulativeDistance = 0
+
+  for (let i = 0; i < coords.length; i++) {
+    const [lon, lat, ele] = coords[i]
+
+    // Skip coordinates with missing or invalid elevation
+    if (ele == null || !Number.isFinite(ele)) {
+      continue
+    }
+
+    if (i > 0) {
+      const [prevLon, prevLat] = coords[i - 1]
+      cumulativeDistance += haversineMeters(prevLat, prevLon, lat, lon)
+    }
+
+    profile.push({ distance: cumulativeDistance, elevation: ele })
+  }
+
+  return profile
+}
+
+/**
+ * Haversine distance between two lat/lon points in meters.
+ */
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 // ---------------------------------------------------------------------------

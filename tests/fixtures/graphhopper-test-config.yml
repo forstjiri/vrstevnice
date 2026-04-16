@@ -1,0 +1,58 @@
+# GraphHopper configuration for integration tests.
+# Based on docker/graphhopper-config.yml with test-specific overrides:
+# - datareader.file points to mounted test-graph.osm
+# - No SRTM elevation provider (test graph has no DEM data)
+# - Smaller max_visited_nodes (tiny graph, 50000 is plenty)
+# - Same bike profile with vrstevnice-bike-test.json custom model
+# - Same encoded_values for custom model rules
+# - Same port 8989
+
+graphhopper:
+
+  datareader.file: ""
+  graph.location: graph-cache
+
+  ##### Routing Profiles ####
+
+  profiles:
+    - name: bike
+      weighting: custom
+      custom_model_files: [vrstevnice-bike-test.json]
+
+  # No CH preparation — custom models require flexible mode
+  profiles_ch: []
+
+  # No LM preparation — using pure flexible mode
+  profiles_lm: []
+
+  #### Encoded Values ####
+  # Required for custom model rules at runtime
+  # Note: average_slope/max_slope removed — they require elevation provider
+  graph.encoded_values: |
+    road_class, road_environment, surface, cycleway, bike_network,
+    bike_access, bike_average_speed, bike_priority, bike_road_access,
+    car_access, car_average_speed, foot_access, country, roundabout, max_speed, ferry_speed
+
+  #### Elevation ####
+  # No elevation provider for test graph (no DEM data available)
+  graph.elevation.provider: noop
+
+  #### Import ####
+  # Required by newer GH versions — empty string means no highways ignored
+  import.osm.ignored_highways: ''
+
+  #### Subnetworks ####
+  prepare.min_network_size: 200
+
+  #### Routing ####
+  routing.max_visited_nodes: 50000
+  routing.snap_preventions_default: tunnel, bridge, ferry
+
+#### Server ####
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+  admin_connectors:
+    - type: http
+      port: 8990

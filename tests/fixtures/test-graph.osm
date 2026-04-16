@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6">
+  <!--
+    Synthetic test graph for Vrstevnice M005 integration tests.
+
+    TWO main paths from Start to End:
+
+    Path A (short, ~1.1 km, all secondary — penalized by road avoidance):
+      Start → ResidentialSouth → ResidentialMid → ResidentialNorth → End
+      Slight zigzag to prevent GH geometry simplification.
+
+    Path B (long, ~5 km, residential/tertiary/cycleway — NOT penalized):
+      Start → ResidentialWest → SecondaryVillage → TertiaryPark → CyclewayBridge → End
+      Far west detour.
+
+    Differentiation:
+    - roadAvoid=1.0: Path A wins (shorter, secondary at full priority)
+    - roadAvoid=0.0: Path B wins (secondary penalized, scenic route cheaper)
+  -->
+
+  <!-- ============ Nodes ============ -->
+
+  <node id="1" lat="50.0700" lon="14.4300">
+    <tag k="name" v="Start"/>
+  </node>
+  <node id="2" lat="50.0800" lon="14.4300">
+    <tag k="name" v="End"/>
+  </node>
+
+  <!-- Path A: Secondary spine — slight zigzag to avoid geometry simplification -->
+  <node id="11" lat="50.0720" lon="14.4305">
+    <tag k="name" v="ResidentialSouth"/>
+  </node>
+  <node id="10" lat="50.0740" lon="14.4295">
+    <tag k="name" v="ResidentialMid"/>
+  </node>
+  <node id="12" lat="50.0780" lon="14.4305">
+    <tag k="name" v="ResidentialNorth"/>
+  </node>
+
+  <!-- Path B: Scenic route (far west) — slight zigzag -->
+  <node id="6" lat="50.0710" lon="14.4000">
+    <tag k="name" v="ResidentialWest"/>
+  </node>
+  <node id="7" lat="50.0730" lon="14.3980">
+    <tag k="name" v="SecondaryVillage"/>
+  </node>
+  <node id="8" lat="50.0750" lon="14.3990">
+    <tag k="name" v="TertiaryPark"/>
+  </node>
+  <node id="9" lat="50.0770" lon="14.4000">
+    <tag k="name" v="CyclewayBridge"/>
+  </node>
+
+  <!-- ============ Ways ============ -->
+
+  <!-- Path A: Start → ResidentialSouth (secondary) -->
+  <way id="300">
+    <nd ref="1"/>
+    <nd ref="11"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="South Spine"/>
+  </way>
+
+  <!-- Path A: ResidentialSouth → ResidentialMid (secondary) -->
+  <way id="301">
+    <nd ref="11"/>
+    <nd ref="10"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="Mid Spine"/>
+  </way>
+
+  <!-- Path A: ResidentialMid → ResidentialNorth (secondary) -->
+  <way id="302">
+    <nd ref="10"/>
+    <nd ref="12"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="North Spine"/>
+  </way>
+
+  <!-- Path A: ResidentialNorth → End (secondary) -->
+  <way id="303">
+    <nd ref="12"/>
+    <nd ref="2"/>
+    <tag k="highway" v="secondary"/>
+    <tag k="name" v="End Spine"/>
+  </way>
+
+  <!-- Path B: Start → ResidentialWest (residential) -->
+  <way id="200">
+    <nd ref="1"/>
+    <nd ref="6"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="West Lane"/>
+  </way>
+
+  <!-- Path B: ResidentialWest → SecondaryVillage (residential) -->
+  <way id="201">
+    <nd ref="6"/>
+    <nd ref="7"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Village Access"/>
+  </way>
+
+  <!-- Path B: SecondaryVillage → TertiaryPark (residential) -->
+  <way id="202">
+    <nd ref="7"/>
+    <nd ref="8"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Village Road"/>
+  </way>
+
+  <!-- Path B: TertiaryPark → CyclewayBridge (tertiary) -->
+  <way id="203">
+    <nd ref="8"/>
+    <nd ref="9"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="Park Path"/>
+  </way>
+
+  <!-- Path B: CyclewayBridge → End (cycleway) -->
+  <way id="204">
+    <nd ref="9"/>
+    <nd ref="2"/>
+    <tag k="highway" v="cycleway"/>
+    <tag k="name" v="Cycleway Overpass"/>
+  </way>
+
+</osm>

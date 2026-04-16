@@ -18,12 +18,18 @@ interface AppContextValue {
   treaty: typeof treaty
   stops: Accessor<Stop[]>
   setStops: Setter<Stop[]>
+  addStop: (stop: Stop) => void
+  updateStop: (index: number, lat: number, lng: number) => void
   route: Accessor<RouteResponse | null>
   setRoute: Setter<RouteResponse | null>
   loading: Accessor<boolean>
   setLoading: Setter<boolean>
+  error: Accessor<string | null>
+  setError: Setter<string | null>
   mapBounds: Accessor<LatLngBounds | null>
   setMapBounds: Setter<LatLngBounds | null>
+  hoveredPoint: Accessor<{ distance: number; elevation: number } | null>
+  setHoveredPoint: Setter<{ distance: number; elevation: number } | null>
 }
 
 const AppContext = createContext<AppContextValue>()
@@ -36,10 +42,25 @@ export default function App() {
   const [stops, setStops] = createSignal<Stop[]>([])
   const [route, setRoute] = createSignal<RouteResponse | null>(null)
   const [loading, setLoading] = createSignal(false)
+  const [error, setError] = createSignal<string | null>(null)
   const [mapBounds, setMapBounds] = createSignal<LatLngBounds | null>(null)
+  const [hoveredPoint, setHoveredPoint] = createSignal<{ distance: number; elevation: number } | null>(null)
+
+  const addStop = (stop: Stop) => {
+    setStops(prev => [...prev, stop])
+  }
+
+  const updateStop = (index: number, lat: number, lng: number) => {
+    setStops(prev => {
+      if (index < 0 || index >= prev.length) return prev
+      const next = [...prev]
+      next[index] = { ...next[index], lat, lng }
+      return next
+    })
+  }
 
   return (
-    <AppContext.Provider value={{ treaty, stops, setStops, route, setRoute, loading, setLoading, mapBounds, setMapBounds }}>
+    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapBounds, setMapBounds, hoveredPoint, setHoveredPoint }}>
       <Stops />
       <Map />
     </AppContext.Provider>

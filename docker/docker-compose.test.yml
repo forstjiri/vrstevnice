@@ -1,0 +1,38 @@
+# Docker Compose overlay for GraphHopper integration tests.
+# Extends production docker-compose.yml with test-specific configuration:
+# - Mounts synthetic test-graph.osm instead of the full CZ PBF
+# - Uses test-specific GH config (no SRTM, faster healthcheck)
+# - Separate container name to avoid conflicts with production
+# - No persistent volumes — graph-cache uses tmpfs for speed
+#
+# Usage (via test harness, NOT manually):
+#   docker compose -f docker-compose.test.yml up -d
+#   docker compose -f docker-compose.test.yml down -v
+
+services:
+  graphhopper:
+    image: israelhikingmap/graphhopper:latest
+    container_name: vrstevnice-gh-test
+    ports:
+      - "8988:8989"
+    volumes:
+      - gh-test-cache:/data
+      - ../tests/fixtures/graphhopper-test-config.yml:/graphhopper/config-example.yml:ro
+      - ../tests/fixtures/vrstevnice-bike-test.json:/graphhopper/vrstevnice-bike-test.json:ro
+      - ../tests/fixtures/test-graph.osm:/data/test-graph.osm:ro
+    environment:
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+    command:
+      - "-i"
+      - "/data/test-graph.osm"
+      - "-o"
+      - "/data/graph-cache"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8989/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  gh-test-cache:

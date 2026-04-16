@@ -15,6 +15,7 @@ sqlite.exec(`
     duration REAL,
     elevation_gain REAL,
     elevation_loss REAL,
+    elevation_profile TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `)
@@ -30,5 +31,6 @@ export const routes = sqliteTable('routes', {
   duration: real('duration'),
   elevationGain: real('elevation_gain'),
   elevationLoss: real('elevation_loss'),
+  elevationProfile: text('elevation_profile'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 })

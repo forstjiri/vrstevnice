@@ -6,11 +6,13 @@
     "typecheck": "tsc --build",
     "dev": "pnpm -r --parallel dev",
     "dev:be": "pnpm --filter @vrstevnice/be dev",
-    "dev:fe": "pnpm --filter @vrstevnice/fe dev"
+    "dev:fe": "pnpm --filter @vrstevnice/fe dev",
+    "test": "vitest run --config tests/vitest.config.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",
     "@types/leaflet": "^1.9.21",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
   }
 }

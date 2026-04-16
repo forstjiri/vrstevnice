@@ -6,17 +6,19 @@ import { Separator } from '@kobalte/core/separator'
 import { Progress } from '@kobalte/core/progress'
 import { Tooltip } from '@kobalte/core/tooltip'
 import { useApp } from './App'
+import { downloadGPX } from './gpx'
 import type { GeocodeResult, RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
 export default function Stops() {
-  const { treaty, stops, setStops, route, setRoute, loading, setLoading, mapBounds } = useApp()
+  const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapBounds } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([0.5])
   const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([0.2])
 
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
+    setError(null)
     try {
       const bounds = mapBounds()
       let results: GeocodeResult[] = []
@@ -44,6 +46,7 @@ export default function Stops() {
       setResults(results)
     } catch (err) {
       console.error('Geocode error:', err)
+      setError('Chyba při vyhledávání místa')
       setResults([])
     }
   }
@@ -59,7 +62,11 @@ export default function Stops() {
       if (bounded) params.bounded = '1'
     }
     const { data, error } = await treaty.api.geocode.get({ $query: params })
-    if (!error && data) return data
+    if (error) {
+      setError(`Chyba vyhledávání: ${error.status} ${error.value?.message || ''}`)
+      return []
+    }
+    if (data) return data
     return []
   }
 
@@ -94,20 +101,27 @@ export default function Stops() {
     })
   }
 
+  const coeff = (v: number | undefined, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback
+
   const calculateRoute = async () => {
     setLoading(true)
+    setError(null)
     try {
       const body: RouteRequest = {
         stops: stops(),
-        elevationCoefficient: elevCoeff()[0],
-        roadAvoidanceCoefficient: roadAvoidCoeff()[0],
+        elevationCoefficient: coeff(elevCoeff()[0], 0.5),
+        roadAvoidanceCoefficient: coeff(roadAvoidCoeff()[0], 0.2),
       }
       const { data, error } = await treaty.api.route.post(body)
-      if (!error && data) {
+      if (error) {
+        setError(`Chyba výpočtu trasy: ${error.status} ${error.value?.message || ''}`)
+      } else if (data) {
         setRoute({ ...data, geometry: data.geometry as [number, number][] })
       }
     } catch (err) {
       console.error('Route error:', err)
+      setError('Neočekávaná chyba při výpočtu trasy')
     } finally { setLoading(false) }
   }
 
@@ -118,6 +132,13 @@ export default function Stops() {
       {/* Header */}
       <div class="panel-header">
         <h1>Vrstevnice</h1>
+
+        <Show when={error()}>
+          <div class="error-alert">
+            <span class="error-message">{error()}</span>
+            <Button class="btn-ghost-sm" onClick={() => setError(null)}>×</Button>
+          </div>
+        </Show>
 
         <Search
           triggerMode="focus"
@@ -251,6 +272,9 @@ export default function Stops() {
         <Show when={route()}>
           <Button class="btn btn-ghost" onClick={() => setRoute(null)}>
             Zrušit trasu
+          </Button>
+          <Button class="btn btn-ghost" onClick={() => downloadGPX(route()!)}>
+            ↓ Stáhnout GPX
           </Button>
         </Show>
       </div>

@@ -53,6 +53,25 @@ body {
   margin-bottom: 12px;
 }
 
+.error-alert {
+  background-color: #fef2f2;
+  border: 1px solid #fee2e2;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.error-message {
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .panel-body {
   flex: 1;
   overflow-y: auto;
@@ -309,10 +328,63 @@ body {
 
 .map-wrapper {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+}
+
+.map-container {
+  flex: 1;
+  min-height: 0;
   position: relative;
 }
 
-.map-wrapper > div:first-child {
+.map-container > .leaflet-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Stop markers (divIcon) ───────────── */
+
+.stop-marker {
+  background: none !important;
+  border: none !important;
+}
+
+.stop-marker-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  cursor: grab;
+  user-select: none;
+}
+
+.stop-marker-dot:active {
+  cursor: grabbing;
+}
+
+/* ── Elevation chart ──────────────────── */
+
+.elevation-chart-container {
+  height: 150px;
+  min-height: 150px;
+  border-top: 1px solid var(--color-border);
+  position: relative;
+  background: var(--color-surface);
+}
+
+.elevation-chart-container canvas {
+  display: block;
   width: 100%;
   height: 100%;
 }

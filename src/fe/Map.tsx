@@ -1,13 +1,91 @@
 import { onMount, onCleanup, createEffect, Show } from 'solid-js'
 import L from 'leaflet'
 import { useApp } from './App'
+import ElevationChart from './ElevationChart'
+
+const EARTH_RADIUS_M = 6_371_000
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** Pre-compute cumulative haversine distances for each geometry point. */
+function computeGeometryDistances(geometry: [number, number][]): number[] {
+  const distances = [0]
+  for (let i = 1; i < geometry.length; i++) {
+    distances.push(distances[i - 1] + haversineMeters(geometry[i - 1][0], geometry[i - 1][1], geometry[i][0], geometry[i][1]))
+  }
+  return distances
+}
+
+/**
+ * Find [lat, lng] on the polyline at a given cumulative distance.
+ * Linearly interpolates between the two bracketing geometry points.
+ */
+function findPositionAtDistance(
+  geometry: [number, number][],
+  geometryDistances: number[],
+  targetDistance: number,
+): [number, number] | null {
+  if (geometry.length === 0) return null
+  if (geometry.length === 1) return geometry[0]
+
+  // Clamp to last point if target exceeds total distance
+  if (targetDistance >= geometryDistances[geometryDistances.length - 1]) {
+    return geometry[geometry.length - 1]
+  }
+
+  // Binary search for the segment containing targetDistance
+  let lo = 0
+  let hi = geometryDistances.length - 1
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1
+    if (geometryDistances[mid] <= targetDistance) lo = mid
+    else hi = mid
+  }
+
+  const segStart = geometryDistances[lo]
+  const segEnd = geometryDistances[hi]
+  const t = segEnd > segStart ? (targetDistance - segStart) / (segEnd - segStart) : 0
+
+  return [
+    geometry[lo][0] + (geometry[hi][0] - geometry[lo][0]) * t,
+    geometry[lo][1] + (geometry[hi][1] - geometry[lo][1]) * t,
+  ]
+}
 
 export default function Map() {
-  const { stops, route, setMapBounds } = useApp()
+  const { stops, addStop, updateStop, route, setMapBounds, hoveredPoint } = useApp()
   let container!: HTMLDivElement
   let map: L.Map
-  let stopMarkers: L.CircleMarker[] = []
+  let stopMarkers: L.Marker[] = []
   let routeLine: L.Polyline | null = null
+  let highlightMarker: L.CircleMarker | null = null
+  let geometryDistances: number[] | null = null
+
+  /** Create a divIcon with a colored circle, matching the original color scheme. */
+  function makeStopIcon(color: string, index: number): L.DivIcon {
+    return L.divIcon({
+      className: 'stop-marker',
+      html: `<span class="stop-marker-dot" style="background:${color}">${index + 1}</span>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -14],
+    })
+  }
+
+  function stopColor(index: number, total: number): string {
+    if (total === 1) return '#3b82f6'
+    if (index === 0) return '#22c55e'
+    if (index === total - 1) return '#ef4444'
+    return '#3b82f6'
+  }
 
   onMount(() => {
     map = L.map(container, { zoomControl: true }).setView([49.82, 15.47], 7)
@@ -21,6 +99,15 @@ export default function Map() {
       attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
       maxZoom: 19,
     }).addTo(map)
+
+    // Prevent default browser context menu on the map
+    map.getContainer().addEventListener('contextmenu', e => e.preventDefault())
+
+    // Right-click → create a new stop at the clicked coordinates
+    map.on('contextmenu', (e: L.LeafletMouseEvent) => {
+      const { lat, lng } = e.latlng
+      addStop({ lat, lng, name: `${lat.toFixed(5)}, ${lng.toFixed(5)}` })
+    })
 
     const updateBounds = () => {
       const b = map.getBounds()
@@ -37,23 +124,37 @@ export default function Map() {
   })
 
   createEffect(() => {
-    stopMarkers.forEach(m => map.removeLayer(m))
-    stopMarkers = []
-
     const current = stops()
-    for (let i = 0; i < current.length; i++) {
-      const s = current[i]
-      const color = i === 0 ? '#22c55e' : i === current.length - 1 ? '#ef4444' : '#3b82f6'
+    const total = current.length
 
-      stopMarkers.push(
-        L.circleMarker([s.lat, s.lng], {
-          radius: 8,
-          fillColor: color,
-          color: '#fff',
-          weight: 2,
-          fillOpacity: 1,
-        }).bindPopup(s.name).addTo(map),
-      )
+    // Diff markers: reuse by index, add new, remove excess
+    while (stopMarkers.length > total) {
+      map.removeLayer(stopMarkers.pop()!)
+    }
+
+    for (let i = 0; i < total; i++) {
+      const s = current[i]
+      const color = stopColor(i, total)
+
+      if (i < stopMarkers.length) {
+        // Update existing marker position and icon
+        stopMarkers[i].setLatLng([s.lat, s.lng])
+        stopMarkers[i].setIcon(makeStopIcon(color, i))
+      } else {
+        // Create new marker
+        const marker = L.marker([s.lat, s.lng], {
+          icon: makeStopIcon(color, i),
+          draggable: true,
+          zIndexOffset: 1000,
+        }).bindPopup(s.name).addTo(map)
+
+        marker.on('dragend', () => {
+          const pos = marker.getLatLng()
+          updateStop(i, pos.lat, pos.lng)
+        })
+
+        stopMarkers.push(marker)
+      }
     }
 
     if (current.length > 0 && !route()) {
@@ -64,11 +165,45 @@ export default function Map() {
   createEffect(() => {
     routeLine && map.removeLayer(routeLine)
     routeLine = null
+    geometryDistances = null
 
     const r = route()
     if (r?.geometry.length) {
       routeLine = L.polyline(r.geometry, { color: '#2563eb', weight: 4, opacity: 0.8 }).addTo(map)
+      geometryDistances = computeGeometryDistances(r.geometry)
       map.fitBounds(routeLine.getBounds(), { padding: [50, 50] })
+    }
+  })
+
+  createEffect(() => {
+    const point = hoveredPoint()
+    if (!point || !geometryDistances || !route()?.geometry.length) {
+      if (highlightMarker) {
+        map.removeLayer(highlightMarker)
+        highlightMarker = null
+      }
+      return
+    }
+
+    const pos = findPositionAtDistance(route()!.geometry, geometryDistances, point.distance)
+    if (!pos) {
+      if (highlightMarker) {
+        map.removeLayer(highlightMarker)
+        highlightMarker = null
+      }
+      return
+    }
+
+    if (highlightMarker) {
+      highlightMarker.setLatLng(pos)
+    } else {
+      highlightMarker = L.circleMarker(pos, {
+        radius: 7,
+        fillColor: '#f59e0b',
+        color: '#fff',
+        weight: 2,
+        fillOpacity: 1,
+      }).addTo(map)
     }
   })
 
@@ -76,17 +211,20 @@ export default function Map() {
 
   return (
     <div class="map-wrapper">
-      <div ref={container} />
-      <Show when={route()}>
-        {r => (
-          <div class="route-info">
-            <span class="val">{r().distance.toFixed(1)} km</span>{'\n'}
-            <span class="gain">↑ {r().elevationGain} m</span>{'\n'}
-            <span class="loss">↓ {r().elevationLoss} m</span>{'\n'}
-            <span class="val">⏱ {Math.round(r().duration / 60)} min</span>
-          </div>
-        )}
-      </Show>
+      <div class="map-container">
+        <div ref={container} class="leaflet-host" />
+        <Show when={route()}>
+          {r => (
+            <div class="route-info">
+              <span class="val">{r().distance.toFixed(1)} km</span>{'\n'}
+              <span class="gain">↑ {r().elevationGain} m</span>{'\n'}
+              <span class="loss">↓ {r().elevationLoss} m</span>{'\n'}
+              <span class="val">⏱ {Math.round(r().duration / 60)} min</span>
+            </div>
+          )}
+        </Show>
+      </div>
+      <ElevationChart />
     </div>
   )
 }
