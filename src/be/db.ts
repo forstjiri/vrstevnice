@@ -16,9 +16,22 @@ sqlite.exec(`
     elevation_gain REAL,
     elevation_loss REAL,
     elevation_profile TEXT,
+    surface_segments TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `)
+// Migrate existing DBs: add surface_segments column if missing
+try {
+  sqlite.exec(`ALTER TABLE routes ADD COLUMN surface_segments TEXT`)
+} catch {
+  // Column already exists — ignore
+}
+// Migrate existing DBs: add road_class_segments column if missing
+try {
+  sqlite.exec(`ALTER TABLE routes ADD COLUMN road_class_segments TEXT`)
+} catch {
+  // Column already exists — ignore
+}
 
 export const db = drizzle(sqlite)
 
@@ -32,5 +45,7 @@ export const routes = sqliteTable('routes', {
   elevationGain: real('elevation_gain'),
   elevationLoss: real('elevation_loss'),
   elevationProfile: text('elevation_profile'),
+  surfaceSegments: text('surface_segments'),
+  roadClassSegments: text('road_class_segments'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 })

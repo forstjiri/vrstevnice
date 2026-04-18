@@ -10,11 +10,16 @@ import { downloadGPX } from './gpx'
 import type { GeocodeResult, RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
+const DEFAULT_ROAD_AVOIDANCE = 1;
+const DEFAULT_CYCLEWAY = 1;
+const DEFAULT_ELEVATION = 1;
+
 export default function Stops() {
   const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapBounds } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
-  const [elevCoeff, setElevCoeff] = createSignal<number[]>([0.5])
-  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([0.2])
+  const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
+  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
+  const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number[]>([DEFAULT_CYCLEWAY])
 
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
@@ -110,8 +115,9 @@ export default function Stops() {
     try {
       const body: RouteRequest = {
         stops: stops(),
-        elevationCoefficient: coeff(elevCoeff()[0], 0.5),
-        roadAvoidanceCoefficient: coeff(roadAvoidCoeff()[0], 0.2),
+        elevationCoefficient: coeff(elevCoeff()[0], DEFAULT_ELEVATION),
+        roadAvoidanceCoefficient: 1 - coeff(roadAvoidCoeff()[0], DEFAULT_ROAD_AVOIDANCE),
+        cyclewayCoefficient: coeff(cyclewayCoeff()[0], DEFAULT_CYCLEWAY),
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -215,6 +221,25 @@ export default function Stops() {
 
       {/* Footer controls */}
       <div class="panel-footer">
+        <Show when={route()}>
+          <div class="route-stats">
+            <span class="route-stat">
+              <span class="route-stat-value">{(route()!.distance).toFixed(1)}</span>
+              <span class="route-stat-unit">km</span>
+            </span>
+            <span class="route-stat">
+              <span class="route-stat-emoji">⬆️</span>
+              <span class="route-stat-value">{Math.round(route()!.elevationGain)}</span>
+              <span class="route-stat-unit">m</span>
+            </span>
+            <span class="route-stat">
+              <span class="route-stat-emoji">⬇️</span>
+              <span class="route-stat-value">{Math.round(route()!.elevationLoss)}</span>
+              <span class="route-stat-unit">m</span>
+            </span>
+          </div>
+        </Show>
+
         <Show when={loading()}>
           <Progress value={undefined} class="progress-root">
             <Progress.Track class="progress-track" />
@@ -229,7 +254,7 @@ export default function Stops() {
           step={0.05}
         >
           <div class="slider-label">
-            <Slider.Label>Kopcovitost</Slider.Label>
+            <Slider.Label>Vyhnout se kopcům</Slider.Label>
             <Slider.ValueLabel />
           </div>
           <Slider.Track class="slider-track">
@@ -249,6 +274,25 @@ export default function Stops() {
         >
           <div class="slider-label">
             <Slider.Label>Vyhnutí silnicím</Slider.Label>
+            <Slider.ValueLabel />
+          </div>
+          <Slider.Track class="slider-track">
+            <Slider.Fill class="slider-range" />
+            <Slider.Thumb class="slider-thumb">
+              <Slider.Input class="slider-input" />
+            </Slider.Thumb>
+          </Slider.Track>
+        </Slider>
+
+        <Slider
+          value={cyclewayCoeff()}
+          onChange={setCyclewayCoeff}
+          minValue={0}
+          maxValue={1}
+          step={0.05}
+        >
+          <div class="slider-label">
+            <Slider.Label>Cyklostezky</Slider.Label>
             <Slider.ValueLabel />
           </div>
           <Slider.Track class="slider-track">

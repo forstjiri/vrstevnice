@@ -1,4 +1,4 @@
-import type { Stop, RouteResponse, ElevationPoint } from '@vrstevnice/shared'
+import type { Stop, RouteResponse, ElevationPoint, SurfaceSegment, RoadClassSegment } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +24,7 @@ export interface GHRouteRequest {
   elevation: boolean
   points_encoded: boolean
   'ch.disable': boolean
+  details?: string[]
   'custom_model'?: GHCustomModel
 }
 
@@ -37,6 +38,7 @@ export interface GHPath {
     coordinates: Array<[number, number, number]> // [lon, lat, ele]
   }
   instructions: unknown[]
+  details?: Record<string, unknown[]>
 }
 
 export interface GHRouteResponse {
@@ -50,6 +52,8 @@ export interface GHRouteResult {
   elevationGain: number // meters
   elevationLoss: number // meters
   geometry: Array<[number, number, number]> // [lon, lat, ele]
+  surfaceSegments: SurfaceSegment[]
+  roadClassSegments: RoadClassSegment[]
 }
 
 // ---------------------------------------------------------------------------
@@ -63,17 +67,20 @@ const GRAPHHOPPER_URL = process.env.GRAPHHOPPER_URL || 'http://localhost:8989'
 // ---------------------------------------------------------------------------
 
 /**
- * Map the two frontend coefficients to GraphHopper `priority` rules.
+ * Map the three frontend coefficients to GraphHopper `priority` rules.
  *
  * - roadAvoidanceCoefficient 0→1: penalize MOTORWAY+TRUNK (0.01→1.0),
  *   PRIMARY (0.05→1.0), SECONDARY (0.2→1.0)
  * - elevationCoefficient 0→1: slope bands >3% (0.5→1.0), >6% (0.3→1.0),
  *   >10% (0.1→1.0)
- * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 (70–100)
+ * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→5.0), lower
+ *   distance_influence (allow longer detours)
+ * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30
  */
 export function buildCustomModel(
   elevationCoefficient: number,
   roadAvoidanceCoefficient: number,
+  cyclewayCoefficient = 0,
 ): GHCustomModel {
   // Road avoidance: 0 = max avoidance (low priority), 1 = no avoidance (full priority)
   const roadRules: GHCustomModelRule[] = [
@@ -109,10 +116,22 @@ export function buildCustomModel(
     },
   ]
 
-  const distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30
+  // Cycleway forcing: 0 = don't care, 1 = strongly prefer cycleways (accept long detours)
+  const cyclewayRules: GHCustomModelRule[] = [
+    {
+      if: 'road_class == CYCLEWAY',
+      multiply_by: String(lerp(1.0, 3.0, cyclewayCoefficient)),
+    },
+    {
+      if: 'cycleway != NO',
+      multiply_by: String(lerp(1.0, 1.5, cyclewayCoefficient)),
+    },
+  ]
+
+  const distance_influence = Math.max(30, 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30)
 
   return {
-    priority: [...roadRules, ...elevationRules],
+    priority: [...roadRules, ...elevationRules, ...cyclewayRules],
     distance_influence,
   }
 }
@@ -144,6 +163,7 @@ export async function fetchRouteFromGH(
     elevation: true,
     points_encoded: false,
     'ch.disable': true,
+    details: ['surface', 'road_class'],
     'custom_model': customModel,
   }
 
@@ -176,13 +196,60 @@ export async function fetchRouteFromGH(
     throw new Error('No route found by GraphHopper')
   }
 
+  const surfaceSegments = parseSurfaceSegments(path.details)
+  const roadClassSegments = parseRoadClassSegments(path.details)
+
   return {
     distance: path.distance,
     duration: path.time,
     elevationGain: path.ascend,
     elevationLoss: path.descend,
     geometry: path.points.coordinates,
+    surfaceSegments,
+    roadClassSegments,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Detail segment parsers
+// ---------------------------------------------------------------------------
+
+function parseDetailTriples(
+  details: Record<string, unknown[]> | undefined,
+  key: string,
+): Array<[number, number, string]> {
+  const raw = details?.[key]
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  const result: Array<[number, number, string]> = []
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length < 3) continue
+    const [from, to, value] = entry
+    if (typeof from !== 'number' || typeof to !== 'number' || typeof value !== 'string') continue
+    result.push([from, to, value])
+  }
+  return result
+}
+
+/**
+ * Parse GraphHopper `details.surface` triples into structured SurfaceSegment[].
+ */
+export function parseSurfaceSegments(
+  details: Record<string, unknown[]> | undefined,
+): SurfaceSegment[] {
+  return parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({
+    from, to, surface,
+  }))
+}
+
+/**
+ * Parse GraphHopper `details.road_class` triples into structured RoadClassSegment[].
+ */
+export function parseRoadClassSegments(
+  details: Record<string, unknown[]> | undefined,
+): RoadClassSegment[] {
+  return parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({
+    from, to, roadClass,
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +283,8 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     elevationGain: Math.round(ghResult.elevationGain),
     elevationLoss: Math.round(ghResult.elevationLoss),
     elevationProfile: computeElevationProfile(ghResult.geometry),
+    surfaceSegments: ghResult.surfaceSegments,
+    roadClassSegments: ghResult.roadClassSegments,
   }
 }
 

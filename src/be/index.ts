@@ -139,14 +139,14 @@ const app = new Elysia({ prefix: '/api' })
 
   .post('/route', async ({ body, store }) => {
     const { pino } = store as { pino: any }
-    const { stops, elevationCoefficient, roadAvoidanceCoefficient } = body
+    const { stops, elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient } = body
 
     pino.info(
-      { stopCount: stops.length, elevCoeff: elevationCoefficient, roadAvoid: roadAvoidanceCoefficient },
+      { stopCount: stops.length, elevCoeff: elevationCoefficient, roadAvoid: roadAvoidanceCoefficient, cycleway: cyclewayCoefficient },
       'Route request',
     )
 
-    const customModel = buildCustomModel(elevationCoefficient, roadAvoidanceCoefficient)
+    const customModel = buildCustomModel(elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient)
     pino.debug({ customModel }, 'Custom model built')
 
     const t0 = performance.now()
@@ -155,7 +155,7 @@ const app = new Elysia({ prefix: '/api' })
     const elapsed = Math.round(performance.now() - t0)
 
     pino.info(
-      { distance: routeData.distance, duration: routeData.duration, gain: routeData.elevationGain, loss: routeData.elevationLoss, points: routeData.geometry.length, profilePoints: routeData.elevationProfile.length, elapsedMs: elapsed },
+      { distance: routeData.distance, duration: routeData.duration, gain: routeData.elevationGain, loss: routeData.elevationLoss, points: routeData.geometry.length, profilePoints: routeData.elevationProfile.length, surfaceSegments: routeData.surfaceSegments.length, elapsedMs: elapsed },
       'Route calculated',
     )
 
@@ -169,6 +169,8 @@ const app = new Elysia({ prefix: '/api' })
         elevationGain: routeData.elevationGain,
         elevationLoss: routeData.elevationLoss,
         elevationProfile: JSON.stringify(routeData.elevationProfile),
+        surfaceSegments: JSON.stringify(routeData.surfaceSegments),
+      roadClassSegments: JSON.stringify(routeData.roadClassSegments),
       })
       pino.debug('Route saved to DB')
     } catch (dbErr) {
@@ -186,6 +188,7 @@ const app = new Elysia({ prefix: '/api' })
       })),
       elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+      cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
     }),
     response: t.Object({
       geometry: t.Array(t.Array(t.Number())),
@@ -196,6 +199,16 @@ const app = new Elysia({ prefix: '/api' })
       elevationProfile: t.Array(t.Object({
         distance: t.Number(),
         elevation: t.Number(),
+      })),
+      surfaceSegments: t.Array(t.Object({
+        from: t.Number(),
+        to: t.Number(),
+        surface: t.String(),
+      })),
+      roadClassSegments: t.Array(t.Object({
+        from: t.Number(),
+        to: t.Number(),
+        roadClass: t.String(),
       })),
     }),
   })

@@ -304,6 +304,40 @@ body {
   transition: width 300ms ease;
 }
 
+/* ── Route stats (panel footer) ────────── */
+
+.route-stats {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.route-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  color: var(--color-text-muted);
+}
+
+.route-stat-emoji {
+  font-size: 12px;
+}
+
+.route-stat-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.route-stat-unit {
+  font-size: 12px;
+}
+
 /* ── Route info overlay ────────────────── */
 
 .route-info {
