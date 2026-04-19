@@ -36,6 +36,17 @@ export interface RoadClassSegment {
   roadClass: string
 }
 
+export interface POILocation {
+  /** Latitude */
+  lat: number
+  /** Longitude */
+  lng: number
+  /** POI display name from Overpass/Nominatim */
+  name: string
+  /** Amenity category: pub, bar, restaurant, cafe, or biergarten */
+  type: string
+}
+
 export interface RouteResponse {
   geometry: [number, number][]
   distance: number
@@ -48,6 +59,8 @@ export interface RouteResponse {
   surfaceSegments: SurfaceSegment[]
   /** Road class segments parsed from GraphHopper details */
   roadClassSegments: RoadClassSegment[]
+  /** POI locations (pubs, bars, restaurants) along the route when lemonadeCoefficient > 0 */
+  poiLocations: POILocation[]
 }
 
 export interface RouteRequest {
@@ -55,4 +68,6 @@ export interface RouteRequest {
   elevationCoefficient: number
   roadAvoidanceCoefficient: number
   cyclewayCoefficient: number
+  /** Lemonade coefficient: 0 = off (normal routing), 1 = max pub density along route */
+  lemonadeCoefficient: number
 }

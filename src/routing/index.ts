@@ -1,4 +1,4 @@
-import type { Stop, RouteResponse, ElevationPoint, SurfaceSegment, RoadClassSegment } from '@vrstevnice/shared'
+import type { Stop, RouteResponse, ElevationPoint, SurfaceSegment, RoadClassSegment, POILocation } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +61,7 @@ export interface GHRouteResult {
 // ---------------------------------------------------------------------------
 
 const GRAPHHOPPER_URL = process.env.GRAPHHOPPER_URL || 'http://localhost:8989'
+const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter'
 
 // ---------------------------------------------------------------------------
 // Custom model builder
@@ -285,6 +286,7 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     elevationProfile: computeElevationProfile(ghResult.geometry),
     surfaceSegments: ghResult.surfaceSegments,
     roadClassSegments: ghResult.roadClassSegments,
+    poiLocations: [],
   }
 }
 
@@ -329,7 +331,7 @@ export function computeElevationProfile(
 /**
  * Haversine distance between two lat/lon points in meters.
  */
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180
   const dLat = toRad(lat2 - lat1)
   const dLon = toRad(lon2 - lon1)
@@ -337,6 +339,266 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
   return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// ---------------------------------------------------------------------------
+// Overpass API — Lemonade route pipeline
+// ---------------------------------------------------------------------------
+
+const MAX_SAMPLE_POINTS = 8
+const DEFAULT_DEDUP_DISTANCE = 100 // meters
+
+/**
+ * Query Overpass API for nearby pubs, bars, restaurants, cafes, biergarten.
+ *
+ * Returns [] on any error (network, parsing, non-JSON response).
+ * Overpass uses lat,lon order (not lon,lat like GeoJSON).
+ */
+export async function queryOverpassAround(
+  lat: number,
+  lon: number,
+  radius: number,
+): Promise<POILocation[]> {
+  const query = `[out:json];node["amenity"~"pub|bar|restaurant|cafe|biergarten"](around:${radius},${lat},${lon});out body;`
+
+  let res: Response
+  try {
+    res = await fetch(OVERPASS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `data=${encodeURIComponent(query)}`,
+    })
+  } catch (err) {
+    console.error(`Overpass fetch failed: ${OVERPASS_URL} — ${(err as Error).message}`)
+    return []
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '(empty)')
+    console.error(`Overpass error: ${res.status} — ${text.slice(0, 500)}`)
+    return []
+  }
+
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    console.error(`Overpass returned non-JSON content-type: ${contentType}`)
+    return []
+  }
+
+  let data: any
+  try {
+    data = await res.json()
+  } catch {
+    console.error('Overpass returned invalid JSON')
+    return []
+  }
+
+  const elements: any[] = data?.elements ?? []
+  if (elements.length === 0) {
+    console.warn(`Overpass: no POIs found at (${lat},${lon}) radius=${radius}m`)
+  }
+
+  return elements
+    .filter((el) => el.lat != null && el.lon != null && el.tags?.name)
+    .map((el) => ({
+      lat: el.lat,
+      lng: el.lon,
+      name: el.tags.name,
+      type: el.tags.amenity || 'unknown',
+    }))
+}
+
+/**
+ * Sample route geometry at regular distance intervals.
+ *
+ * Input is Leaflet [lat, lng] format. Returns sample points in the same format.
+ * Limited to MAX_SAMPLE_POINTS (8) to cap Overpass API load.
+ */
+export function sampleRouteGeometry(
+  geometry: [number, number][],
+  interval: number,
+): [number, number][] {
+  if (geometry.length < 2) return []
+
+  const points: [number, number][] = [geometry[0]]
+  let distSinceLast = 0
+
+  for (let i = 1; i < geometry.length; i++) {
+    const [prevLat, prevLng] = geometry[i - 1]
+    const [curLat, curLng] = geometry[i]
+    const segDist = haversineMeters(prevLat, prevLng, curLat, curLng)
+
+    distSinceLast += segDist
+
+    while (distSinceLast >= interval && points.length < MAX_SAMPLE_POINTS) {
+      // Interpolate the exact point at the interval boundary
+      const overshoot = distSinceLast - interval
+      const fraction = 1 - overshoot / segDist
+      const interpLat = prevLat + (curLat - prevLat) * fraction
+      const interpLng = prevLng + (curLng - prevLng) * fraction
+      points.push([interpLat, interpLng])
+      distSinceLast = overshoot
+    }
+  }
+
+  return points
+}
+
+/**
+ * Deduplicate POIs by proximity — keeps the first occurrence within minDistance.
+ *
+ * Uses haversine distance. Default minDistance: 100m.
+ */
+export function deduplicatePOIs(
+  pois: POILocation[],
+  minDistance = DEFAULT_DEDUP_DISTANCE,
+): POILocation[] {
+  const accepted: POILocation[] = []
+
+  for (const poi of pois) {
+    const isDuplicate = accepted.some(
+      (a) => haversineMeters(a.lat, a.lng, poi.lat, poi.lng) < minDistance,
+    )
+    if (!isDuplicate) {
+      accepted.push(poi)
+    }
+  }
+
+  return accepted
+}
+
+/**
+ * Insert POI waypoints between original stops in route-traversal order.
+ *
+ * For each POI, finds its closest point on the route geometry, then inserts
+ * the POI after the last original stop that appears before it in the route.
+ * Original stops remain at their exact positions in the array.
+ */
+export function insertPOIWaypoints(
+  originalStops: Stop[],
+  pois: POILocation[],
+  geometry: [number, number][],
+): Stop[] {
+  if (originalStops.length < 2 || pois.length === 0 || geometry.length < 2) {
+    return [...originalStops]
+  }
+
+  // Find the geometry index closest to each original stop
+  const stopGeometryIndices = originalStops.map((stop) => {
+    let bestIdx = 0
+    let bestDist = Infinity
+    for (let i = 0; i < geometry.length; i++) {
+      const d = haversineMeters(stop.lat, stop.lng, geometry[i][0], geometry[i][1])
+      if (d < bestDist) {
+        bestDist = d
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  })
+
+  // For each POI, find its closest geometry index
+  const poiGeometryIndices = pois.map((poi) => {
+    let bestIdx = 0
+    let bestDist = Infinity
+    for (let i = 0; i < geometry.length; i++) {
+      const d = haversineMeters(poi.lat, poi.lng, geometry[i][0], geometry[i][1])
+      if (d < bestDist) {
+        bestDist = d
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  })
+
+  // Build result: start with original stops, insert POIs in route order
+  const result: Stop[] = [...originalStops]
+
+  // For each POI, determine after which original stop it should be inserted
+  // Route order: POIs sorted by their geometry index, then placed after the
+  // last original stop whose geometry index is ≤ the POI's geometry index
+  const poiInsertions: { poi: POILocation; afterStopIdx: number; geoIdx: number }[] = []
+
+  for (let p = 0; p < pois.length; p++) {
+    const poiGeoIdx = poiGeometryIndices[p]
+    let afterStopIdx = 0
+    for (let s = stopGeometryIndices.length - 1; s >= 0; s--) {
+      if (stopGeometryIndices[s] <= poiGeoIdx) {
+        afterStopIdx = s
+        break
+      }
+    }
+    poiInsertions.push({ poi: pois[p], afterStopIdx, geoIdx: poiGeoIdx })
+  }
+
+  // Sort by geometry index to maintain route order
+  poiInsertions.sort((a, b) => a.geoIdx - b.geoIdx)
+
+  // Insert POIs after the corresponding original stop
+  // We iterate in reverse order of insertion position to avoid index shifting
+  // Group POIs by their target stop index, then insert from back to front
+  const byStop = new Map<number, POILocation[]>()
+  for (const ins of poiInsertions) {
+    const list = byStop.get(ins.afterStopIdx) || []
+    list.push(ins.poi)
+    byStop.set(ins.afterStopIdx, list)
+  }
+
+  // Insert from back to front so indices don't shift
+  const stopIndices = [...byStop.keys()].sort((a, b) => b - a)
+  for (const stopIdx of stopIndices) {
+    const poisToInsert = byStop.get(stopIdx)!
+    // Insert POIs in route order (already sorted by geoIdx within each group)
+    for (let i = poisToInsert.length - 1; i >= 0; i--) {
+      const poi = poisToInsert[i]
+      result.splice(stopIdx + 1, 0, { lat: poi.lat, lng: poi.lng, name: poi.name })
+    }
+  }
+
+  return result
+}
+
+/**
+ * Main orchestrator: fetch POIs along a route based on lemonade coefficient.
+ *
+ * - coefficient = 0 → returns [] (no-op)
+ * - Maps coefficient to sampling interval (50km → 2km) and search radius (200m → 800m)
+ * - Samples route geometry, queries Overpass at each point, deduplicates
+ */
+export async function fetchPOIsAlongRoute(
+  geometry: [number, number][],
+  coefficient: number,
+): Promise<POILocation[]> {
+  if (coefficient <= 0) return []
+
+  const interval = lerp(50_000, 2_000, coefficient)
+  const radius = lerp(200, 800, coefficient)
+
+  console.info(
+    { coefficient, intervalM: Math.round(interval), radiusM: Math.round(radius) },
+    'POI pipeline: sampling route',
+  )
+
+  const samplePoints = sampleRouteGeometry(geometry, interval)
+  if (samplePoints.length === 0) return []
+
+  console.info({ sampleCount: samplePoints.length }, 'POI pipeline: querying Overpass')
+
+  // Query Overpass at each sample point
+  const allPOIs: POILocation[] = []
+  for (const [lat, lng] of samplePoints) {
+    const pois = await queryOverpassAround(lat, lng, radius)
+    allPOIs.push(...pois)
+  }
+
+  console.info({ rawPOIs: allPOIs.length }, 'POI pipeline: raw results before dedup')
+
+  // Deduplicate
+  const deduped = deduplicatePOIs(allPOIs)
+
+  console.info({ finalPOIs: deduped.length }, 'POI pipeline: final POIs after dedup')
+
+  return deduped
 }
 
 // ---------------------------------------------------------------------------

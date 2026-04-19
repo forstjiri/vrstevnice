@@ -1,8 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
-import type { GeocodeResult, RouteResponse } from '@vrstevnice/shared'
-import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse } from '@vrstevnice/routing'
+import type { GeocodeResult, RouteResponse, POILocation } from '@vrstevnice/shared'
+import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse, fetchPOIsAlongRoute, insertPOIWaypoints } from '@vrstevnice/routing'
 import { db, routes } from './db'
 import { resolve } from 'node:path'
 
@@ -139,19 +139,20 @@ const app = new Elysia({ prefix: '/api' })
 
   .post('/route', async ({ body, store }) => {
     const { pino } = store as { pino: any }
-    const { stops, elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient } = body
+    const { stops, elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient, lemonadeCoefficient: rawLemonade = 0 } = body
 
     pino.info(
-      { stopCount: stops.length, elevCoeff: elevationCoefficient, roadAvoid: roadAvoidanceCoefficient, cycleway: cyclewayCoefficient },
+      { stopCount: stops.length, elevCoeff: elevationCoefficient, roadAvoid: roadAvoidanceCoefficient, cycleway: cyclewayCoefficient, lemonade: rawLemonade },
       'Route request',
     )
 
     const customModel = buildCustomModel(elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient)
     pino.debug({ customModel }, 'Custom model built')
 
+    // Stage 1: Compute base route
     const t0 = performance.now()
     const ghResult = await fetchRouteFromGH(stops, customModel)
-    const routeData = convertGHToRouteResponse(ghResult)
+    let routeData = convertGHToRouteResponse(ghResult)
     const elapsed = Math.round(performance.now() - t0)
 
     pino.info(
@@ -159,18 +160,54 @@ const app = new Elysia({ prefix: '/api' })
       'Route calculated',
     )
 
+    // Stage 2 (conditional): POI pipeline for lemonade routing
+    let finalRouteData = routeData
+    if (rawLemonade > 0) {
+      const poiT0 = performance.now()
+      try {
+        pino.info({ lemonadeCoefficient: rawLemonade }, 'POI pipeline: starting')
+
+        const pois = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade)
+
+        if (pois.length > 0) {
+          pino.info({ poiCount: pois.length }, 'POI pipeline: inserting waypoints')
+          const expandedStops = insertPOIWaypoints(stops, pois, routeData.geometry)
+
+          const reRouteT0 = performance.now()
+          const ghReRoute = await fetchRouteFromGH(expandedStops, customModel)
+          const reRouted = convertGHToRouteResponse(ghReRoute)
+          const reRouteElapsed = Math.round(performance.now() - reRouteT0)
+
+          // Attach POI locations to the re-routed response
+          reRouted.poiLocations = pois
+          finalRouteData = reRouted
+
+          pino.info(
+            { poiCount: pois.length, reRouteDistance: reRouted.distance, reRouteElapsedMs: reRouteElapsed },
+            'POI pipeline: re-route complete',
+          )
+        } else {
+          pino.warn('POI pipeline: no POIs found, returning base route')
+        }
+      } catch (poiErr) {
+        const elapsed = Math.round(performance.now() - poiT0)
+        pino.error({ error: (poiErr as Error).message, elapsedMs: elapsed }, 'POI pipeline failed — returning base route')
+        // Fallback: return the original base route with empty poiLocations
+      }
+    }
+
     try {
       await db.insert(routes).values({
         name: `Trasa ${new Date().toISOString()}`,
         stops: JSON.stringify(stops),
-        geometry: JSON.stringify(routeData.geometry),
-        distance: routeData.distance,
-        duration: routeData.duration,
-        elevationGain: routeData.elevationGain,
-        elevationLoss: routeData.elevationLoss,
-        elevationProfile: JSON.stringify(routeData.elevationProfile),
-        surfaceSegments: JSON.stringify(routeData.surfaceSegments),
-      roadClassSegments: JSON.stringify(routeData.roadClassSegments),
+        geometry: JSON.stringify(finalRouteData.geometry),
+        distance: finalRouteData.distance,
+        duration: finalRouteData.duration,
+        elevationGain: finalRouteData.elevationGain,
+        elevationLoss: finalRouteData.elevationLoss,
+        elevationProfile: JSON.stringify(finalRouteData.elevationProfile),
+        surfaceSegments: JSON.stringify(finalRouteData.surfaceSegments),
+      roadClassSegments: JSON.stringify(finalRouteData.roadClassSegments),
       })
       pino.debug('Route saved to DB')
     } catch (dbErr) {
@@ -178,7 +215,7 @@ const app = new Elysia({ prefix: '/api' })
       // Don't fail the request — route data is still valid
     }
 
-    return routeData
+    return finalRouteData
   }, {
     body: t.Object({
       stops: t.Array(t.Object({
@@ -189,6 +226,7 @@ const app = new Elysia({ prefix: '/api' })
       elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+      lemonadeCoefficient: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
     }),
     response: t.Object({
       geometry: t.Array(t.Array(t.Number())),
@@ -209,6 +247,12 @@ const app = new Elysia({ prefix: '/api' })
         from: t.Number(),
         to: t.Number(),
         roadClass: t.String(),
+      })),
+      poiLocations: t.Array(t.Object({
+        lat: t.Number(),
+        lng: t.Number(),
+        name: t.String(),
+        type: t.String(),
       })),
     }),
   })

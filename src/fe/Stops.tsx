@@ -20,6 +20,7 @@ export default function Stops() {
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
   const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
   const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number[]>([DEFAULT_CYCLEWAY])
+  const [lemonadeCoeff, setLemonadeCoeff] = createSignal<number[]>([0])
 
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
@@ -118,6 +119,7 @@ export default function Stops() {
         elevationCoefficient: coeff(elevCoeff()[0], DEFAULT_ELEVATION),
         roadAvoidanceCoefficient: 1 - coeff(roadAvoidCoeff()[0], DEFAULT_ROAD_AVOIDANCE),
         cyclewayCoefficient: coeff(cyclewayCoeff()[0], DEFAULT_CYCLEWAY),
+        lemonadeCoefficient: coeff(lemonadeCoeff()[0], 0),
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -298,6 +300,32 @@ export default function Stops() {
         >
           <div class="slider-label">
             <Slider.Label>Cyklostezky</Slider.Label>
+            <Slider.ValueLabel />
+          </div>
+          <Slider.Track class="slider-track">
+            <Slider.Fill class="slider-range" />
+            <Slider.Thumb class="slider-thumb">
+              <Slider.Input class="slider-input" />
+            </Slider.Thumb>
+          </Slider.Track>
+        </Slider>
+
+        <Slider
+          value={lemonadeCoeff()}
+          onChange={setLemonadeCoeff}
+          minValue={0}
+          maxValue={1}
+          step={0.05}
+        >
+          <div class="slider-label slider-label-experimental">
+            <Tooltip openDelay={0}>
+              <Slider.Label class="slider-label-text">Limonádová cesta</Slider.Label>
+              <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
+            </Tooltip>
+            <Tooltip openDelay={0}>
+              <Tooltip.Trigger class="experimental-badge" as="span">⚠️</Tooltip.Trigger>
+              <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
+            </Tooltip>
             <Slider.ValueLabel />
           </div>
           <Slider.Track class="slider-track">

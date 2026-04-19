@@ -68,6 +68,7 @@ export default function Map() {
   let stopMarkers: L.Marker[] = []
   let routeLine: L.Polyline | null = null
   let highlightMarker: L.CircleMarker | null = null
+  let poiMarkers: L.Marker[] = []
   let geometryDistances: number[] | null = null
 
   /** Create a divIcon with a colored circle, matching the original color scheme. */
@@ -180,6 +181,31 @@ export default function Map() {
       routeLine = L.polyline(r.geometry, { color: '#2563eb', weight: 4, opacity: 0.8 }).addTo(map)
       geometryDistances = computeGeometryDistances(r.geometry)
       map.fitBounds(routeLine.getBounds(), { padding: [50, 50] })
+    }
+  })
+
+  createEffect(() => {
+    // Clean up existing POI markers
+    poiMarkers.forEach(m => map.removeLayer(m))
+    poiMarkers = []
+
+    const r = route()
+    if (!r?.poiLocations?.length) return
+
+    const icon = L.divIcon({
+      className: 'poi-marker',
+      html: '🍺',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    })
+
+    for (const poi of r.poiLocations) {
+      const marker = L.marker([poi.lat, poi.lng], {
+        icon,
+        draggable: false,
+        zIndexOffset: 500,
+      } as L.MarkerOptions).bindPopup(`<b>${poi.name}</b><br/>${poi.type}`).addTo(map)
+      poiMarkers.push(marker)
     }
   })
 
