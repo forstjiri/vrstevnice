@@ -1,5 +1,6 @@
-import { onMount, onCleanup, createEffect, Show } from 'solid-js'
+import { onMount, onCleanup, createEffect } from 'solid-js'
 import L from 'leaflet'
+import 'leaflet-contextmenu'
 import { useApp } from './App'
 import ElevationChart from './ElevationChart'
 
@@ -88,26 +89,33 @@ export default function Map() {
   }
 
   onMount(() => {
-    map = L.map(container, { zoomControl: true }).setView([49.82, 15.47], 7)
+    map = L.map(container, {
+      zoomControl: true,
+      contextmenu: true,
+      contextmenuItems: [
+        {
+          text: 'Přidat zastávku',
+          callback: (e: any) => {
+            addStop({ lat: e.latlng.lat, lng: e.latlng.lng, name: `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}` })
+          },
+        },
+        {
+          text: 'Otevřít na Mapy.cz',
+          callback: (e: any) => {
+            window.open(`https://en.mapy.cz/turisticka?x=${e.latlng.lng.toFixed(6)}&y=${e.latlng.lat.toFixed(6)}&z=16`, '_blank')
+          },
+        },
+      ],
+    } as any).setView([49.82, 15.47], 7)
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap',
-      maxZoom: 19,
-    }).addTo(map)
-
-    L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm-lite/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
       maxZoom: 19,
+      className: 'cyclosm-tiles',
     }).addTo(map)
 
     // Prevent default browser context menu on the map
     map.getContainer().addEventListener('contextmenu', e => e.preventDefault())
-
-    // Right-click → create a new stop at the clicked coordinates
-    map.on('contextmenu', (e: L.LeafletMouseEvent) => {
-      const { lat, lng } = e.latlng
-      addStop({ lat, lng, name: `${lat.toFixed(5)}, ${lng.toFixed(5)}` })
-    })
 
     const updateBounds = () => {
       const b = map.getBounds()
@@ -146,7 +154,7 @@ export default function Map() {
           icon: makeStopIcon(color, i),
           draggable: true,
           zIndexOffset: 1000,
-        }).bindPopup(s.name).addTo(map)
+        } as L.MarkerOptions).bindPopup(s.name).addTo(map)
 
         marker.on('dragend', () => {
           const pos = marker.getLatLng()
@@ -213,16 +221,6 @@ export default function Map() {
     <div class="map-wrapper">
       <div class="map-container">
         <div ref={container} class="leaflet-host" />
-        <Show when={route()}>
-          {r => (
-            <div class="route-info">
-              <span class="val">{r().distance.toFixed(1)} km</span>{'\n'}
-              <span class="gain">↑ {r().elevationGain} m</span>{'\n'}
-              <span class="loss">↓ {r().elevationLoss} m</span>{'\n'}
-              <span class="val">⏱ {Math.round(r().duration / 60)} min</span>
-            </div>
-          )}
-        </Show>
       </div>
       <ElevationChart />
     </div>

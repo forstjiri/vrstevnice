@@ -56,10 +56,16 @@ importers:
       leaflet:
         specifier: ^1.9.0
         version: 1.9.4
+      leaflet-contextmenu:
+        specifier: ^1.4.0
+        version: 1.4.0
       solid-js:
         specifier: ^1.9.0
         version: 1.9.12
     devDependencies:
+      '@types/leaflet-contextmenu':
+        specifier: ^1.4.4
+        version: 1.4.4
       '@vrstevnice/be':
         specifier: workspace:*
         version: link:../be
@@ -434,6 +440,9 @@ packages:
   '@types/geojson@7946.0.16':
     resolution: {integrity: sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg==}
 
+  '@types/leaflet-contextmenu@1.4.4':
+    resolution: {integrity: sha512-3BcUZceTEHDOu2kD6Is5cQB5z/DIVMPZoN/o5yXGrH0Y4CfWuSpP1Sm6ZHdBMQ+nVtEQXZnIV/GOE4ZEGX39HQ==}
+
   '@types/leaflet@1.9.21':
     resolution: {integrity: sha512-TbAd9DaPGSnzp6QvtYngntMZgcRk+igFELwR2N99XZn7RXUdKgsXMR+28bUO0rPsWp8MIu/f47luLIQuSLYv/w==}
 
@@ -743,6 +752,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  leaflet-contextmenu@1.4.0:
+    resolution: {integrity: sha512-BXASCmJ5bLkuJGDCpWmvGqhZi5AzeOY0IbQalfkgBcMAMfAOFSvD4y0gIQxF/XzEyLkjXaRiUpibVj4+Cf3tUA==}
 
   leaflet@1.9.4:
     resolution: {integrity: sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==}
@@ -1520,6 +1532,10 @@ snapshots:
 
   '@types/geojson@7946.0.16': {}
 
+  '@types/leaflet-contextmenu@1.4.4':
+    dependencies:
+      '@types/leaflet': 1.9.21
+
   '@types/leaflet@1.9.21':
     dependencies:
       '@types/geojson': 7946.0.16
@@ -1701,6 +1717,8 @@ snapshots:
   jsesc@3.1.0: {}
 
   json5@2.2.3: {}
+
+  leaflet-contextmenu@1.4.0: {}
 
   leaflet@1.9.4: {}
 

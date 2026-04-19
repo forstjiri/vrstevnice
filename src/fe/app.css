@@ -338,26 +338,6 @@ body {
   font-size: 12px;
 }
 
-/* ── Route info overlay ────────────────── */
-
-.route-info {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  background: var(--color-surface);
-  padding: 14px 18px;
-  border-radius: var(--radius);
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.1);
-  font-size: 13px;
-  line-height: 1.7;
-  font-family: var(--font-mono);
-  white-space: pre;
-}
-
-.route-info .val { color: var(--color-primary); font-weight: 600; }
-.route-info .gain { color: var(--color-danger); }
-.route-info .loss { color: var(--color-success); }
-
 /* ── Map ───────────────────────────────── */
 
 .map-wrapper {
@@ -455,3 +435,80 @@ body {
 /* ── Separator (Kobalte Separator) ─────── */
 
 .separator { border: none; border-top: 1px solid var(--color-border); }
+
+/* ── Map context menu (leaflet-contextmenu) ── */
+
+.leaflet-contextmenu {
+  display: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  padding: 4px 0;
+  min-width: 180px;
+  font-family: var(--font);
+  font-size: 13px;
+  z-index: 2000;
+}
+
+.leaflet-contextmenu a.leaflet-contextmenu-item {
+  display: block;
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: var(--font);
+  line-height: 1;
+  text-decoration: none;
+  padding: 9px 14px;
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  outline: none;
+  transition: background 80ms, color 80ms;
+}
+
+.leaflet-contextmenu a.leaflet-contextmenu-item.over {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+  border-top-color: var(--color-border-subtle);
+  border-bottom-color: var(--color-border-subtle);
+}
+
+.leaflet-contextmenu a.leaflet-contextmenu-item-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.leaflet-contextmenu a.leaflet-contextmenu-item-disabled.over {
+  background: inherit;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.leaflet-contextmenu-icon {
+  margin: 2px 8px 0 0;
+  width: 16px;
+  height: 16px;
+  float: left;
+  border: 0;
+}
+
+.leaflet-contextmenu-separator {
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin: 4px 0;
+}
+
+/* ── Map tile styling ─────────────────── */
+
+/*
+ * CyclOSM cyklomapa — plná verze jako base layer.
+ * Filtry ladí kontrast a sytost cyklostezek a sítí.
+ * Uprav podle vkusu — prohlížeč reaguje okamžitě.
+ *
+ * hue-rotate  — 0° = originál, kladné = směr hodinových ručiček
+ * saturate    — 1.0 = originál, < 1 = vybledlé, > 1 = sytější
+ * brightness  — 1.0 = originál, < 1 = tmavší, > 1 = světlejší
+ * contrast    — 1.0 = originál
+ */
+.cyclosm-tiles {
+  filter: saturate(0.95) brightness(1.01);
+}

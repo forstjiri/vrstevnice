@@ -237,6 +237,11 @@ export default function Stops() {
               <span class="route-stat-value">{Math.round(route()!.elevationLoss)}</span>
               <span class="route-stat-unit">m</span>
             </span>
+            <span class="route-stat">
+              <span class="route-stat-emoji">⏱️</span>
+              <span class="route-stat-value">{Math.round(route()!.duration / 60)}</span>
+              <span class="route-stat-unit">min</span>
+            </span>
           </div>
         </Show>
 
