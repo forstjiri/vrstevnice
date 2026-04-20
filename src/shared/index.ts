@@ -41,7 +41,7 @@ export interface POILocation {
   lat: number
   /** Longitude */
   lng: number
-  /** POI display name from Overpass/Nominatim */
+  /** POI display name from Overpass/Photon */
   name: string
   /** Amenity category: pub, bar, restaurant, cafe, or biergarten */
   type: string

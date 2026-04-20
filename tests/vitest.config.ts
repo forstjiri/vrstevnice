@@ -20,6 +20,7 @@ export default defineConfig({
       // Allow imports from src/* in tests without relative path hacks
       '@vrstevnice/routing': path.resolve(projectRoot, 'src/routing/index.ts'),
       '@vrstevnice/shared': path.resolve(projectRoot, 'src/shared/index.ts'),
+      '@vrstevnice/be': path.resolve(projectRoot, 'src/be/index.ts'),
     },
   },
 })

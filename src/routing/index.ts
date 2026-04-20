@@ -72,11 +72,12 @@ const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/in
  *
  * - roadAvoidanceCoefficient 0→1: penalize MOTORWAY+TRUNK (0.01→1.0),
  *   PRIMARY (0.05→1.0), SECONDARY (0.2→1.0)
- * - elevationCoefficient 0→1: slope bands >3% (0.5→1.0), >6% (0.3→1.0),
- *   >10% (0.1→1.0)
+ * - elevationCoefficient 0→1: 0 = hills ok (no penalty), 1 = avoid hills (heavy penalty).
+ *   Slope bands: average_slope > 3% (0.5→1.0), max_slope > 6% (0.3→1.0),
+ *   max_slope > 10% (0.1→1.0). GH encoded values are in percentage units (3 = 3%).
  * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→5.0), lower
  *   distance_influence (allow longer detours)
- * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30
+ * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30
  */
 export function buildCustomModel(
   elevationCoefficient: number,
@@ -84,36 +85,46 @@ export function buildCustomModel(
   cyclewayCoefficient = 0,
 ): GHCustomModel {
   // Road avoidance: 0 = max avoidance (low priority), 1 = no avoidance (full priority)
+  // Floors kept high enough that roads stay viable when stacked with elevation penalties
   const roadRules: GHCustomModelRule[] = [
     {
       if: 'road_class == MOTORWAY || road_class == TRUNK',
-      multiply_by: String(lerp(0.01, 1.0, roadAvoidanceCoefficient)),
+      multiply_by: String(lerp(0.1, 1.0, roadAvoidanceCoefficient)),
     },
     {
       if: 'road_class == PRIMARY',
-      multiply_by: String(lerp(0.05, 1.0, roadAvoidanceCoefficient)),
+      multiply_by: String(lerp(0.2, 1.0, roadAvoidanceCoefficient)),
     },
     {
       if: 'road_class == SECONDARY',
-      multiply_by: String(lerp(0.2, 1.0, roadAvoidanceCoefficient)),
+      multiply_by: String(lerp(0.4, 1.0, roadAvoidanceCoefficient)),
     },
   ]
 
-  // Elevation: 0 = max flat preference (low priority for slopes), 1 = hills ok (full priority)
-  // GH bike profile uses average_slope and max_slope (encoded numeric values)
-  // slope thresholds: 3% = 0.03, 6% = 0.06, 10% = 0.10
+  // Elevation: 0 = hills ok (full priority), 1 = max flat preference (low priority for slopes)
+  // GH encoded values for average_slope/max_slope are in percentage (3 = 3%, 7 = 7%)
+  // Thresholds in percentage units: steep >10%, moderate >6%, gentle >3%
+  //
+  // IMPORTANT: keep minimum multipliers high enough that elevation penalties don't
+  // stack with road_class penalties and kill edges entirely. If PRIMARY road with
+  // average_slope > 6 gets 0.05 * 0.2 = 0.01, GH can't find any valid flat detour
+  // (they tend to be on higher-class roads) and falls back to the direct hilly route.
   const elevationRules: GHCustomModelRule[] = [
     {
-      if: 'max_slope > 0.10',
-      multiply_by: String(lerp(0.1, 1.0, elevationCoefficient)),
+      if: 'max_slope > 10',
+      multiply_by: String(lerp(0.3, 1.0, 1 - elevationCoefficient)),
     },
     {
-      if: 'max_slope > 0.06',
-      multiply_by: String(lerp(0.3, 1.0, elevationCoefficient)),
+      if: 'max_slope > 6',
+      multiply_by: String(lerp(0.5, 1.0, 1 - elevationCoefficient)),
     },
     {
-      if: 'average_slope > 0.03',
-      multiply_by: String(lerp(0.5, 1.0, elevationCoefficient)),
+      if: 'average_slope > 6',
+      multiply_by: String(lerp(0.4, 1.0, 1 - elevationCoefficient)),
+    },
+    {
+      if: 'average_slope > 3',
+      multiply_by: String(lerp(0.6, 1.0, 1 - elevationCoefficient)),
     },
   ]
 
@@ -129,7 +140,7 @@ export function buildCustomModel(
     },
   ]
 
-  const distance_influence = Math.max(30, 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30)
+  const distance_influence = Math.max(30, 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30)
 
   return {
     priority: [...roadRules, ...elevationRules, ...cyclewayRules],

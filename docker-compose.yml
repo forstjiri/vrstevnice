@@ -24,5 +24,23 @@ services:
       retries: 5
       start_period: 600s
 
+  photon:
+    image: rtuszik/photon-docker:latest
+    container_name: vrstevnice-photon
+    restart: unless-stopped
+    ports:
+      - "2322:2322"
+    volumes:
+      - photon-data:/photon/photon_data
+    environment:
+      FILE_URL: "https://download1.graphhopper.com/public/extracts/photon-db-cz-250720.tar.bz2"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2322/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
 volumes:
   gh-data:
+  photon-data:

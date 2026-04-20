@@ -4,10 +4,14 @@ import logixlysia from 'logixlysia'
 import type { GeocodeResult, RouteResponse, POILocation } from '@vrstevnice/shared'
 import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse, fetchPOIsAlongRoute, insertPOIWaypoints } from '@vrstevnice/routing'
 import { db, routes } from './db'
+import { mapPhotonFeature } from './geocode'
+import { detectAndParseGPS } from './gps'
 import { resolve } from 'node:path'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
+const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
+
 const LOG_FILE = resolve(PROJECT_ROOT, 'logs', 'app.log')
 
 /** Browsers treat localhost vs 127.0.0.1 as different origins; allow both in dev. */
@@ -88,46 +92,89 @@ const app = new Elysia({ prefix: '/api' })
 
   .get('/geocode', async ({ query, store }) => {
     const { pino } = store as { pino: any }
-    pino.debug({ query: query.q, viewbox: query.viewbox, bounded: query.bounded }, 'Geocode request')
+    pino.debug({ q: query.q }, 'Geocode request')
 
-    const params = new URLSearchParams({
-      format: 'json',
-      q: query.q,
-      limit: '5',
-      'accept-language': 'cs',
-    })
-    if (query.viewbox) {
-      params.set('viewbox', query.viewbox)
-      if (query.bounded === '1') {
-        params.set('bounded', '1')
+    // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
+    const gpsCoord = detectAndParseGPS(query.q)
+    if (gpsCoord) {
+      pino.debug({ lat: gpsCoord.lat, lng: gpsCoord.lng }, 'GPS detected')
+      const reverseUrl = `${PHOTON_URL}/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`
+
+      try {
+        const reverseRes = await fetch(reverseUrl)
+        if (reverseRes.ok) {
+          const reverseData = await reverseRes.json() as any
+          const features: any[] = reverseData?.features ?? []
+          pino.debug({ count: features.length }, 'Reverse geocode results')
+
+          if (features.length > 0) {
+            return [mapPhotonFeature(features[0])]
+          }
+        } else {
+          const text = await reverseRes.text()
+          pino.error({ status: reverseRes.status, body: text }, 'Photon reverse geocode failed')
+        }
+      } catch (err) {
+        pino.error({ error: (err as Error).message }, 'Photon reverse geocode unreachable')
       }
+
+      // Fallback: return raw coordinate as a GeocodeResult
+      return [{
+        lat: gpsCoord.lat,
+        lng: gpsCoord.lng,
+        name: `${gpsCoord.lat}, ${gpsCoord.lng}`,
+        displayName: `${gpsCoord.lat}, ${gpsCoord.lng}`,
+      }]
     }
 
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?${params}`
-    )
+    pino.debug('GPS: no match, forward geocode')
+
+    // ── Forward geocode via Photon ──
+    // viewbox/bounded accepted for backward compat but ignored by Photon
+    let photonUrl = `${PHOTON_URL}/api?q=${encodeURIComponent(query.q)}&limit=5`
+
+    // Apply Photon location bias when lat/lon are provided by the frontend
+    if (query.lat && query.lon) {
+      const biasZoom = query.zoom || '14'
+      photonUrl += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`
+      pino.debug({ lat: query.lat, lon: query.lon, zoom: biasZoom }, 'Location bias applied to Photon geocode')
+    }
+
+    let res: Response
+    try {
+      res = await fetch(photonUrl)
+    } catch (err) {
+      pino.error({ error: (err as Error).message, photonUrl }, 'Photon geocode unreachable')
+      throw new Error('Geocode service unavailable')
+    }
 
     if (!res.ok) {
       const text = await res.text()
-      pino.error({ status: res.status, body: text }, 'Nominatim geocode failed')
+      pino.error({ status: res.status, body: text }, 'Photon geocode failed')
       throw new Error(`Geocode failed: ${res.status}`)
     }
 
-    const data = await res.json()
-    const results: GeocodeResult[] = data.map((r: any) => ({
-      lat: parseFloat(r.lat),
-      lng: parseFloat(r.lon),
-      name: r.name || r.display_name.split(',')[0],
-      displayName: r.display_name,
-    }))
+    let data: any
+    try {
+      data = await res.json()
+    } catch (err) {
+      pino.error({ error: (err as Error).message }, 'Photon geocode: malformed JSON response')
+      throw new Error('Geocode service returned invalid data')
+    }
 
-    pino.debug({ count: results.length }, 'Geocode results')
+    const features: any[] = data?.features ?? []
+    const results: GeocodeResult[] = features.map(mapPhotonFeature)
+
+    pino.debug({ q: query.q, count: results.length }, 'Geocode results')
     return results
   }, {
     query: t.Object({
       q: t.String({ minLength: 1 }),
       viewbox: t.Optional(t.String()),
       bounded: t.Optional(t.String()),
+      lat: t.Optional(t.String()),
+      lon: t.Optional(t.String()),
+      zoom: t.Optional(t.String()),
     }),
     response: t.Array(t.Object({
       lat: t.Number(),

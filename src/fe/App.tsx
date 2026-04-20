@@ -7,11 +7,10 @@ import type { Stop, RouteResponse } from '@vrstevnice/shared'
 
 const treaty = edenTreaty<ElysiaApp>('http://localhost:3002')
 
-interface LatLngBounds {
-  south: number
-  west: number
-  north: number
-  east: number
+interface MapCenter {
+  lat: number
+  lon: number
+  zoom: number
 }
 
 interface AppContextValue {
@@ -26,8 +25,8 @@ interface AppContextValue {
   setLoading: Setter<boolean>
   error: Accessor<string | null>
   setError: Setter<string | null>
-  mapBounds: Accessor<LatLngBounds | null>
-  setMapBounds: Setter<LatLngBounds | null>
+  mapCenter: Accessor<MapCenter | null>
+  setMapCenter: Setter<MapCenter | null>
   hoveredPoint: Accessor<{ distance: number; elevation: number } | null>
   setHoveredPoint: Setter<{ distance: number; elevation: number } | null>
 }
@@ -43,7 +42,7 @@ export default function App() {
   const [route, setRoute] = createSignal<RouteResponse | null>(null)
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
-  const [mapBounds, setMapBounds] = createSignal<LatLngBounds | null>(null)
+  const [mapCenter, setMapCenter] = createSignal<MapCenter | null>(null)
   const [hoveredPoint, setHoveredPoint] = createSignal<{ distance: number; elevation: number } | null>(null)
 
   const addStop = (stop: Stop) => {
@@ -60,7 +59,7 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapBounds, setMapBounds, hoveredPoint, setHoveredPoint }}>
+    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapCenter, setMapCenter, hoveredPoint, setHoveredPoint }}>
       <Stops />
       <Map />
     </AppContext.Provider>

@@ -62,7 +62,7 @@ function findPositionAtDistance(
 }
 
 export default function Map() {
-  const { stops, addStop, updateStop, route, setMapBounds, hoveredPoint } = useApp()
+  const { stops, addStop, updateStop, route, mapCenter, setMapCenter, hoveredPoint } = useApp()
   let container!: HTMLDivElement
   let map: L.Map
   let stopMarkers: L.Marker[] = []
@@ -118,13 +118,13 @@ export default function Map() {
     // Prevent default browser context menu on the map
     map.getContainer().addEventListener('contextmenu', e => e.preventDefault())
 
-    const updateBounds = () => {
-      const b = map.getBounds()
-      setMapBounds({ south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() })
+    const updateCenter = () => {
+      const c = map.getCenter()
+      setMapCenter({ lat: c.lat, lon: c.lng, zoom: map.getZoom() })
     }
 
-    map.on('moveend', updateBounds)
-    updateBounds()
+    map.on('moveend', updateCenter)
+    updateCenter()
 
     navigator.geolocation?.getCurrentPosition(
       pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
@@ -165,10 +165,6 @@ export default function Map() {
         stopMarkers.push(marker)
       }
     }
-
-    if (current.length > 0 && !route()) {
-      map.fitBounds(L.latLngBounds(current.map(s => [s.lat, s.lng])), { padding: [50, 50] })
-    }
   })
 
   createEffect(() => {
@@ -178,7 +174,14 @@ export default function Map() {
 
     const r = route()
     if (r?.geometry.length) {
-      routeLine = L.polyline(r.geometry, { color: '#2563eb', weight: 4, opacity: 0.8 }).addTo(map)
+      routeLine = L.polyline(
+          r.geometry,
+          {
+            color: '#ff00ae',
+            weight: 4,
+
+          }
+      ).addTo(map)
       geometryDistances = computeGeometryDistances(r.geometry)
       map.fitBounds(routeLine.getBounds(), { padding: [50, 50] })
     }

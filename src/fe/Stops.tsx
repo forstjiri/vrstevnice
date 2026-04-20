@@ -12,10 +12,10 @@ import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
 const DEFAULT_ROAD_AVOIDANCE = 1;
 const DEFAULT_CYCLEWAY = 1;
-const DEFAULT_ELEVATION = 1;
+const DEFAULT_ELEVATION = .7;
 
 export default function Stops() {
-  const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapBounds } = useApp()
+  const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapCenter } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
   const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
@@ -26,66 +26,26 @@ export default function Stops() {
     if (query.length < 3) { setResults([]); return }
     setError(null)
     try {
-      const bounds = mapBounds()
-      let results: GeocodeResult[] = []
-
-      if (bounds) {
-        // Try bounded search within the visible map area first
-        results = await searchGeocode(query, bounds, true)
-        if (results.length > 0) { setResults(results); return }
-
-        // Expand viewbox by ~20km and retry without bounded
-        const expanded = expandBounds(bounds, 0.2)
-        results = await searchGeocode(query, expanded, false)
-        if (results.length > 0) { setResults(results); return }
-
-        // Expand by ~500km as a last resort
-        const wide = expandBounds(bounds, 5)
-        results = await searchGeocode(query, wide, false)
+      const center = mapCenter()
+      const params: { q: string; lat?: string; lon?: string; zoom?: string } = { q: query }
+      if (center) {
+        params.lat = String(center.lat)
+        params.lon = String(center.lon)
+        params.zoom = String(center.zoom)
       }
-
-      // Fallback: no bounds at all
-      if (results.length === 0) {
-        results = await searchGeocode(query, null, false)
+      const { data, error } = await treaty.api.geocode.get({ $query: params })
+      if (error) {
+        setError(`Chyba vyhledávání: ${error.status} ${error.value?.message || ''}`)
+        setResults([])
+        return
       }
-
-      setResults(results)
+      setResults(data ?? [])
     } catch (err) {
       console.error('Geocode error:', err)
       setError('Chyba při vyhledávání místa')
       setResults([])
     }
   }
-
-  const searchGeocode = async (
-    query: string,
-    bounds: { south: number; west: number; north: number; east: number } | null,
-    bounded: boolean,
-  ): Promise<GeocodeResult[]> => {
-    const params: { q: string; viewbox?: string; bounded?: string } = { q: query }
-    if (bounds) {
-      params.viewbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
-      if (bounded) params.bounded = '1'
-    }
-    const { data, error } = await treaty.api.geocode.get({ $query: params })
-    if (error) {
-      setError(`Chyba vyhledávání: ${error.status} ${error.value?.message || ''}`)
-      return []
-    }
-    if (data) return data
-    return []
-  }
-
-  /** Expand bounds by `degrees` in each direction (~111km per degree at equator) */
-  const expandBounds = (
-    bounds: { south: number; west: number; north: number; east: number },
-    degrees: number,
-  ) => ({
-    south: Math.max(bounds.south - degrees, -90),
-    west: Math.max(bounds.west - degrees, -180),
-    north: Math.min(bounds.north + degrees, 90),
-    east: Math.min(bounds.east + degrees, 180),
-  })
 
   const handleSelect = (result: GeocodeResult | null) => {
     if (!result) return
