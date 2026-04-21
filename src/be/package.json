@@ -13,6 +13,7 @@
     "@vrstevnice/shared": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "elysia": "^1.4.0",
+    "elysia-rate-limit": "^4.6.0",
     "logixlysia": "^6.3.1"
   }
 }

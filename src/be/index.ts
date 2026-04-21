@@ -1,12 +1,14 @@
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
+import { rateLimit } from 'elysia-rate-limit'
 import type { GeocodeResult, RouteResponse, POILocation } from '@vrstevnice/shared'
 import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse, fetchPOIsAlongRoute, insertPOIWaypoints } from '@vrstevnice/routing'
 import { db, routes } from './db'
 import { mapPhotonFeature } from './geocode'
 import { detectAndParseGPS } from './gps'
 import { resolve } from 'node:path'
+import { appendFile } from 'node:fs/promises'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
@@ -28,7 +30,7 @@ function isOriginAllowed(origin: string): boolean {
   return LOCAL_DEV_ORIGIN.test(origin)
 }
 
-/** Manual `Response` from onError bypasses the CORS plugin’s `set.headers`; mirror allowlist here. */
+/** Manual `Response` from onError bypasses the CORS plugin's `set.headers`; mirror allowlist here. */
 function corsHeadersForRequest(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin')
   if (!origin || !isOriginAllowed(origin)) return {}
@@ -38,6 +40,38 @@ function corsHeadersForRequest(request: Request): Record<string, string> {
     'Access-Control-Allow-Credentials': 'true',
   }
 }
+
+// ── Soft-warn rate limiter: pino warning at 60 req/min/IP, never blocks ──
+
+class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RateLimitError'
+  }
+}
+
+const ipCounts = new Map<string, { count: number; resetAt: number }>()
+
+const softWarnPlugin = new Elysia({ name: 'soft-warn-rate-limit' }).onBeforeHandle(
+  { as: 'global' },
+  ({ request, server }) => {
+    const ip = server?.requestIP(request)?.address
+    if (!ip) return
+
+    const now = Date.now()
+    let entry = ipCounts.get(ip)
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + 60_000 }
+      ipCounts.set(ip, entry)
+    }
+    entry.count++
+
+    if (entry.count === 60) {
+      const msg = `WARN Rate limit soft threshold reached {"ip":"${ip}","count":60,"threshold":"soft"}\n`
+      appendFile(LOG_FILE, msg).catch(() => {})
+    }
+  },
+)
 
 const app = new Elysia({ prefix: '/api' })
   .use(
@@ -67,10 +101,25 @@ const app = new Elysia({ prefix: '/api' })
       },
     }),
   )
+  .use(softWarnPlugin)
+  .use(
+    rateLimit({
+      duration: 60_000,
+      max: 300,
+      errorResponse: new RateLimitError('Rate limit exceeded. Please try again later.'),
+    }),
+  )
 
   .onError(({ code, error, request }) => {
     const msg = error instanceof Error ? error.message : String(error)
     const cors = corsHeadersForRequest(request)
+
+    if (error instanceof RateLimitError) {
+      return new Response(JSON.stringify({ message: msg }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', ...cors },
+      })
+    }
 
     if (code === 'VALIDATION') {
       return new Response(JSON.stringify({ message: msg }), {
@@ -83,7 +132,7 @@ const app = new Elysia({ prefix: '/api' })
       return new Response('Not Found', { status: 404, headers: cors })
     }
 
-    // Unknown error — return 500
+    // Unknown error - return 500
     return new Response(JSON.stringify({ message: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...cors },
@@ -238,7 +287,7 @@ const app = new Elysia({ prefix: '/api' })
         }
       } catch (poiErr) {
         const elapsed = Math.round(performance.now() - poiT0)
-        pino.error({ error: (poiErr as Error).message, elapsedMs: elapsed }, 'POI pipeline failed — returning base route')
+        pino.error({ error: (poiErr as Error).message, elapsedMs: elapsed }, 'POI pipeline failed - returning base route')
         // Fallback: return the original base route with empty poiLocations
       }
     }
@@ -259,7 +308,7 @@ const app = new Elysia({ prefix: '/api' })
       pino.debug('Route saved to DB')
     } catch (dbErr) {
       pino.error({ error: (dbErr as Error).message }, 'Failed to save route to DB')
-      // Don't fail the request — route data is still valid
+      // Don't fail the request - route data is still valid
     }
 
     return finalRouteData

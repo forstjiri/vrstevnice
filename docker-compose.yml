@@ -31,15 +31,16 @@ services:
     ports:
       - "2322:2322"
     volumes:
-      - photon-data:/photon/photon_data
+      - photon-data:/photon/data
     environment:
-      FILE_URL: "https://download1.graphhopper.com/public/extracts/photon-db-cz-250720.tar.bz2"
+      INITIAL_DOWNLOAD: "FALSE"
+      UPDATE_STRATEGY: "DISABLED"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2322/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:2322/status"]
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 300s
+      start_period: 30s
 
 volumes:
   gh-data:
