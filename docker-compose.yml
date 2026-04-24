@@ -42,6 +42,24 @@ services:
       retries: 10
       start_period: 30s
 
+  tileserver:
+    image: maptiler/tileserver-gl-light:latest
+    container_name: vrstevnice-tileserver
+    restart: unless-stopped
+    ports:
+      - "2323:8080"
+    volumes:
+      - ./data:/data:ro
+      - ./docker/tileserver:/config:ro
+    working_dir: /config
+    command: [--config, /config/config.json]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 volumes:
   gh-data:
   photon-data:

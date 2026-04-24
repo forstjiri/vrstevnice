@@ -10,12 +10,10 @@
     "@elysiajs/eden": "^1.4.0",
     "@kobalte/core": "^0.13.0",
     "@vrstevnice/shared": "workspace:*",
-    "leaflet": "^1.9.0",
-    "leaflet-contextmenu": "^1.4.0",
+    "maplibre-gl": "^5.24.0",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
-    "@types/leaflet-contextmenu": "^1.4.4",
     "@vrstevnice/be": "workspace:*",
     "vite": "^8.0.0",
     "vite-plugin-solid": "^2.11.0"

@@ -1,0 +1,22 @@
+{
+  "options": {
+    "paths": {
+      "root": "",
+      "styles": "styles",
+      "mbtiles": "/data"
+    }
+  },
+  "styles": {
+    "basic": {
+      "style": "basic/style.json",
+      "tilejson": {
+        "type": "overlay"
+      }
+    }
+  },
+  "data": {
+    "openmaptiles": {
+      "mbtiles": "cz.mbtiles"
+    }
+  }
+}

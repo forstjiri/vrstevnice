@@ -1,6 +1,5 @@
 import { onMount, onCleanup, createEffect } from 'solid-js'
-import L from 'leaflet'
-import 'leaflet-contextmenu'
+import maplibregl from 'maplibre-gl'
 import { useApp } from './App'
 import ElevationChart from './ElevationChart'
 
@@ -64,23 +63,12 @@ function findPositionAtDistance(
 export default function Map() {
   const { stops, addStop, updateStop, route, mapCenter, setMapCenter, hoveredPoint } = useApp()
   let container!: HTMLDivElement
-  let map: L.Map
-  let stopMarkers: L.Marker[] = []
-  let routeLine: L.Polyline | null = null
-  let highlightMarker: L.CircleMarker | null = null
-  let poiMarkers: L.Marker[] = []
+  let map!: maplibregl.Map
+  let mapReady = false
+  let stopMarkers: maplibregl.Marker[] = []
+  let poiMarkers: maplibregl.Marker[] = []
   let geometryDistances: number[] | null = null
-
-  /** Create a divIcon with a colored circle, matching the original color scheme. */
-  function makeStopIcon(color: string, index: number): L.DivIcon {
-    return L.divIcon({
-      className: 'stop-marker',
-      html: `<span class="stop-marker-dot" style="background:${color}">${index + 1}</span>`,
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
-      popupAnchor: [0, -14],
-    })
-  }
+  let contextMenu: HTMLDivElement | null = null
 
   function stopColor(index: number, total: number): string {
     if (total === 1) return '#3b82f6'
@@ -89,47 +77,116 @@ export default function Map() {
     return '#3b82f6'
   }
 
+  function createStopElement(color: string, index: number, name: string): HTMLElement {
+    const el = document.createElement('div')
+    el.className = 'stop-marker'
+    const dot = document.createElement('span')
+    dot.className = 'stop-marker-dot'
+    dot.style.background = color
+    dot.textContent = `${index + 1}`
+    el.appendChild(dot)
+    return el
+  }
+
+  function createPoiElement(): HTMLElement {
+    const el = document.createElement('div')
+    el.className = 'poi-marker'
+    el.textContent = '🍺'
+    return el
+  }
+
+  function removeContextMenu() {
+    contextMenu?.remove()
+    contextMenu = null
+  }
+
+  function showContextMenu(e: maplibregl.MapMouseEvent) {
+    removeContextMenu()
+
+    contextMenu = document.createElement('div')
+    contextMenu.className = 'map-contextmenu'
+
+    const addStopItem = document.createElement('div')
+    addStopItem.className = 'map-contextmenu-item'
+    addStopItem.textContent = 'Přidat zastávku'
+    addStopItem.addEventListener('click', () => {
+      addStop({
+        lat: e.lngLat.lat,
+        lng: e.lngLat.lng,
+        name: `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`,
+      })
+      removeContextMenu()
+    })
+    contextMenu.appendChild(addStopItem)
+
+    const openMapyItem = document.createElement('div')
+    openMapyItem.className = 'map-contextmenu-item'
+    openMapyItem.textContent = 'Otevřít na Mapy.cz'
+    openMapyItem.addEventListener('click', () => {
+      window.open(
+        `https://en.mapy.cz/turisticka?x=${e.lngLat.lng.toFixed(6)}&y=${e.lngLat.lat.toFixed(6)}&z=16`,
+        '_blank',
+      )
+      removeContextMenu()
+    })
+    contextMenu.appendChild(openMapyItem)
+
+    // Position relative to map container
+    const mapContainer = map.getContainer()
+    const rect = mapContainer.getBoundingClientRect()
+    contextMenu.style.left = `${e.point.x}px`
+    contextMenu.style.top = `${e.point.y}px`
+    mapContainer.appendChild(contextMenu)
+  }
+
   onMount(() => {
-    map = L.map(container, {
-      zoomControl: true,
-      contextmenu: true,
-      contextmenuItems: [
-        {
-          text: 'Přidat zastávku',
-          callback: (e: any) => {
-            addStop({ lat: e.latlng.lat, lng: e.latlng.lng, name: `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}` })
-          },
-        },
-        {
-          text: 'Otevřít na Mapy.cz',
-          callback: (e: any) => {
-            window.open(`https://en.mapy.cz/turisticka?x=${e.latlng.lng.toFixed(6)}&y=${e.latlng.lat.toFixed(6)}&z=16`, '_blank')
-          },
-        },
-      ],
-    } as any).setView([49.82, 15.47], 7)
+    map = new maplibregl.Map({
+      container,
+      style: 'http://localhost:2323/styles/basic/style.json',
+      center: [15.47, 49.82], // [lng, lat]
+      zoom: 7,
+    })
 
-    L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.cyclosm.org">CyclOSM</a>',
-      maxZoom: 19,
-      className: 'cyclosm-tiles',
-    }).addTo(map)
+    map.addControl(new maplibregl.NavigationControl())
 
-    // Prevent default browser context menu on the map
-    map.getContainer().addEventListener('contextmenu', e => e.preventDefault())
+    map.on('load', () => {
+      mapReady = true
+    })
 
+    // Context menu handling
+    map.on('contextmenu', (e) => {
+      e.preventDefault()
+      showContextMenu(e)
+    })
+    map.on('click', () => removeContextMenu())
+
+    // Track map center
     const updateCenter = () => {
       const c = map.getCenter()
       setMapCenter({ lat: c.lat, lon: c.lng, zoom: map.getZoom() })
     }
-
     map.on('moveend', updateCenter)
     updateCenter()
 
+    // Geolocation
     navigator.geolocation?.getCurrentPosition(
-      pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
+      (pos) => {
+        map.setCenter([pos.coords.longitude, pos.coords.latitude])
+        map.setZoom(14)
+      },
       () => {},
     )
+
+    // Global escape key handler for context menu
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') removeContextMenu()
+    }
+    document.addEventListener('keydown', handleKey)
+
+    onCleanup(() => {
+      document.removeEventListener('keydown', handleKey)
+      removeContextMenu()
+    })
   })
 
   createEffect(() => {
@@ -138,7 +195,7 @@ export default function Map() {
 
     // Diff markers: reuse by index, add new, remove excess
     while (stopMarkers.length > total) {
-      map.removeLayer(stopMarkers.pop()!)
+      stopMarkers.pop()!.remove()
     }
 
     for (let i = 0; i < total; i++) {
@@ -146,20 +203,53 @@ export default function Map() {
       const color = stopColor(i, total)
 
       if (i < stopMarkers.length) {
-        // Update existing marker position and icon
-        stopMarkers[i].setLatLng([s.lat, s.lng])
-        stopMarkers[i].setIcon(makeStopIcon(color, i))
-      } else {
-        // Create new marker
-        const marker = L.marker([s.lat, s.lng], {
-          icon: makeStopIcon(color, i),
+        // MapLibre Marker doesn't support updating DOM content in-place;
+        // remove old and create new at same position
+        stopMarkers[i].remove()
+        const el = createStopElement(color, i, s.name)
+        const marker = new maplibregl.Marker({
+          element: el,
           draggable: true,
-          zIndexOffset: 1000,
-        } as L.MarkerOptions).bindPopup(s.name).addTo(map)
+          anchor: 'center',
+        })
+          .setLngLat([s.lng, s.lat])
+          .addTo(map)
 
         marker.on('dragend', () => {
-          const pos = marker.getLatLng()
+          const pos = marker.getLngLat()
           updateStop(i, pos.lat, pos.lng)
+        })
+
+        el.addEventListener('click', () => {
+          new maplibregl.Popup({ offset: 14, closeButton: false })
+            .setLngLat([s.lng, s.lat])
+            .setText(s.name)
+            .addTo(map)
+        })
+
+        stopMarkers[i] = marker
+      } else {
+        // Create new marker
+        const el = createStopElement(color, i, s.name)
+        const marker = new maplibregl.Marker({
+          element: el,
+          draggable: true,
+          anchor: 'center',
+        })
+          .setLngLat([s.lng, s.lat])
+          .addTo(map)
+
+        marker.on('dragend', () => {
+          const pos = marker.getLngLat()
+          updateStop(i, pos.lat, pos.lng)
+        })
+
+        // Add popup on click
+        el.addEventListener('click', () => {
+          new maplibregl.Popup({ offset: 14, closeButton: false })
+            .setLngLat([s.lng, s.lat])
+            .setText(s.name)
+            .addTo(map)
         })
 
         stopMarkers.push(marker)
@@ -168,79 +258,129 @@ export default function Map() {
   })
 
   createEffect(() => {
-    routeLine && map.removeLayer(routeLine)
-    routeLine = null
-    geometryDistances = null
+    if (!mapReady) return
 
     const r = route()
-    if (r?.geometry.length) {
-      routeLine = L.polyline(
-          r.geometry,
-          {
-            color: '#ff00ae',
-            weight: 4,
-
-          }
-      ).addTo(map)
-      geometryDistances = computeGeometryDistances(r.geometry)
-      map.fitBounds(routeLine.getBounds(), { padding: [50, 50] })
+    if (!r?.geometry.length) {
+      // Remove route source/layer if they exist
+      if (map.getSource('route')) {
+        map.removeLayer('route-line')
+        map.removeSource('route')
+      }
+      geometryDistances = null
+      return
     }
+
+    // Convert [lat, lng] to [lng, lat] for GeoJSON
+    const coords: [number, number][] = r.geometry.map(([lat, lng]) => [lng, lat] as [number, number])
+
+    const geojson = {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: coords,
+      },
+    }
+
+    if (map.getSource('route')) {
+      ;(map.getSource('route') as maplibregl.GeoJSONSource).setData(geojson)
+    } else {
+      map.addSource('route', { type: 'geojson', data: geojson })
+      map.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
+        paint: {
+          'line-color': '#ff00ae',
+          'line-width': 4,
+        },
+      })
+    }
+
+    geometryDistances = computeGeometryDistances(r.geometry)
+
+    // Fit bounds
+    const bounds = coords.reduce(
+      (b, c) => b.extend(c as [number, number]),
+      new maplibregl.LngLatBounds(coords[0], coords[0]),
+    )
+    map.fitBounds(bounds, { padding: 50 })
   })
 
   createEffect(() => {
     // Clean up existing POI markers
-    poiMarkers.forEach(m => map.removeLayer(m))
+    poiMarkers.forEach((m) => m.remove())
     poiMarkers = []
 
     const r = route()
     if (!r?.poiLocations?.length) return
 
-    const icon = L.divIcon({
-      className: 'poi-marker',
-      html: '🍺',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-    })
-
     for (const poi of r.poiLocations) {
-      const marker = L.marker([poi.lat, poi.lng], {
-        icon,
-        draggable: false,
-        zIndexOffset: 500,
-      } as L.MarkerOptions).bindPopup(`<b>${poi.name}</b><br/>${poi.type}`).addTo(map)
+      const el = createPoiElement()
+      const marker = new maplibregl.Marker({
+        element: el,
+        anchor: 'center',
+      })
+        .setLngLat([poi.lng, poi.lat])
+        .addTo(map)
+
+      el.addEventListener('click', () => {
+        new maplibregl.Popup({ offset: 11, closeButton: false })
+          .setLngLat([poi.lng, poi.lat])
+          .setHTML(`<b>${poi.name}</b><br/>${poi.type}`)
+          .addTo(map)
+      })
+
       poiMarkers.push(marker)
     }
   })
 
   createEffect(() => {
+    if (!mapReady) return
+
     const point = hoveredPoint()
     if (!point || !geometryDistances || !route()?.geometry.length) {
-      if (highlightMarker) {
-        map.removeLayer(highlightMarker)
-        highlightMarker = null
+      if (map.getSource('highlight')) {
+        map.removeLayer('highlight-circle')
+        map.removeSource('highlight')
       }
       return
     }
 
     const pos = findPositionAtDistance(route()!.geometry, geometryDistances, point.distance)
     if (!pos) {
-      if (highlightMarker) {
-        map.removeLayer(highlightMarker)
-        highlightMarker = null
+      if (map.getSource('highlight')) {
+        map.removeLayer('highlight-circle')
+        map.removeSource('highlight')
       }
       return
     }
 
-    if (highlightMarker) {
-      highlightMarker.setLatLng(pos)
+    const pointGeoJSON = {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [pos[1], pos[0]] as [number, number], // [lng, lat]
+      },
+    }
+
+    if (map.getSource('highlight')) {
+      ;(map.getSource('highlight') as maplibregl.GeoJSONSource).setData(pointGeoJSON)
     } else {
-      highlightMarker = L.circleMarker(pos, {
-        radius: 7,
-        fillColor: '#f59e0b',
-        color: '#fff',
-        weight: 2,
-        fillOpacity: 1,
-      }).addTo(map)
+      map.addSource('highlight', { type: 'geojson', data: pointGeoJSON })
+      map.addLayer({
+        id: 'highlight-circle',
+        type: 'circle',
+        source: 'highlight',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': '#f59e0b',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      })
     }
   })
 
@@ -249,7 +389,7 @@ export default function Map() {
   return (
     <div class="map-wrapper">
       <div class="map-container">
-        <div ref={container} class="leaflet-host" />
+        <div ref={container} class="map-host" />
       </div>
       <ElevationChart />
     </div>

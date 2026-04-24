@@ -1,4 +1,4 @@
-@import "leaflet/dist/leaflet.css";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
   --color-bg: #fafafa;
@@ -368,7 +368,7 @@ body {
   position: relative;
 }
 
-.map-container > .leaflet-host {
+.map-container > .map-host {
   width: 100%;
   height: 100%;
 }
@@ -466,10 +466,10 @@ body {
 
 .separator { border: none; border-top: 1px solid var(--color-border); }
 
-/* ── Map context menu (leaflet-contextmenu) ── */
+/* ── Map context menu (custom) ── */
 
-.leaflet-contextmenu {
-  display: none;
+.map-contextmenu {
+  position: absolute;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -481,7 +481,7 @@ body {
   z-index: 2000;
 }
 
-.leaflet-contextmenu a.leaflet-contextmenu-item {
+.map-contextmenu-item {
   display: block;
   color: var(--color-text);
   font-size: 13px;
@@ -494,51 +494,24 @@ body {
   cursor: pointer;
   outline: none;
   transition: background 80ms, color 80ms;
+  white-space: nowrap;
 }
 
-.leaflet-contextmenu a.leaflet-contextmenu-item.over {
+.map-contextmenu-item:hover {
   background: var(--color-primary-muted);
   color: var(--color-primary);
   border-top-color: var(--color-border-subtle);
   border-bottom-color: var(--color-border-subtle);
 }
 
-.leaflet-contextmenu a.leaflet-contextmenu-item-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-.leaflet-contextmenu a.leaflet-contextmenu-item-disabled.over {
-  background: inherit;
-  border-top-color: transparent;
-  border-bottom-color: transparent;
-}
-
-.leaflet-contextmenu-icon {
-  margin: 2px 8px 0 0;
-  width: 16px;
-  height: 16px;
-  float: left;
-  border: 0;
-}
-
-.leaflet-contextmenu-separator {
+.map-contextmenu-separator {
   border-bottom: 1px solid var(--color-border-subtle);
   margin: 4px 0;
 }
 
-/* ── Map tile styling ─────────────────── */
+/* ── MapLibre overrides ─────────────────── */
 
-/*
- * CyclOSM cyklomapa — plná verze jako base layer.
- * Filtry ladí kontrast a sytost cyklostezek a sítí.
- * Uprav podle vkusu — prohlížeč reaguje okamžitě.
- *
- * hue-rotate  — 0° = originál, kladné = směr hodinových ručiček
- * saturate    — 1.0 = originál, < 1 = vybledlé, > 1 = sytější
- * brightness  — 1.0 = originál, < 1 = tmavší, > 1 = světlejší
- * contrast    — 1.0 = originál
- */
-.cyclosm-tiles {
-  filter: saturate(0.95) brightness(1.01);
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+  opacity: 0.7;
 }
