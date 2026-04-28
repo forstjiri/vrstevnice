@@ -1,6 +1,8 @@
 import { onMount, onCleanup, createEffect, Show } from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
+import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
+import { setHoveredPoint } from './hoverStore'
 
 const PADDING = { top: 8, right: 12, bottom: 22, left: 42 }
 const TOOLTIP_OFFSET = 12
@@ -58,18 +60,6 @@ const ROAD_CLASS_LABELS: Record<string, string> = {
   OTHER: 'jiná',
 }
 
-const EARTH_RADIUS_M = 6_371_000
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
   const g = parseInt(hex.slice(3, 5), 16)
@@ -84,7 +74,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route, setHoveredPoint } = useApp()
+  const { route } = useApp()
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null
@@ -100,16 +90,6 @@ export default function ElevationChart() {
   // Per-profile-point surface and road class labels (for tooltip)
   let cachedSurfaceLabels: string[] = []
   let cachedRoadClassLabels: string[] = []
-
-  function computeGeometryDistances(geometry: [number, number][]): number[] {
-    const dists: number[] = [0]
-    for (let i = 1; i < geometry.length; i++) {
-      const [lat1, lon1] = geometry[i - 1]
-      const [lat2, lon2] = geometry[i]
-      dists.push(dists[i - 1] + haversineMeters(lat1, lon1, lat2, lon2))
-    }
-    return dists
-  }
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -199,27 +179,31 @@ export default function ElevationChart() {
         groups.push({ start, end: gi - 1, color })
       }
 
-      for (const group of groups) {
+      for (let gi = 0; gi < groups.length; gi++) {
+        const group = groups[gi]
+        // Include previous group's last point for seamless continuity
+        const drawStart = gi > 0 ? groups[gi - 1].end : group.start
+
         // Fill area with gradient for this surface color
         const fillGrad = ctx!.createLinearGradient(0, plotY, 0, plotY + plotH)
         fillGrad.addColorStop(0, hexToRgba(group.color, 0.35))
         fillGrad.addColorStop(1, hexToRgba(group.color, 0.03))
 
         ctx!.beginPath()
-        ctx!.moveTo(toX(profile[group.start].distance), toY(profile[group.start].elevation))
-        for (let j = group.start + 1; j <= group.end; j++) {
+        ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
+        for (let j = drawStart + 1; j <= group.end; j++) {
           ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
         }
         ctx!.lineTo(toX(profile[group.end].distance), plotY + plotH)
-        ctx!.lineTo(toX(profile[group.start].distance), plotY + plotH)
+        ctx!.lineTo(toX(profile[drawStart].distance), plotY + plotH)
         ctx!.closePath()
         ctx!.fillStyle = fillGrad
         ctx!.fill()
 
         // Stroke line for this surface
         ctx!.beginPath()
-        ctx!.moveTo(toX(profile[group.start].distance), toY(profile[group.start].elevation))
-        for (let j = group.start + 1; j <= group.end; j++) {
+        ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
+        for (let j = drawStart + 1; j <= group.end; j++) {
           ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
         }
         ctx!.strokeStyle = group.color

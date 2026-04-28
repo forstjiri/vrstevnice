@@ -27,8 +27,6 @@ interface AppContextValue {
   setError: Setter<string | null>
   mapCenter: Accessor<MapCenter | null>
   setMapCenter: Setter<MapCenter | null>
-  hoveredPoint: Accessor<{ distance: number; elevation: number } | null>
-  setHoveredPoint: Setter<{ distance: number; elevation: number } | null>
 }
 
 const AppContext = createContext<AppContextValue>()
@@ -43,8 +41,6 @@ export default function App() {
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
   const [mapCenter, setMapCenter] = createSignal<MapCenter | null>(null)
-  const [hoveredPoint, setHoveredPoint] = createSignal<{ distance: number; elevation: number } | null>(null)
-
   const addStop = (stop: Stop) => {
     setStops(prev => [...prev, stop])
   }
@@ -59,7 +55,7 @@ export default function App() {
   }
 
   return (
-    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapCenter, setMapCenter, hoveredPoint, setHoveredPoint }}>
+    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapCenter, setMapCenter }}>
       <Stops />
       <Map />
     </AppContext.Provider>

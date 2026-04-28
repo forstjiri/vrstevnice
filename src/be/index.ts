@@ -9,6 +9,7 @@ import { mapPhotonFeature } from './geocode'
 import { detectAndParseGPS } from './gps'
 import { resolve } from 'node:path'
 import { appendFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
@@ -184,7 +185,7 @@ const app = new Elysia({ prefix: '/api' })
 
     // Apply Photon location bias when lat/lon are provided by the frontend
     if (query.lat && query.lon) {
-      const biasZoom = query.zoom || '14'
+      const biasZoom = Math.round(parseFloat(query.zoom || '14'))
       photonUrl += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`
       pino.debug({ lat: query.lat, lon: query.lon, zoom: biasZoom }, 'Location bias applied to Photon geocode')
     }
@@ -263,11 +264,11 @@ const app = new Elysia({ prefix: '/api' })
       try {
         pino.info({ lemonadeCoefficient: rawLemonade }, 'POI pipeline: starting')
 
-        const pois = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade)
+        const { selected, all } = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade)
 
-        if (pois.length > 0) {
-          pino.info({ poiCount: pois.length }, 'POI pipeline: inserting waypoints')
-          const expandedStops = insertPOIWaypoints(stops, pois, routeData.geometry)
+        if (selected.length > 0) {
+          pino.info({ poiCount: selected.length, allPOIs: all.length }, 'POI pipeline: inserting waypoints')
+          const expandedStops = insertPOIWaypoints(stops, selected, routeData.geometry)
 
           const reRouteT0 = performance.now()
           const ghReRoute = await fetchRouteFromGH(expandedStops, customModel)
@@ -275,15 +276,18 @@ const app = new Elysia({ prefix: '/api' })
           const reRouteElapsed = Math.round(performance.now() - reRouteT0)
 
           // Attach POI locations to the re-routed response
-          reRouted.poiLocations = pois
+          reRouted.poiLocations = selected
+          reRouted.allPOILocations = all
           finalRouteData = reRouted
 
           pino.info(
-            { poiCount: pois.length, reRouteDistance: reRouted.distance, reRouteElapsedMs: reRouteElapsed },
+            { poiCount: selected.length, allPOIs: all.length, reRouteDistance: reRouted.distance, reRouteElapsedMs: reRouteElapsed },
             'POI pipeline: re-route complete',
           )
         } else {
-          pino.warn('POI pipeline: no POIs found, returning base route')
+          pino.warn({ allPOIs: all.length }, 'POI pipeline: no POIs selected, returning base route')
+          // Still attach all discovered POIs for map display even if none were selected
+          finalRouteData.allPOILocations = all
         }
       } catch (poiErr) {
         const elapsed = Math.round(performance.now() - poiT0)
@@ -350,11 +354,32 @@ const app = new Elysia({ prefix: '/api' })
         name: t.String(),
         type: t.String(),
       })),
+      allPOILocations: t.Array(t.Object({
+        lat: t.Number(),
+        lng: t.Number(),
+        name: t.String(),
+        type: t.String(),
+      })),
     }),
   })
 
   .get('/history', async () => {
     return db.select().from(routes).orderBy(routes.createdAt).all()
+  })
+
+  .get('/cycleroutes', async ({ set }) => {
+    const filePath = resolve(PROJECT_ROOT, 'data', 'cycleroutes.geojson')
+    try {
+      const data = await readFile(filePath, 'utf-8')
+      set.headers['Content-Type'] = 'application/geo+json'
+      set.headers['Cache-Control'] = 'public, max-age=86400'
+      return data
+    } catch {
+      return new Response('Cycle routes data not found. Run pnpm extract-routes first.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain' },
+      })
+    }
   })
 
   .listen(3002)

@@ -7,7 +7,8 @@
     "dev": "pnpm -r --parallel dev",
     "dev:be": "pnpm --filter @vrstevnice/be dev",
     "dev:fe": "pnpm --filter @vrstevnice/fe dev",
-    "test": "vitest run --config tests/vitest.config.ts"
+    "test": "vitest run --config tests/vitest.config.ts",
+    "extract-routes": "bash -c 'VENV=.venv-extract; [ -d $VENV ] || (uv venv $VENV && $VENV/bin/python -m pip install osmium -q); $VENV/bin/python scripts/extract_bicycle_routes.py data/czech-republic-latest.osm.pbf data/cycleroutes.geojson'"
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",

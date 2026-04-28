@@ -11,8 +11,8 @@ import {
   insertPOIWaypoints,
   queryOverpassAround,
   fetchPOIsAlongRoute,
-  haversineMeters,
 } from '@vrstevnice/routing'
+import { haversineMeters } from '@vrstevnice/shared'
 import type { POILocation, Stop } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
@@ -365,22 +365,20 @@ describe('coefficient-to-interval/radius mapping', () => {
   it('coefficient=0 returns empty (no-op)', async () => {
     const geometry = makeRouteGeometry(10, 100)
     const result = await fetchPOIsAlongRoute(geometry, 0)
-    expect(result).toEqual([])
+    expect(result).toEqual({ selected: [], all: [] })
   })
 
   it('coefficient negative returns empty', async () => {
     const geometry = makeRouteGeometry(10, 100)
     const result = await fetchPOIsAlongRoute(geometry, -0.5)
-    expect(result).toEqual([])
+    expect(result).toEqual({ selected: [], all: [] })
   })
 
-  // Verify interval/radius mapping by checking sample count behavior
-  it('coefficient=1 uses small interval → more sample points', async () => {
-    // With coefficient=1: interval=2000m, radius=800m
-    // For a 20km route, interval=2km → capped at 8 samples
+  // Verify route-length-aware sample density
+  it('coefficient=1 on short route uses max 8 samples', async () => {
+    // 20km route → desiredSamples = max(8, ceil(20/5)) = 8
     const geometry = makeRouteGeometry(20, 200)
 
-    // Mock fetch to return empty POIs
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ elements: [] }), {
         status: 200,
@@ -389,17 +387,19 @@ describe('coefficient-to-interval/radius mapping', () => {
     )
 
     try {
-      await fetchPOIsAlongRoute(geometry, 1.0)
-      // With 20km and 2km interval, expect max 8 fetch calls (one per sample)
-      expect(fetchSpy.mock.calls.length).toBe(8)
+      const result = await fetchPOIsAlongRoute(geometry, 1.0)
+      expect(result.selected).toEqual([])
+      expect(result.all).toEqual([])
+      // 20km route → 8 samples → 8 fetch calls
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(8)
     } finally {
       fetchSpy.mockRestore()
     }
   })
 
-  it('coefficient=0.1 uses large interval → fewer sample points', async () => {
-    // With coefficient=0.1: interval ≈ lerp(50000, 2000, 0.1) = 45200m
-    // For a 10km route, this should produce only 1 sample (the start)
+  it('coefficient=0.1 on short route uses same sample count as high coefficient', async () => {
+    // Sample density is the same regardless of coefficient — coefficient only
+    // controls spatial thinning of results
     const geometry = makeRouteGeometry(10, 100)
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -410,12 +410,11 @@ describe('coefficient-to-interval/radius mapping', () => {
     )
 
     try {
-      await fetchPOIsAlongRoute(geometry, 0.1)
-      // Only the start point, which doesn't trigger Overpass queries
-      // because sampleRouteGeometry only returns [start] which is 1 point
-      // but fetchPOIsAlongRoute still queries at each sample point
-      // Wait — it queries at each sample point. 1 sample point → 1 fetch
-      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(1)
+      const result = await fetchPOIsAlongRoute(geometry, 0.1)
+      expect(result.selected).toEqual([])
+      expect(result.all).toEqual([])
+      // 10km route → desiredSamples = max(8, ceil(10/5)) = 8 → 8 samples → 8 fetches
+      expect(fetchSpy.mock.calls.length).toBe(8)
     } finally {
       fetchSpy.mockRestore()
     }

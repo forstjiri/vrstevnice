@@ -19,6 +19,7 @@ build/
 __pycache__/
 *.pyc
 .venv/
+.venv-extract/
 venv/
 target/
 vendor/
@@ -39,3 +40,5 @@ graph-cache/
 
 .proxyai
 data/photon-import/
+/docker/tileserver/cz.mbtiles
+/tsconfig.tsbuildinfo

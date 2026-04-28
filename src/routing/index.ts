@@ -1,4 +1,5 @@
 import type { Stop, RouteResponse, ElevationPoint, SurfaceSegment, RoadClassSegment, POILocation } from '@vrstevnice/shared'
+import { haversineMeters, EARTH_RADIUS_M, computeGeometryDistances } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -298,14 +299,13 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     surfaceSegments: ghResult.surfaceSegments,
     roadClassSegments: ghResult.roadClassSegments,
     poiLocations: [],
+    allPOILocations: [],
   }
 }
 
 // ---------------------------------------------------------------------------
 // Elevation profile
 // ---------------------------------------------------------------------------
-
-const EARTH_RADIUS_M = 6_371_000
 
 /**
  * Compute cumulative-distance elevation profile from GH [lon, lat, ele] coordinates.
@@ -339,25 +339,28 @@ export function computeElevationProfile(
   return profile
 }
 
-/**
- * Haversine distance between two lat/lon points in meters.
- */
-export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 // ---------------------------------------------------------------------------
 // Overpass API — Lemonade route pipeline
 // ---------------------------------------------------------------------------
 
-const MAX_SAMPLE_POINTS = 8
 const DEFAULT_DEDUP_DISTANCE = 100 // meters
+
+/** Result of the POI pipeline: selected waypoints + all discovered POIs for map display. */
+export interface POIResult {
+  /** POIs selected as waypoints (after spatial thinning) */
+  selected: POILocation[]
+  /** All discovered POIs (before thinning, deduplicated) — for map display */
+  all: POILocation[]
+}
+
+/** Compute total route length in meters from Leaflet [lat, lng] geometry. */
+function computeRouteLength(geometry: [number, number][]): number {
+  let total = 0
+  for (let i = 1; i < geometry.length; i++) {
+    total += haversineMeters(geometry[i - 1][0], geometry[i - 1][1], geometry[i][0], geometry[i][1])
+  }
+  return total
+}
 
 /**
  * Query Overpass API for nearby pubs, bars, restaurants, cafes, biergarten.
@@ -423,11 +426,12 @@ export async function queryOverpassAround(
  * Sample route geometry at regular distance intervals.
  *
  * Input is Leaflet [lat, lng] format. Returns sample points in the same format.
- * Limited to MAX_SAMPLE_POINTS (8) to cap Overpass API load.
+ * @param maxSamples Cap on number of sample points (default 8, to limit Overpass API load).
  */
 export function sampleRouteGeometry(
   geometry: [number, number][],
   interval: number,
+  maxSamples = 8,
 ): [number, number][] {
   if (geometry.length < 2) return []
 
@@ -441,7 +445,7 @@ export function sampleRouteGeometry(
 
     distSinceLast += segDist
 
-    while (distSinceLast >= interval && points.length < MAX_SAMPLE_POINTS) {
+    while (distSinceLast >= interval && points.length < maxSamples) {
       // Interpolate the exact point at the interval boundary
       const overshoot = distSinceLast - interval
       const fraction = 1 - overshoot / segDist
@@ -495,32 +499,14 @@ export function insertPOIWaypoints(
   }
 
   // Find the geometry index closest to each original stop
-  const stopGeometryIndices = originalStops.map((stop) => {
-    let bestIdx = 0
-    let bestDist = Infinity
-    for (let i = 0; i < geometry.length; i++) {
-      const d = haversineMeters(stop.lat, stop.lng, geometry[i][0], geometry[i][1])
-      if (d < bestDist) {
-        bestDist = d
-        bestIdx = i
-      }
-    }
-    return bestIdx
-  })
+  const stopGeometryIndices = originalStops.map((stop) =>
+    closestGeometryIndex(stop.lat, stop.lng, geometry),
+  )
 
   // For each POI, find its closest geometry index
-  const poiGeometryIndices = pois.map((poi) => {
-    let bestIdx = 0
-    let bestDist = Infinity
-    for (let i = 0; i < geometry.length; i++) {
-      const d = haversineMeters(poi.lat, poi.lng, geometry[i][0], geometry[i][1])
-      if (d < bestDist) {
-        bestDist = d
-        bestIdx = i
-      }
-    }
-    return bestIdx
-  })
+  const poiGeometryIndices = pois.map((poi) =>
+    closestGeometryIndex(poi.lat, poi.lng, geometry),
+  )
 
   // Build result: start with original stops, insert POIs in route order
   const result: Stop[] = [...originalStops]
@@ -572,26 +558,43 @@ export function insertPOIWaypoints(
 /**
  * Main orchestrator: fetch POIs along a route based on lemonade coefficient.
  *
- * - coefficient = 0 → returns [] (no-op)
- * - Maps coefficient to sampling interval (50km → 2km) and search radius (200m → 800m)
- * - Samples route geometry, queries Overpass at each point, deduplicates
+ * Route-length-aware: the slider behaves consistently on 5km and 100km routes.
+ * - coefficient ≤ 0 → returns {selected:[], all:[]} (completely off)
+ * - coefficient < 0.07 → dead zone: find and return POIs for map display,
+ *   but insert NO waypoints (no rerouting, zero detour)
+ * - coefficient ≥ 0.07 → two controls:
+ *   1) Max waypoint cap (controls detour intensity):
+ *      12km route: 0.1→1, 0.6→3, 1.0→8
+ *      Scales with route length (capped at 3× for long routes)
+ *   2) Spatial thinning (ensures even spacing along route)
+ * - Returns both selected (capped + thinned) and all (deduplicated) POIs
  */
 export async function fetchPOIsAlongRoute(
   geometry: [number, number][],
   coefficient: number,
-): Promise<POILocation[]> {
-  if (coefficient <= 0) return []
+): Promise<POIResult> {
+  if (coefficient <= 0) return { selected: [], all: [] }
 
-  const interval = lerp(50_000, 2_000, coefficient)
-  const radius = lerp(200, 800, coefficient)
+  const routeLengthM = computeRouteLength(geometry)
+  const routeLengthKm = routeLengthM / 1000
+
+  // Dynamic sample count: one sample per ~5km, min 8, max 20
+  const desiredSamples = Math.max(8, Math.ceil(routeLengthKm / 5))
+  const maxSamples = Math.min(20, desiredSamples)
+
+  // Spread samples evenly across the route
+  const interval = routeLengthM / (maxSamples - 1)
+
+  // Search radius: proportional to sample interval, capped at 1.2km
+  const radius = Math.min(1_200, interval * 0.5)
 
   console.info(
-    { coefficient, intervalM: Math.round(interval), radiusM: Math.round(radius) },
+    { coefficient, routeLengthKm: Math.round(routeLengthKm * 10) / 10, intervalM: Math.round(interval), radiusM: Math.round(radius), maxSamples },
     'POI pipeline: sampling route',
   )
 
-  const samplePoints = sampleRouteGeometry(geometry, interval)
-  if (samplePoints.length === 0) return []
+  const samplePoints = sampleRouteGeometry(geometry, interval, maxSamples)
+  if (samplePoints.length === 0) return { selected: [], all: [] }
 
   console.info({ sampleCount: samplePoints.length }, 'POI pipeline: querying Overpass')
 
@@ -604,12 +607,182 @@ export async function fetchPOIsAlongRoute(
 
   console.info({ rawPOIs: allPOIs.length }, 'POI pipeline: raw results before dedup')
 
-  // Deduplicate
+  // Remove exact duplicates (overlapping query results)
   const deduped = deduplicatePOIs(allPOIs)
 
-  console.info({ finalPOIs: deduped.length }, 'POI pipeline: final POIs after dedup')
+  // Sort by route position so thinning preserves route order
+  const sorted = sortPOIsByRoutePosition(deduped, geometry)
 
-  return deduped
+  // --- Dead zone: below threshold, no waypoints (just show POIs on map) ---
+  const WAYPOINT_THRESHOLD = 0.07
+  if (coefficient < WAYPOINT_THRESHOLD) {
+    console.info(
+      { coefficient, threshold: WAYPOINT_THRESHOLD, deduped: deduped.length },
+      'POI pipeline: below waypoint threshold, showing POIs without rerouting',
+    )
+    return { selected: [], all: deduped }
+  }
+
+  // --- Normalize coefficient to [0, 1] above threshold ---
+  const norm = (coefficient - WAYPOINT_THRESHOLD) / (1 - WAYPOINT_THRESHOLD)
+
+  // --- Max waypoints: primary control on detour intensity ---
+  // On 12km route: coeff 0.1→1, 0.6→3, 1.0→8
+  // Quadratic curve ensures low coefficients produce very few waypoints
+  const baseMax = Math.max(1, Math.ceil(norm * norm * 8))
+  // Scales with route length (capped at 3× for long routes), rounded down
+  // so a 12.7km route doesn't get an extra waypoint vs exactly 12km
+  const routeFactor = Math.floor(Math.min(routeLengthKm / 12, 3) * 10) / 10
+  const maxWaypoints = Math.max(1, Math.ceil(baseMax * routeFactor))
+
+  // --- Start delay: don't stop immediately after start ---
+  // The more stops you want, the sooner the first one can be (but never immediately).
+  // Heuristic: startDelayFraction = 1 / (1 + maxWaypoints)
+  // 1 stop -> 1/2 (50%) delay
+  // 2 stops -> 1/3 (33%) delay
+  // 3 stops -> 1/4 (25%) delay
+  // 9 stops -> 1/10 (10%) delay
+  const startDelayFraction = 1 / (1 + maxWaypoints)
+  const minStartDistance = routeLengthM * startDelayFraction
+
+  // Pre-compute cumulative distances along geometry for all subsequent lookups
+  const geomDists = computeGeometryDistances(geometry)
+  
+  const delayedPOIs = sorted.filter(poi => {
+    const geoIdx = closestGeometryIndex(poi.lat, poi.lng, geometry)
+    return geomDists[geoIdx] >= minStartDistance
+  })
+
+  // --- Spatial thinning: spread waypoints evenly across the route ---
+  // Exponential decay: at norm=0 fraction≈1.0 (minDist≈route length → 1 POI),
+  // at norm=1 fraction≈0.05 (minDist≈5% of route → dense POIs)
+  // Raw arithmetic — must NOT use the clamped lerp() here
+  const stopFraction = Math.exp(-3 * norm)
+  const minStopDistance = Math.max(50, routeLengthM * stopFraction)
+
+  // Apply thinning then cap
+  const detourAware = filterPOIsByDetourEfficiency(delayedPOIs, geometry, geomDists)
+  const thinned = thinPOIsBySpacing(detourAware, minStopDistance)
+  const capped = thinned.slice(0, maxWaypoints)
+
+  console.info(
+    { deduped: deduped.length, detourAware: detourAware.length, thinned: thinned.length, capped: capped.length, maxWaypoints, minStopDistM: Math.round(minStopDistance) },
+    'POI pipeline: final POIs after thinning + cap',
+  )
+
+  return { selected: capped, all: deduped }
+}
+
+/**
+ * Filter POIs by comparing their detour distance (off-route) against
+ * the distance to the next potential candidate.
+ *
+ * @param geomDists Pre-computed cumulative distances for each geometry point
+ *   (from computeGeometryDistances). Avoids redundant haversine loops.
+ */
+function filterPOIsByDetourEfficiency(
+  pois: POILocation[],
+  geometry: [number, number][],
+  geomDists: number[],
+): POILocation[] {
+  if (pois.length < 2) return pois
+
+  const accepted: POILocation[] = []
+  
+  for (let i = 0; i < pois.length; i++) {
+    const current = pois[i]
+    const next = pois[i + 1]
+    
+    // Distance from POI to its closest point on route
+    const geoIdx = closestGeometryIndex(current.lat, current.lng, geometry)
+    const onRoutePoint = geometry[geoIdx]
+    const detourDist = haversineMeters(current.lat, current.lng, onRoutePoint[0], onRoutePoint[1])
+    
+    // Total cost of detour (going there and back)
+    const detourCost = detourDist * 2
+
+    if (next) {
+      const nextGeoIdx = closestGeometryIndex(next.lat, next.lng, geometry)
+      
+      // Distance along the route between the two POI projections (pre-computed)
+      const distToNextOnRoute = geomDists[nextGeoIdx] - geomDists[geoIdx]
+
+      // If detour is longer than the distance to the next candidate on the path,
+      // and that next candidate is significantly "cheaper" (closer to route), skip current.
+      const nextDetourDist = haversineMeters(next.lat, next.lng, geometry[nextGeoIdx][0], geometry[nextGeoIdx][1])
+      
+      if (detourCost > distToNextOnRoute && nextDetourDist < detourDist * 0.5) {
+        // Skip this one because there's a much better one soon
+        continue
+      }
+    }
+    
+    accepted.push(current)
+  }
+
+  return accepted
+}
+
+/**
+ * Sort POIs by their position along the route geometry (closest geometry index).
+ *
+ * Pre-computes indices into a Map keyed by POI identity to avoid calling
+ * closestGeometryIndex inside the O(n·log n) comparator.
+ */
+function sortPOIsByRoutePosition(
+  pois: POILocation[],
+  geometry: [number, number][],
+): POILocation[] {
+  const indexMap = new Map<POILocation, number>()
+  for (const poi of pois) {
+    indexMap.set(poi, closestGeometryIndex(poi.lat, poi.lng, geometry))
+  }
+  return [...pois].sort((a, b) => indexMap.get(a)! - indexMap.get(b)!)
+}
+
+/**
+ * Find the geometry index closest to a given lat/lng point.
+ */
+function closestGeometryIndex(
+  lat: number,
+  lng: number,
+  geometry: [number, number][],
+): number {
+  let bestIdx = 0
+  let bestDist = Infinity
+  for (let i = 0; i < geometry.length; i++) {
+    const d = haversineMeters(lat, lng, geometry[i][0], geometry[i][1])
+    if (d < bestDist) {
+      bestDist = d
+      bestIdx = i
+    }
+  }
+  return bestIdx
+}
+
+/**
+ * Greedy spatial thinning: keep POIs that are at least minDistance apart.
+ *
+ * POIs must already be sorted by route position.
+ * Uses haversine (straight-line) distance as a practical approximation of route distance.
+ */
+function thinPOIsBySpacing(
+  pois: POILocation[],
+  minDistance: number,
+): POILocation[] {
+  if (pois.length === 0) return []
+
+  const accepted: POILocation[] = [pois[0]]
+
+  for (let i = 1; i < pois.length; i++) {
+    const lastAccepted = accepted[accepted.length - 1]
+    const dist = haversineMeters(lastAccepted.lat, lastAccepted.lng, pois[i].lat, pois[i].lng)
+    if (dist >= minDistance) {
+      accepted.push(pois[i])
+    }
+  }
+
+  return accepted
 }
 
 // ---------------------------------------------------------------------------

@@ -417,6 +417,11 @@ body {
   filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
 }
 
+.poi-marker-dimmed {
+  opacity: 0.35;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.15)) grayscale(0.7);
+}
+
 /* ── Elevation chart ──────────────────── */
 
 .elevation-chart-container {

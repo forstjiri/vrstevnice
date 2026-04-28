@@ -1,28 +1,10 @@
 import { onMount, onCleanup, createEffect } from 'solid-js'
 import maplibregl from 'maplibre-gl'
+import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import ElevationChart from './ElevationChart'
-
-const EARTH_RADIUS_M = 6_371_000
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
-  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-/** Pre-compute cumulative haversine distances for each geometry point. */
-function computeGeometryDistances(geometry: [number, number][]): number[] {
-  const distances = [0]
-  for (let i = 1; i < geometry.length; i++) {
-    distances.push(distances[i - 1] + haversineMeters(geometry[i - 1][0], geometry[i - 1][1], geometry[i][0], geometry[i][1]))
-  }
-  return distances
-}
+import { hoveredPoint } from './hoverStore'
+import { createStopMarker, createPoiMarker, stopColor } from './map-markers'
 
 /**
  * Find [lat, lng] on the polyline at a given cumulative distance.
@@ -61,7 +43,7 @@ function findPositionAtDistance(
 }
 
 export default function Map() {
-  const { stops, addStop, updateStop, route, mapCenter, setMapCenter, hoveredPoint } = useApp()
+  const { stops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
   let container!: HTMLDivElement
   let map!: maplibregl.Map
   let mapReady = false
@@ -69,31 +51,6 @@ export default function Map() {
   let poiMarkers: maplibregl.Marker[] = []
   let geometryDistances: number[] | null = null
   let contextMenu: HTMLDivElement | null = null
-
-  function stopColor(index: number, total: number): string {
-    if (total === 1) return '#3b82f6'
-    if (index === 0) return '#22c55e'
-    if (index === total - 1) return '#ef4444'
-    return '#3b82f6'
-  }
-
-  function createStopElement(color: string, index: number, name: string): HTMLElement {
-    const el = document.createElement('div')
-    el.className = 'stop-marker'
-    const dot = document.createElement('span')
-    dot.className = 'stop-marker-dot'
-    dot.style.background = color
-    dot.textContent = `${index + 1}`
-    el.appendChild(dot)
-    return el
-  }
-
-  function createPoiElement(): HTMLElement {
-    const el = document.createElement('div')
-    el.className = 'poi-marker'
-    el.textContent = '🍺'
-    return el
-  }
 
   function removeContextMenu() {
     contextMenu?.remove()
@@ -151,6 +108,43 @@ export default function Map() {
 
     map.on('load', () => {
       mapReady = true
+      // @ts-ignore debug
+      window.__map = map
+
+      // Load KČT cycle routes overlay
+      fetch('http://localhost:3002/api/cycleroutes')
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          return res.json()
+        })
+        .then((geojson) => {
+          map.addSource('cycleroutes', { type: 'geojson', data: geojson })
+
+          const networkLayers: Array<{ id: string; filter: maplibregl.FilterSpecification; color: string; width: number }> = [
+            { id: 'cycleroutes-ncn', filter: ['==', ['get', 'network'], 'ncn'], color: '#e53e3e', width: 2.5 },
+            { id: 'cycleroutes-rcn', filter: ['==', ['get', 'network'], 'rcn'], color: '#2b6cb0', width: 2 },
+            { id: 'cycleroutes-lcn', filter: ['==', ['get', 'network'], 'lcn'], color: '#38a169', width: 1.5 },
+            { id: 'cycleroutes-other', filter: ['all', ['!=', ['get', 'network'], 'ncn'], ['!=', ['get', 'network'], 'rcn'], ['!=', ['get', 'network'], 'lcn']], color: '#a0aec0', width: 1.2 },
+          ]
+
+          for (const layer of networkLayers) {
+            map.addLayer({
+              id: layer.id,
+              type: 'line',
+              source: 'cycleroutes',
+              filter: layer.filter,
+              paint: {
+                'line-color': layer.color,
+                'line-width': layer.width,
+                'line-dasharray': [3, 2],
+                'line-opacity': 0.7,
+              },
+            }, 'road_major_label')
+          }
+
+          console.log(`[Map] Cycle routes loaded: ${geojson.features.length} features`)
+        })
+        .catch((err) => console.warn('[Map] Failed to load cycle routes:', err))
     })
 
     // Context menu handling
@@ -200,74 +194,35 @@ export default function Map() {
 
     for (let i = 0; i < total; i++) {
       const s = current[i]
-      const color = stopColor(i, total)
-
-      if (i < stopMarkers.length) {
-        // MapLibre Marker doesn't support updating DOM content in-place;
-        // remove old and create new at same position
-        stopMarkers[i].remove()
-        const el = createStopElement(color, i, s.name)
-        const marker = new maplibregl.Marker({
-          element: el,
-          draggable: true,
-          anchor: 'center',
-        })
-          .setLngLat([s.lng, s.lat])
-          .addTo(map)
-
-        marker.on('dragend', () => {
-          const pos = marker.getLngLat()
-          updateStop(i, pos.lat, pos.lng)
-        })
-
-        el.addEventListener('click', () => {
-          new maplibregl.Popup({ offset: 14, closeButton: false })
-            .setLngLat([s.lng, s.lat])
-            .setText(s.name)
-            .addTo(map)
-        })
-
-        stopMarkers[i] = marker
-      } else {
-        // Create new marker
-        const el = createStopElement(color, i, s.name)
-        const marker = new maplibregl.Marker({
-          element: el,
-          draggable: true,
-          anchor: 'center',
-        })
-          .setLngLat([s.lng, s.lat])
-          .addTo(map)
-
-        marker.on('dragend', () => {
-          const pos = marker.getLngLat()
-          updateStop(i, pos.lat, pos.lng)
-        })
-
-        // Add popup on click
-        el.addEventListener('click', () => {
-          new maplibregl.Popup({ offset: 14, closeButton: false })
-            .setLngLat([s.lng, s.lat])
-            .setText(s.name)
-            .addTo(map)
-        })
-
-        stopMarkers.push(marker)
-      }
+      if (i < stopMarkers.length) stopMarkers[i].remove()
+      const marker = createStopMarker({
+        color: stopColor(i, total), index: i, name: s.name,
+        lat: s.lat, lng: s.lng, map,
+        onDragEnd: (lat, lng) => updateStop(i, lat, lng),
+      })
+      if (i < stopMarkers.length) stopMarkers[i] = marker
+      else stopMarkers.push(marker)
     }
   })
 
   createEffect(() => {
-    if (!mapReady) return
-
     const r = route()
+    console.log('[Map] Route effect, mapReady:', mapReady, 'hasRoute:', !!r, 'geometryLen:', r?.geometry?.length)
+
+    // Always compute geometry distances (needed by highlight effect regardless of mapReady)
+    if (r?.geometry.length) {
+      geometryDistances = computeGeometryDistances(r.geometry)
+    } else {
+      geometryDistances = null
+    }
+
+    if (!mapReady) return
     if (!r?.geometry.length) {
       // Remove route source/layer if they exist
       if (map.getSource('route')) {
         map.removeLayer('route-line')
         map.removeSource('route')
       }
-      geometryDistances = null
       return
     }
 
@@ -285,6 +240,7 @@ export default function Map() {
 
     if (map.getSource('route')) {
       ;(map.getSource('route') as maplibregl.GeoJSONSource).setData(geojson)
+      console.log('[Map] Route source updated, coords:', coords.length)
     } else {
       map.addSource('route', { type: 'geojson', data: geojson })
       map.addLayer({
@@ -292,13 +248,16 @@ export default function Map() {
         type: 'line',
         source: 'route',
         paint: {
-          'line-color': '#ff00ae',
+          'line-color': '#9900ff',
           'line-width': 4,
         },
       })
+      console.log('[Map] Route source+layer added, coords:', coords.length)
     }
 
-    geometryDistances = computeGeometryDistances(r.geometry)
+    // Verify layer exists after adding
+    const checkLayer = map.getLayer('route-line')
+    console.log('[Map] route-line layer exists:', !!checkLayer, 'type:', checkLayer?.type)
 
     // Fit bounds
     const bounds = coords.reduce(
@@ -314,32 +273,27 @@ export default function Map() {
     poiMarkers = []
 
     const r = route()
-    if (!r?.poiLocations?.length) return
+    if (!r?.allPOILocations?.length) return
 
-    for (const poi of r.poiLocations) {
-      const el = createPoiElement()
-      const marker = new maplibregl.Marker({
-        element: el,
-        anchor: 'center',
+    // Build a set of selected POI coordinates for O(1) lookup
+    const selectedKeys = new Set(
+      (r.poiLocations ?? []).map((p) => `${p.lat},${p.lng}`),
+    )
+
+    for (const poi of r.allPOILocations) {
+      const isSelected = selectedKeys.has(`${poi.lat},${poi.lng}`)
+      const marker = createPoiMarker({
+        name: poi.name, type: poi.type,
+        lat: poi.lat, lng: poi.lng, map,
+        dimmed: !isSelected,
       })
-        .setLngLat([poi.lng, poi.lat])
-        .addTo(map)
-
-      el.addEventListener('click', () => {
-        new maplibregl.Popup({ offset: 11, closeButton: false })
-          .setLngLat([poi.lng, poi.lat])
-          .setHTML(`<b>${poi.name}</b><br/>${poi.type}`)
-          .addTo(map)
-      })
-
       poiMarkers.push(marker)
     }
   })
 
   createEffect(() => {
-    if (!mapReady) return
-
     const point = hoveredPoint()
+    if (!mapReady) return
     if (!point || !geometryDistances || !route()?.geometry.length) {
       if (map.getSource('highlight')) {
         map.removeLayer('highlight-circle')
