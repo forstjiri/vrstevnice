@@ -440,6 +440,7 @@ body {
 
 /* ── Small icon buttons ────────────────── */
 
+.btn-sm,
 .btn-ghost-sm,
 .btn-danger-sm {
   background: none;
@@ -451,10 +452,13 @@ body {
   color: var(--color-text-subtle);
   transition: background 100ms, color 100ms;
   font-family: var(--font);
+  --btn-hover-bg: var(--color-border-subtle);
 }
 
-.btn-ghost-sm:hover { background: var(--color-border-subtle); color: var(--color-text); }
-.btn-danger-sm:hover { background: #fef2f2; color: var(--color-danger); }
+.btn-sm:hover,
+.btn-ghost-sm:hover { background: var(--btn-hover-bg); color: var(--color-text); }
+.btn-danger-sm { --btn-hover-bg: #fef2f2; }
+.btn-danger-sm:hover { background: var(--btn-hover-bg); color: var(--color-danger); }
 
 /* ── Tooltip (Kobalte Tooltip) ─────────── */
 

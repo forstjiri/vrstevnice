@@ -2,13 +2,7 @@
  * Pure mapping functions for Photon geocode responses.
  * No runtime dependencies — safe to import in Vitest (Node) tests.
  */
-
-interface GeocodeResult {
-  lat: number
-  lng: number
-  name: string
-  displayName: string
-}
+import type { GeocodeResult } from '@vrstevnice/shared'
 
 /** Map a single Photon GeoJSON feature to a GeocodeResult. */
 export function mapPhotonFeature(feature: any): GeocodeResult {

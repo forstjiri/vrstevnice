@@ -3,6 +3,17 @@ import { sql } from 'drizzle-orm/sql'
 import { Database } from 'bun:sqlite'
 import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core'
 
+/**
+ * Safely add a column to an existing table. No-op if column already exists.
+ */
+function ensureColumn(table: string, column: string, definition: string) {
+  try {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  } catch {
+    // Column already exists — ignore
+  }
+}
+
 const sqlite = new Database('data.db')
 sqlite.exec('PRAGMA journal_mode=WAL')
 sqlite.exec(`
@@ -20,18 +31,9 @@ sqlite.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `)
-// Migrate existing DBs: add surface_segments column if missing
-try {
-  sqlite.exec(`ALTER TABLE routes ADD COLUMN surface_segments TEXT`)
-} catch {
-  // Column already exists — ignore
-}
-// Migrate existing DBs: add road_class_segments column if missing
-try {
-  sqlite.exec(`ALTER TABLE routes ADD COLUMN road_class_segments TEXT`)
-} catch {
-  // Column already exists — ignore
-}
+
+ensureColumn('routes', 'surface_segments', 'TEXT')
+ensureColumn('routes', 'road_class_segments', 'TEXT')
 
 export const db = drizzle(sqlite)
 

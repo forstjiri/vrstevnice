@@ -141,7 +141,7 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .get('/geocode', async ({ query, store }) => {
-    const { pino } = store as { pino: any }
+    const { pino } = store as { pino: { debug: (...args: any[]) => void; info: (...args: any[]) => void; warn: (...args: any[]) => void; error: (...args: any[]) => void } }
     pino.debug({ q: query.q }, 'Geocode request')
 
     // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
@@ -235,7 +235,7 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .post('/route', async ({ body, store }) => {
-    const { pino } = store as { pino: any }
+    const { pino } = store as { pino: { debug: (...args: any[]) => void; info: (...args: any[]) => void; warn: (...args: any[]) => void; error: (...args: any[]) => void } }
     const { stops, elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient, lemonadeCoefficient: rawLemonade = 0 } = body
 
     pino.info(

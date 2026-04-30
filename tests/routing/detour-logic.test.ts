@@ -1,9 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fetchPOIsAlongRoute } from '@vrstevnice/routing'
 
+function mockOverpassResponse(elements: any[]) {
+  return vi.fn().mockImplementation(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ elements }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ),
+  )
+}
+
 describe('POI Start Delay and Detour Optimization', () => {
   beforeEach(() => {
-    vi.spyOn(globalThis, 'fetch').mockReset()
+    vi.restoreAllMocks()
   })
 
   it('skips POIs near the start based on the 1/(1+N) formula', async () => {
@@ -17,11 +28,8 @@ describe('POI Start Delay and Detour Optimization', () => {
     const poiNear = { lat: 0, lon: 14.4 + 1 * lngPerKm, tags: { name: 'Early Pub', amenity: 'pub' } }
     const poiFar = { lat: 0, lon: 14.4 + 400 * lngPerKm, tags: { name: 'Late Pub', amenity: 'pub' } }
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ elements: [poiNear, poiFar] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      mockOverpassResponse([poiNear, poiFar]),
     )
 
     // coefficient=0.1 -> maxWaypoints = 24 (capped at 20)
@@ -47,11 +55,8 @@ describe('POI Start Delay and Detour Optimization', () => {
     const poiA = { lat: 0.1, lon: 14.4 + 250 * lngPerKm, tags: { name: 'Expensive Detour', amenity: 'pub' } }
     const poiB = { lat: 0.001, lon: 14.4 + 260 * lngPerKm, tags: { name: 'Cheap Next', amenity: 'pub' } }
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ elements: [poiA, poiB] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      mockOverpassResponse([poiA, poiB]),
     )
 
     const result = await fetchPOIsAlongRoute(geometry, 0.8)

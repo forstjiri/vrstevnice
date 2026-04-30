@@ -42,6 +42,31 @@ function findPositionAtDistance(
   ]
 }
 
+/**
+ * Remove a MapLibre source and its layer. No-op if source doesn't exist.
+ */
+function removeMapSource(map: maplibregl.Map, sourceId: string, layerId?: string) {
+  if (!map.getSource(sourceId)) return
+  if (layerId && map.getLayer(layerId)) map.removeLayer(layerId)
+  map.removeSource(sourceId)
+}
+
+/**
+ * Build a context menu from a declarative items list.
+ */
+function buildContextMenu(items: Array<{ label: string; action: () => void }>): HTMLDivElement {
+  const menu = document.createElement('div')
+  menu.className = 'map-contextmenu'
+  for (const item of items) {
+    const el = document.createElement('div')
+    el.className = 'map-contextmenu-item'
+    el.textContent = item.label
+    el.addEventListener('click', () => { item.action(); menu.remove() })
+    menu.appendChild(el)
+  }
+  return menu
+}
+
 export default function Map() {
   const { stops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
   let container!: HTMLDivElement
@@ -59,38 +84,24 @@ export default function Map() {
 
   function showContextMenu(e: maplibregl.MapMouseEvent) {
     removeContextMenu()
-
-    contextMenu = document.createElement('div')
-    contextMenu.className = 'map-contextmenu'
-
-    const addStopItem = document.createElement('div')
-    addStopItem.className = 'map-contextmenu-item'
-    addStopItem.textContent = 'Přidat zastávku'
-    addStopItem.addEventListener('click', () => {
-      addStop({
-        lat: e.lngLat.lat,
-        lng: e.lngLat.lng,
-        name: `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`,
-      })
-      removeContextMenu()
-    })
-    contextMenu.appendChild(addStopItem)
-
-    const openMapyItem = document.createElement('div')
-    openMapyItem.className = 'map-contextmenu-item'
-    openMapyItem.textContent = 'Otevřít na Mapy.cz'
-    openMapyItem.addEventListener('click', () => {
-      window.open(
-        `https://en.mapy.cz/turisticka?x=${e.lngLat.lng.toFixed(6)}&y=${e.lngLat.lat.toFixed(6)}&z=16`,
-        '_blank',
-      )
-      removeContextMenu()
-    })
-    contextMenu.appendChild(openMapyItem)
-
-    // Position relative to map container
+    contextMenu = buildContextMenu([
+      {
+        label: 'Přidat zastávku',
+        action: () => addStop({
+          lat: e.lngLat.lat,
+          lng: e.lngLat.lng,
+          name: `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`,
+        }),
+      },
+      {
+        label: 'Otevřít na Mapy.cz',
+        action: () => window.open(
+          `https://en.mapy.cz/turisticka?x=${e.lngLat.lng.toFixed(6)}&y=${e.lngLat.lat.toFixed(6)}&z=16`,
+          '_blank',
+        ),
+      },
+    ])
     const mapContainer = map.getContainer()
-    const rect = mapContainer.getBoundingClientRect()
     contextMenu.style.left = `${e.point.x}px`
     contextMenu.style.top = `${e.point.y}px`
     mapContainer.appendChild(contextMenu)
@@ -218,11 +229,7 @@ export default function Map() {
 
     if (!mapReady) return
     if (!r?.geometry.length) {
-      // Remove route source/layer if they exist
-      if (map.getSource('route')) {
-        map.removeLayer('route-line')
-        map.removeSource('route')
-      }
+      removeMapSource(map, 'route', 'route-line')
       return
     }
 
@@ -295,19 +302,13 @@ export default function Map() {
     const point = hoveredPoint()
     if (!mapReady) return
     if (!point || !geometryDistances || !route()?.geometry.length) {
-      if (map.getSource('highlight')) {
-        map.removeLayer('highlight-circle')
-        map.removeSource('highlight')
-      }
+      removeMapSource(map, 'highlight', 'highlight-circle')
       return
     }
 
     const pos = findPositionAtDistance(route()!.geometry, geometryDistances, point.distance)
     if (!pos) {
-      if (map.getSource('highlight')) {
-        map.removeLayer('highlight-circle')
-        map.removeSource('highlight')
-      }
+      removeMapSource(map, 'highlight', 'highlight-circle')
       return
     }
 

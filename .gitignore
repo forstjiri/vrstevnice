@@ -42,3 +42,7 @@ graph-cache/
 data/photon-import/
 /docker/tileserver/cz.mbtiles
 /tsconfig.tsbuildinfo
+
+# ── GSD baseline (auto-generated) ──
+.mcp.json
+/CODE-REVIEW.md

@@ -3,61 +3,27 @@ import type { ElevationPoint } from '@vrstevnice/shared'
 import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
+import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS } from './chart-constants'
 
-const PADDING = { top: 8, right: 12, bottom: 22, left: 42 }
-const TOOLTIP_OFFSET = 12
-
-const SURFACE_COLORS: Record<string, string> = {
-  asphalt: '#9ca3af',
-  concrete: '#d1d5db',
-  paving_stones: '#c4cace',
-  cobblestone: '#92400e',
-  gravel: '#c4a35a',
-  fine_gravel: '#d4b96a',
-  compacted: '#b8a070',
-  cycleway: '#ec4899',
-  track: '#22c55e',
-  trail: '#22c55e',
-  ground: '#65a30d',
-  dirt: '#a16207',
-  unpaved: '#d6d3d1',
-  paved: '#9ca3af',
-  grass: '#4ade80',
-  sand: '#fbbf24',
-}
-
-const DEFAULT_SURFACE_COLOR = '#94a3b8'
-
-const SURFACE_LABELS: Record<string, string> = {
-  asphalt: 'asfalt',
-  concrete: 'beton',
-  paving_stones: 'dlažba',
-  cobblestone: 'kočičí hlavy',
-  gravel: 'štěrk',
-  fine_gravel: 'jemný štěrk',
-  compacted: 'zhutněný',
-  cycleway: 'cyklostezka',
-  track: 'polní cesta',
-  trail: 'pěšina',
-  ground: 'zem',
-  dirt: 'hlína',
-  unpaved: 'nezpevněno',
-  paved: 'zpevněno',
-  grass: 'tráva',
-  sand: 'písek',
-}
-
-const ROAD_CLASS_LABELS: Record<string, string> = {
-  MOTORWAY: 'dálnice',
-  TRUNK: 'silnice pro motorová vozidla',
-  PRIMARY: 'silnice I. třídy',
-  SECONDARY: 'silnice II. třídy',
-  TERTIARY: 'silnice III. třídy',
-  RESIDENTIAL: 'městská komunikace',
-  UNCLASSIFIED: 'nezatříděná',
-  SERVICE: 'přístupová cesta',
-  TRACK: 'polní cesta',
-  OTHER: 'jiná',
+/**
+ * Binary search for the segment containing a given distance.
+ * Returns segment index, or -1 if no segment matches.
+ * O(log n) per lookup instead of O(n) linear scan.
+ */
+function binarySearchSegment(
+  segStarts: number[],
+  segEnds: number[],
+  dist: number,
+): number {
+  let lo = 0
+  let hi = segStarts.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (dist < segStarts[mid]) { hi = mid - 1; continue }
+    if (dist > segEnds[mid]) { lo = mid + 1; continue }
+    return mid
+  }
+  return -1
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -404,24 +370,22 @@ export default function ElevationChart() {
     if (r?.geometry && r?.elevationProfile) {
       cachedGeomDists = computeGeometryDistances(r.geometry)
 
+      // Build lookup arrays for binary search: segment start distances keyed by sort order
       if (r.surfaceSegments && r.surfaceSegments.length > 0) {
+        const segStarts = r.surfaceSegments.map(s => cachedGeomDists[s.from] ?? -Infinity)
+        const segEnds = r.surfaceSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
         const assignments: string[] = []
         const surfLabels: string[] = []
         for (let i = 0; i < r.elevationProfile.length; i++) {
           const dist = r.elevationProfile[i].distance
-          let color = DEFAULT_SURFACE_COLOR
-          let surfLabel = ''
-          for (const seg of r.surfaceSegments) {
-            const segStart = cachedGeomDists[seg.from] ?? -Infinity
-            const segEnd = cachedGeomDists[seg.to] ?? Infinity
-            if (dist >= segStart && dist <= segEnd) {
-              color = SURFACE_COLORS[seg.surface] ?? DEFAULT_SURFACE_COLOR
-              surfLabel = SURFACE_LABELS[seg.surface] ?? seg.surface
-              break
-            }
+          const idx = binarySearchSegment(segStarts, segEnds, dist)
+          if (idx >= 0) {
+            assignments.push(SURFACE_COLORS[r.surfaceSegments[idx].surface] ?? DEFAULT_SURFACE_COLOR)
+            surfLabels.push(SURFACE_LABELS[r.surfaceSegments[idx].surface] ?? r.surfaceSegments[idx].surface)
+          } else {
+            assignments.push(DEFAULT_SURFACE_COLOR)
+            surfLabels.push('')
           }
-          assignments.push(color)
-          surfLabels.push(surfLabel)
         }
         cachedColorAssignments = assignments
         cachedSurfaceLabels = surfLabels
@@ -431,19 +395,17 @@ export default function ElevationChart() {
       }
 
       if (r.roadClassSegments && r.roadClassSegments.length > 0) {
+        const rcSegStarts = r.roadClassSegments.map(s => cachedGeomDists[s.from] ?? -Infinity)
+        const rcSegEnds = r.roadClassSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
         const rcLabels: string[] = []
         for (let i = 0; i < r.elevationProfile.length; i++) {
           const dist = r.elevationProfile[i].distance
-          let rcLabel = ''
-          for (const seg of r.roadClassSegments) {
-            const segStart = cachedGeomDists[seg.from] ?? -Infinity
-            const segEnd = cachedGeomDists[seg.to] ?? Infinity
-            if (dist >= segStart && dist <= segEnd) {
-              rcLabel = ROAD_CLASS_LABELS[seg.roadClass] ?? seg.roadClass
-              break
-            }
+          const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
+          if (idx >= 0) {
+            rcLabels.push(ROAD_CLASS_LABELS[r.roadClassSegments[idx].roadClass] ?? r.roadClassSegments[idx].roadClass)
+          } else {
+            rcLabels.push('')
           }
-          rcLabels.push(rcLabel)
         }
         cachedRoadClassLabels = rcLabels
       } else {

@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, For, Show, type JSX } from 'solid-js'
 import { Search } from '@kobalte/core/search'
 import { Button } from '@kobalte/core/button'
 import { Slider } from '@kobalte/core/slider'
@@ -13,6 +13,41 @@ import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 const DEFAULT_ROAD_AVOIDANCE = 1;
 const DEFAULT_CYCLEWAY = 1;
 const DEFAULT_ELEVATION = .7;
+
+interface LabeledSliderProps {
+  value: number[]
+  onChange: (v: number[]) => void
+  label: string
+  minValue: number
+  maxValue: number
+  step: number
+  labelExtra?: JSX.Element
+}
+
+function LabeledSlider(props: LabeledSliderProps) {
+  return (
+    <Slider
+      value={props.value}
+      onChange={props.onChange}
+      minValue={props.minValue}
+      maxValue={props.maxValue}
+      step={props.step}
+    >
+      <div class={`slider-label${props.labelExtra ? ' slider-label-experimental' : ''}`}>
+        <Show when={props.labelExtra} fallback={<Slider.Label>{props.label}</Slider.Label>}>
+          {props.labelExtra}
+        </Show>
+        <Slider.ValueLabel />
+      </div>
+      <Slider.Track class="slider-track">
+        <Slider.Fill class="slider-range" />
+        <Slider.Thumb class="slider-thumb">
+          <Slider.Input class="slider-input" />
+        </Slider.Thumb>
+      </Slider.Track>
+    </Slider>
+  )
+}
 
 export default function Stops() {
   const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapCenter } = useApp()
@@ -67,19 +102,16 @@ export default function Stops() {
     })
   }
 
-  const coeff = (v: number | undefined, fallback: number) =>
-    typeof v === 'number' && Number.isFinite(v) ? v : fallback
-
   const calculateRoute = async () => {
     setLoading(true)
     setError(null)
     try {
       const body: RouteRequest = {
         stops: stops(),
-        elevationCoefficient: coeff(elevCoeff()[0], DEFAULT_ELEVATION),
-        roadAvoidanceCoefficient: 1 - coeff(roadAvoidCoeff()[0], DEFAULT_ROAD_AVOIDANCE),
-        cyclewayCoefficient: coeff(cyclewayCoeff()[0], DEFAULT_CYCLEWAY),
-        lemonadeCoefficient: coeff(lemonadeCoeff()[0], 0),
+        elevationCoefficient: elevCoeff()[0] ?? DEFAULT_ELEVATION,
+        roadAvoidanceCoefficient: 1 - (roadAvoidCoeff()[0] ?? DEFAULT_ROAD_AVOIDANCE),
+        cyclewayCoefficient: cyclewayCoeff()[0] ?? DEFAULT_CYCLEWAY,
+        lemonadeCoefficient: lemonadeCoeff()[0] ?? 0,
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -213,71 +245,14 @@ export default function Stops() {
           </Progress>
         </Show>
 
-        <Slider
-          value={elevCoeff()}
-          onChange={setElevCoeff}
-          minValue={0}
-          maxValue={1}
-          step={0.05}
-        >
-          <div class="slider-label">
-            <Slider.Label>Vyhnout se kopcům</Slider.Label>
-            <Slider.ValueLabel />
-          </div>
-          <Slider.Track class="slider-track">
-            <Slider.Fill class="slider-range" />
-            <Slider.Thumb class="slider-thumb">
-              <Slider.Input class="slider-input" />
-            </Slider.Thumb>
-          </Slider.Track>
-        </Slider>
+        <LabeledSlider value={elevCoeff()} onChange={setElevCoeff} label="Vyhnout se kopcům" minValue={0} maxValue={1} step={0.05} />
 
-        <Slider
-          value={roadAvoidCoeff()}
-          onChange={setRoadAvoidCoeff}
-          minValue={0}
-          maxValue={1}
-          step={0.05}
-        >
-          <div class="slider-label">
-            <Slider.Label>Vyhnutí silnicím</Slider.Label>
-            <Slider.ValueLabel />
-          </div>
-          <Slider.Track class="slider-track">
-            <Slider.Fill class="slider-range" />
-            <Slider.Thumb class="slider-thumb">
-              <Slider.Input class="slider-input" />
-            </Slider.Thumb>
-          </Slider.Track>
-        </Slider>
+        <LabeledSlider value={roadAvoidCoeff()} onChange={setRoadAvoidCoeff} label="Vyhnutí silnicím" minValue={0} maxValue={1} step={0.05} />
 
-        <Slider
-          value={cyclewayCoeff()}
-          onChange={setCyclewayCoeff}
-          minValue={0}
-          maxValue={1}
-          step={0.05}
-        >
-          <div class="slider-label">
-            <Slider.Label>Cyklostezky</Slider.Label>
-            <Slider.ValueLabel />
-          </div>
-          <Slider.Track class="slider-track">
-            <Slider.Fill class="slider-range" />
-            <Slider.Thumb class="slider-thumb">
-              <Slider.Input class="slider-input" />
-            </Slider.Thumb>
-          </Slider.Track>
-        </Slider>
+        <LabeledSlider value={cyclewayCoeff()} onChange={setCyclewayCoeff} label="Cyklostezky" minValue={0} maxValue={1} step={0.05} />
 
-        <Slider
-          value={lemonadeCoeff()}
-          onChange={setLemonadeCoeff}
-          minValue={0}
-          maxValue={1}
-          step={0.05}
-        >
-          <div class="slider-label slider-label-experimental">
+        <LabeledSlider value={lemonadeCoeff()} onChange={setLemonadeCoeff} label="Limonádová cesta" minValue={0} maxValue={1} step={0.05} labelExtra={
+          <>
             <Tooltip openDelay={0}>
               <Slider.Label class="slider-label-text">Limonádová cesta</Slider.Label>
               <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
@@ -286,15 +261,8 @@ export default function Stops() {
               <Tooltip.Trigger class="experimental-badge" as="span">⚠️</Tooltip.Trigger>
               <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
             </Tooltip>
-            <Slider.ValueLabel />
-          </div>
-          <Slider.Track class="slider-track">
-            <Slider.Fill class="slider-range" />
-            <Slider.Thumb class="slider-thumb">
-              <Slider.Input class="slider-input" />
-            </Slider.Thumb>
-          </Slider.Track>
-        </Slider>
+          </>
+        } />
 
         <Separator />
 
