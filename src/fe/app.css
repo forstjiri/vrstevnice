@@ -373,6 +373,21 @@ body {
   height: 100%;
 }
 
+.map-dusk-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  background: transparent;
+  transition: opacity 180ms linear, background 180ms linear;
+}
+
+.map-container > .map-host {
+  position: relative;
+  z-index: 0;
+}
+
 /* ── Stop markers (divIcon) ───────────── */
 
 .stop-marker {
@@ -420,6 +435,18 @@ body {
 .poi-marker-dimmed {
   opacity: 0.35;
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.15)) grayscale(0.7);
+}
+
+/* ── POI popup ────────────────── */
+
+.map-contextmenu-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+  padding: 8px 14px 4px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: 2px;
 }
 
 /* ── Elevation chart ──────────────────── */
@@ -523,4 +550,125 @@ body {
 .maplibregl-ctrl-attrib {
   font-size: 10px !important;
   opacity: 0.7;
+}
+
+/* ── Terrain controls overlay ──────────── */
+
+.map-overlay-shadow-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+}
+
+.shadow-controls {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  width: 260px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.shadow-controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--color-border);
+  transition: background 80ms;
+}
+
+.shadow-controls-header:hover {
+  background: var(--color-bg);
+}
+
+.shadow-controls-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.shadow-controls-toggle {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.shadow-controls-body {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shadow-controls-collapsed .shadow-controls-body {
+  display: none;
+}
+
+.shadow-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shadow-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shadow-checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.shadow-checkbox-control {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 100ms, border-color 100ms;
+}
+
+.shadow-checkbox[data-checked] .shadow-checkbox-control {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.shadow-checkbox[data-checked] .shadow-checkbox-control::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.shadow-checkbox-input:focus-visible + .shadow-checkbox-control {
+  box-shadow: 0 0 0 3px var(--color-primary-muted);
+}
+
+.shadow-checkbox-label {
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.shadow-webgl-warning {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.4;
 }

@@ -52,6 +52,59 @@ function LabeledSlider(props: LabeledSliderProps) {
 export default function Stops() {
   const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapCenter } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
+
+  function showSearchPreview(lat: number, lng: number) {
+    const map = (window as any).__map as maplibregl.Map | undefined
+    if (!map) return
+    hideSearchPreview()
+    const geojson = {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [lng, lat],
+      },
+    }
+    if (!map.getSource('search-preview')) {
+      map.addSource('search-preview', { type: 'geojson', data: geojson })
+      map.addLayer({
+        id: 'search-preview-circle',
+        type: 'circle',
+        source: 'search-preview',
+        paint: {
+          'circle-radius': 14,
+          'circle-color': 'rgba(59, 130, 246, 0.2)',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': 'rgba(59, 130, 246, 0.9)',
+          'circle-blur': 0.3,
+        },
+      })
+      map.addLayer({
+        id: 'search-preview-dot',
+        type: 'circle',
+        source: 'search-preview',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#3b82f6',
+        },
+      })
+    } else {
+      ;(map.getSource('search-preview') as maplibregl.GeoJSONSource).setData(geojson)
+    }
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 16), duration: 600 })
+  }
+
+  function hideSearchPreview() {
+    const map = (window as any).__map as maplibregl.Map | undefined
+    if (!map) return
+    try {
+      if (map.getSource('search-preview')) {
+        map.removeLayer('search-preview-circle')
+        map.removeLayer('search-preview-dot')
+        map.removeSource('search-preview')
+      }
+    } catch (_) {}
+  }
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
   const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
   const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number[]>([DEFAULT_CYCLEWAY])
@@ -82,10 +135,14 @@ export default function Stops() {
     }
   }
 
+  let searchInput: HTMLInputElement | undefined
+
   const handleSelect = (result: GeocodeResult | null) => {
+    hideSearchPreview()
     if (!result) return
     setStops(prev => [...prev, { lat: result.lat, lng: result.lng, name: result.name }])
     setResults([])
+    if (searchInput) searchInput.value = ''
   }
 
   const removeStop = (index: number) => {
@@ -151,15 +208,21 @@ export default function Stops() {
           debounceOptionsMillisecond={300}
           itemComponent={(props: SearchRootItemComponentProps<GeocodeResult>) => (
             <Search.Item item={props.item} class="search-item">
-              <Search.ItemLabel>
-                <div class="search-item-name">{props.item.rawValue.name}</div>
-                <div class="search-item-detail">{props.item.rawValue.displayName}</div>
-              </Search.ItemLabel>
+              <div
+                class="search-item-inner"
+                onmouseenter={() => showSearchPreview(props.item.rawValue.lat, props.item.rawValue.lng)}
+                onmouseleave={() => hideSearchPreview()}
+              >
+                <Search.ItemLabel>
+                  <div class="search-item-name">{props.item.rawValue.name}</div>
+                  <div class="search-item-detail">{props.item.rawValue.displayName}</div>
+                </Search.ItemLabel>
+              </div>
             </Search.Item>
           )}
         >
           <Search.Control class="search-control" aria-label="Hledat místo">
-            <Search.Input class="search-input" />
+            <Search.Input class="search-input" ref={searchInput} />
           </Search.Control>
           <Search.Portal>
             <Search.Content class="search-content" onCloseAutoFocus={e => e.preventDefault()}>
@@ -271,12 +334,17 @@ export default function Stops() {
           disabled={!canCompute()}
           onClick={calculateRoute}
         >
-          {loading() ? '⏳ Výpočet…' : 'Vytvořit trasu'}
+          {loading() ? '⏳ Výpočet…' : route() ? 'Přegenerovat trasu' : 'Vytvořit trasu'}
         </Button>
 
         <Show when={route()}>
           <Button class="btn btn-ghost" onClick={() => setRoute(null)}>
             Zrušit trasu
+          </Button>
+          <Button class="btn btn-ghost btn-fit-overview" onClick={() => {
+            (window as any).__fitRouteOverview?.()
+          }}>
+            ⊞ Přehled trasy
           </Button>
           <Button class="btn btn-ghost" onClick={() => downloadGPX(route()!)}>
             ↓ Stáhnout GPX

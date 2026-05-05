@@ -1,7 +1,7 @@
 {
   "options": {
     "paths": {
-      "root": "",
+      "root": "/config",
       "styles": "styles",
       "mbtiles": "/data"
     }
@@ -17,6 +17,9 @@
   "data": {
     "openmaptiles": {
       "mbtiles": "cz.mbtiles"
+    },
+    "cz-terrain": {
+      "mbtiles": "cz-terrain.mbtiles"
     }
   }
 }

@@ -379,7 +379,10 @@ export async function queryOverpassAround(
   try {
     res = await fetch(OVERPASS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Vrstevnice/1.0 (https://github.com/jiriforst/vrstevnice)',
+      },
       body: `data=${encodeURIComponent(query)}`,
     })
   } catch (err) {

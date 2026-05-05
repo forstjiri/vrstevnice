@@ -30,9 +30,18 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue>()
+const APP_CONTEXT_KEY = '__vrstevnice_app_context__'
+
+function setLatestAppContext(value: AppContextValue) {
+  ;(globalThis as unknown as Record<string, AppContextValue | undefined>)[APP_CONTEXT_KEY] = value
+}
+
+function getLatestAppContext() {
+  return (globalThis as unknown as Record<string, AppContextValue | undefined>)[APP_CONTEXT_KEY]
+}
 
 export function useApp() {
-  return useContext(AppContext)!
+  return useContext(AppContext) ?? getLatestAppContext()!
 }
 
 export default function App() {
@@ -54,8 +63,26 @@ export default function App() {
     })
   }
 
+  const contextValue: AppContextValue = {
+    treaty,
+    stops,
+    setStops,
+    addStop,
+    updateStop,
+    route,
+    setRoute,
+    loading,
+    setLoading,
+    error,
+    setError,
+    mapCenter,
+    setMapCenter,
+  }
+
+  setLatestAppContext(contextValue)
+
   return (
-    <AppContext.Provider value={{ treaty, stops, setStops, addStop, updateStop, route, setRoute, loading, setLoading, error, setError, mapCenter, setMapCenter }}>
+    <AppContext.Provider value={contextValue}>
       <Stops />
       <Map />
     </AppContext.Provider>

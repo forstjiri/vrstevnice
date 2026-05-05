@@ -10,10 +10,14 @@
     "@elysiajs/eden": "^1.4.0",
     "@kobalte/core": "^0.13.0",
     "@vrstevnice/shared": "workspace:*",
+    "maplibre-contour": "^0.1.0",
     "maplibre-gl": "^5.24.0",
-    "solid-js": "^1.9.0"
+    "solid-js": "^1.9.0",
+    "suncalc": "^1.9.0"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/suncalc": "^1.9.2",
     "@vrstevnice/be": "workspace:*",
     "vite": "^8.0.0",
     "vite-plugin-solid": "^2.11.0"

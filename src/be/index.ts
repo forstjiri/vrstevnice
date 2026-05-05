@@ -10,12 +10,17 @@ import { detectAndParseGPS } from './gps'
 import { resolve } from 'node:path'
 import { appendFile } from 'node:fs/promises'
 import { readFile } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
 const LOG_FILE = resolve(PROJECT_ROOT, 'logs', 'app.log')
+const TRANSPARENT_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg==',
+  'base64',
+)
 
 /** Browsers treat localhost vs 127.0.0.1 as different origins; allow both in dev. */
 const LOCAL_DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
@@ -110,6 +115,30 @@ const app = new Elysia({ prefix: '/api' })
       errorResponse: new RateLimitError('Rate limit exceeded. Please try again later.'),
     }),
   )
+
+  .get('/terrain/:z/:x/:y', async ({ params, set }) => {
+    const upstream = `http://localhost:2323/data/cz-terrain/${params.z}/${params.x}/${params.y}.png`
+    try {
+      const res = await fetch(upstream)
+      if (res.ok) {
+        set.headers['Content-Type'] = 'image/png'
+        set.headers['Cache-Control'] = 'public, max-age=86400'
+        return new Uint8Array(await res.arrayBuffer())
+      }
+    } catch {
+      // fall through to transparent tile
+    }
+
+    set.headers['Content-Type'] = 'image/png'
+    set.headers['Cache-Control'] = 'public, max-age=86400'
+    return TRANSPARENT_PNG
+  }, {
+    params: t.Object({
+      z: t.String(),
+      x: t.String(),
+      y: t.String(),
+    }),
+  })
 
   .onError(({ code, error, request }) => {
     const msg = error instanceof Error ? error.message : String(error)

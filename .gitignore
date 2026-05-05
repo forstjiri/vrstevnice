@@ -37,6 +37,8 @@ graph-cache/
 
 # ── GSD baseline (auto-generated) ──
 .gsd-id
+openspec/
+.opencode/
 
 .proxyai
 data/photon-import/
