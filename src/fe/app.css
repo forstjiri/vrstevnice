@@ -703,36 +703,17 @@ body {
   color: var(--color-text);
 }
 
-.map-inspect-debug {
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px solid var(--color-border);
+.map-inspect-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
 }
 
-.map-inspect-debug-header {
-  font-size: 11px;
-  font-weight: 700;
-  color: #e67e22;
-  margin-bottom: 4px;
-}
-
-.map-inspect-debug-section {
-  margin-bottom: 4px;
-}
-
-.map-inspect-debug-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  margin-bottom: 1px;
-}
-
-.map-inspect-debug-row {
+.map-inspect-zoom {
   font-size: 10px;
   font-family: var(--font-mono);
-  line-height: 1.4;
-  color: var(--color-text-secondary);
-  word-break: break-word;
+  color: var(--color-text-muted);
 }
 
 .map-inspect-pre {

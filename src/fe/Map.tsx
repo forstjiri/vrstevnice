@@ -309,7 +309,7 @@ export default function Map() {
   let contoursReady = false
   const [mapZoom, setMapZoom] = createSignal(7)
   const [inspectMode, setInspectMode] = createSignal(false)
-  const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; name?: string; properties: Record<string, unknown>; debug?: { zoom: string; allLayers: { layer: string; source?: string; cls?: string; subclass?: string }[]; customLayers: { id: string; exists: boolean; minzoom?: number; maxzoom?: number; visibility?: string; filter?: string }[] } } | null>(null)
+  const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; zoom: string; properties: Record<string, unknown> } | null>(null)
   let hillshadeBaseIntensity = 1
   let sunDateTime = formatLocalDateTime(new Date())
   const MIN_TERRAIN_ZOOM = 10
@@ -747,63 +747,39 @@ export default function Map() {
     m.on('click', (e) => {
       if (inspectMode()) {
         const features = m.queryRenderedFeatures(e.point)
-        // Collect debug: all layers under click
-        const allLayers = features.slice(0, 20).map(f => ({
-          layer: String(f.layer?.id ?? '?'),
-          source: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
-          cls: f.properties?.class,
-          subclass: f.properties?.subclass,
-        }))
-        // Custom layer status
-        const customLayers = ['cycle-path-widen', 'road_path']
-          .map(id => {
-            const l = m.getLayer(id)
-            if (!l) return { id, exists: false } as const
-            const style = m.getStyle()
-            const sl: any = style.layers.find((x: any) => x.id === id)
-            return {
-              id,
-              exists: true,
-              minzoom: sl?.minzoom,
-              maxzoom: sl?.maxzoom,
-              visibility: String(sl?.layout?.visibility ?? 'visible'),
-              filter: sl?.filter ? JSON.stringify(sl.filter).slice(0, 80) : undefined,
-            } as const
-          })
         if (features.length > 0) {
           const f = features[0]
           const p = (f.properties ?? {}) as Record<string, unknown>
-          // Extract name for header, dump all other props
-          const name = p['name:cs'] ?? p['name'] ?? p['name:en'] ?? null
-          const allProps: Record<string, unknown> = {}
+          // Pick relevant OSM tags for display
+          const propsToShow: Record<string, unknown> = {}
+          const relevant = [
+            'class', 'subclass', 'surface', 'smoothness', 'tracktype',
+            'highway', 'bicycle', 'foot', 'horse', 'bridge', 'tunnel',
+            'oneway', 'lit', 'width', 'osm_id',
+          ]
+          for (const k of relevant) {
+            if (k in p) propsToShow[k] = p[k]
+          }
+          // Show any remaining props except internal names
+          const skip = new Set([...relevant, 'name', 'name:cs', 'name:en', 'name:de', '$type', 'layer'])
           for (const [k, v] of Object.entries(p)) {
-            if (k === 'name' || k === 'name:cs' || k === 'name:en' || k === 'name:de') continue
-            allProps[k] = v
+            if (!skip.has(k)) propsToShow[k] = v
           }
           setInspectInfo({
             layerId: String(f.layer?.id ?? 'unknown'),
             sourceLayer: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
             lng: e.lngLat.lng.toFixed(6),
             lat: e.lngLat.lat.toFixed(6),
-            name: name ? String(name) : undefined,
-            properties: allProps,
-            debug: {
-              zoom: m.getZoom().toFixed(2),
-              allLayers,
-              customLayers,
-            },
+            zoom: m.getZoom().toFixed(1),
+            properties: propsToShow,
           })
         } else {
           setInspectInfo({
             layerId: '(none)',
             lng: e.lngLat.lng.toFixed(6),
             lat: e.lngLat.lat.toFixed(6),
+            zoom: m.getZoom().toFixed(1),
             properties: {},
-            debug: {
-              zoom: m.getZoom().toFixed(2),
-              allLayers: [],
-              customLayers,
-            },
           })
         }
         return
@@ -1184,38 +1160,16 @@ export default function Map() {
           {inspectMode() && inspectInfo() && (() => {
             const info = inspectInfo()!
             const props = info.properties
-            const dbg = info.debug
             return (
               <div class="map-inspect-panel">
-                <div class="map-inspect-title">{info.layerId}</div>
-                {info.sourceLayer && <div class="map-inspect-subtitle">{info.sourceLayer}</div>}
+                <div class="map-inspect-header">
+                  <span class="map-inspect-title">{info.layerId}</span>
+                  {info.sourceLayer && <span class="map-inspect-subtitle">{info.sourceLayer}</span>}
+                  <span class="map-inspect-zoom">z{info.zoom}</span>
+                </div>
                 <div class="map-inspect-gps">📍 {info.lat}, {info.lng}</div>
-                {info.name && <div class="map-inspect-name">{info.name}</div>}
                 {Object.keys(props).length > 0 && (
                   <pre class="map-inspect-pre">{JSON.stringify(props, null, 2)}</pre>
-                )}
-                {dbg && (
-                  <div class="map-inspect-debug">
-                    <div class="map-inspect-debug-header">🔧 Debug (z{dbg.zoom})</div>
-                    <div class="map-inspect-debug-section">
-                      <div class="map-inspect-debug-label">Custom layers:</div>
-                      {dbg.customLayers.map(cl => (
-                        <div class="map-inspect-debug-row">
-                          {cl.id}: {cl.exists
-                            ? `z${cl.minzoom ?? '?'}–${cl.maxzoom ?? '?'} vis=${cl.visibility}${cl.filter ? ` ${cl.filter}` : ''}`
-                            : '❌ missing'}
-                        </div>
-                      ))}
-                    </div>
-                    <div class="map-inspect-debug-section">
-                      <div class="map-inspect-debug-label">All layers at point ({dbg.allLayers.length}):</div>
-                      {dbg.allLayers.slice(0, 15).map((l, i) => (
-                        <div class="map-inspect-debug-row">
-                          {i + 1}. {l.layer}{l.source ? ` [${l.source}]` : ''}{l.cls ? ` cls=${l.cls}` : ''}{l.subclass ? ` sub=${l.subclass}` : ''}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 )}
               </div>
             )

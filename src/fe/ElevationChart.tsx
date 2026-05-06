@@ -4,40 +4,13 @@ import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, setCameraTarget } from './rideAnimationStore'
-import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS, ROAD_CLASS_COLORS, DEFAULT_ROAD_CLASS_COLOR } from './chart-constants'
-
-/**
- * Binary search for the segment containing a given distance.
- * Returns segment index, or -1 if no segment matches.
- * O(log n) per lookup instead of O(n) linear scan.
- */
-function binarySearchSegment(
-  segStarts: number[],
-  segEnds: number[],
-  dist: number,
-): number {
-  let lo = 0
-  let hi = segStarts.length - 1
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (dist < segStarts[mid]) { hi = mid - 1; continue }
-    if (dist > segEnds[mid]) { lo = mid + 1; continue }
-    return mid
-  }
-  return -1
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
+import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS, ROAD_CLASS_COLORS, DEFAULT_ROAD_CLASS_COLOR, ROAD_CLASS_DASH, binarySearchSegment, hexToRgba } from './chart-constants'
 
 interface ProfileGroup {
   start: number
   end: number
   color: string
+  dash?: number[]
 }
 
 export default function ElevationChart() {
@@ -58,6 +31,7 @@ export default function ElevationChart() {
   let cachedSurfaceLabels: string[] = []
   let cachedRoadClassLabels: string[] = []
   let cachedRoadClassColors: string[] = []
+  let cachedRoadClassDash: (number[] | undefined)[] = []
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -188,14 +162,15 @@ export default function ElevationChart() {
 
       // --- STROKE PASS: road-class colored line ---
       if (useRoadClassColors) {
-        // Group consecutive points with same road class color
+        // Group consecutive points with same color AND dash pattern
         const groups: ProfileGroup[] = []
         let gi = 0
         while (gi < profile.length) {
           const color = cachedRoadClassColors[gi]
+          const dash = cachedRoadClassDash[gi]
           const start = gi
-          while (gi < profile.length && cachedRoadClassColors[gi] === color) gi++
-          groups.push({ start, end: gi - 1, color })
+          while (gi < profile.length && cachedRoadClassColors[gi] === color && cachedRoadClassDash[gi] === dash) gi++
+          groups.push({ start, end: gi - 1, color, dash })
         }
 
         for (let gi = 0; gi < groups.length; gi++) {
@@ -210,7 +185,13 @@ export default function ElevationChart() {
           ctx!.strokeStyle = group.color
           ctx!.lineWidth = 2
           ctx!.lineJoin = 'round'
+          if (group.dash) {
+            ctx!.setLineDash(group.dash)
+          }
           ctx!.stroke()
+          if (group.dash) {
+            ctx!.setLineDash([])
+          }
         }
       } else {
         // Fallback: single-color stroke (use surface color if available)
@@ -737,11 +718,24 @@ export default function ElevationChart() {
             rcColors.push(DEFAULT_ROAD_CLASS_COLOR)
           }
         }
+        const rcDash: (number[] | undefined)[] = []
+        for (let i = 0; i < r.elevationProfile.length; i++) {
+          const dist = r.elevationProfile[i].distance
+          const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
+          if (idx >= 0) {
+            const cls = r.roadClassSegments[idx].roadClass
+            rcDash.push(ROAD_CLASS_DASH[cls] ?? undefined)
+          } else {
+            rcDash.push(undefined)
+          }
+        }
         cachedRoadClassLabels = rcLabels
         cachedRoadClassColors = rcColors
+        cachedRoadClassDash = rcDash
       } else {
         cachedRoadClassLabels = []
         cachedRoadClassColors = []
+        cachedRoadClassDash = []
       }
     } else {
       cachedGeomDists = []
@@ -749,6 +743,7 @@ export default function ElevationChart() {
       cachedSurfaceLabels = []
       cachedRoadClassLabels = []
       cachedRoadClassColors = []
+      cachedRoadClassDash = []
     }
 
     requestAnimationFrame(() => draw())

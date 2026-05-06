@@ -1,9 +1,40 @@
 /**
- * Elevation chart display constants.
+ * Elevation chart display constants and utility functions.
  */
 
 export const PADDING = { top: 8, right: 12, bottom: 22, left: 42 }
 export const TOOLTIP_OFFSET = 12
+
+/**
+ * Binary search for the segment containing a given distance.
+ * Returns segment index, or -1 if no segment matches.
+ * O(log n) per lookup instead of O(n) linear scan.
+ */
+export function binarySearchSegment(
+  segStarts: number[],
+  segEnds: number[],
+  dist: number,
+): number {
+  let lo = 0
+  let hi = segStarts.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (dist < segStarts[mid]) { hi = mid - 1; continue }
+    if (dist > segEnds[mid]) { lo = mid + 1; continue }
+    return mid
+  }
+  return -1
+}
+
+/**
+ * Convert hex color to rgba string.
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 
 export const SURFACE_COLORS: Record<string, string> = {
   asphalt: '#9ca3af',
@@ -74,7 +105,7 @@ export const ROAD_CLASS_COLORS: Record<string, string> = {
   unclassified: '#94a3b8',
   service: '#a78bfa',
   track: '#65a30d',
-  path: '#4ade80',
+  path: '#92400e',
   cycleway: '#ec4899',
   steps: '#f97316',
   ferry: '#38bdf8',
@@ -82,3 +113,13 @@ export const ROAD_CLASS_COLORS: Record<string, string> = {
 }
 
 export const DEFAULT_ROAD_CLASS_COLOR = '#6b7280'
+
+/**
+ * Line dash pattern per road class. null = solid line.
+ */
+export const ROAD_CLASS_DASH: Record<string, number[] | undefined> = {
+  path: [4, 3],
+  cycleway: [6, 3],
+  track: undefined,
+  // All others default to solid
+}

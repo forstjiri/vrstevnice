@@ -1,6 +1,8 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { sql } from 'drizzle-orm/sql'
 import { Database } from 'bun:sqlite'
+import { mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core'
 
 /**
@@ -14,7 +16,12 @@ function ensureColumn(table: string, column: string, definition: string) {
   }
 }
 
-const sqlite = new Database('data.db')
+const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
+const DATA_DIR = resolve(PROJECT_ROOT, 'data')
+
+mkdirSync(DATA_DIR, { recursive: true })
+
+const sqlite = new Database(resolve(DATA_DIR, 'data.db'))
 sqlite.exec('PRAGMA journal_mode=WAL')
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS routes (

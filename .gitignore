@@ -1,5 +1,5 @@
 
-# ── GSD baseline (auto-generated) ──
+# ── GSD / opencode ──
 .gsd
 .DS_Store
 Thumbs.db
@@ -19,7 +19,6 @@ build/
 __pycache__/
 *.pyc
 .venv/
-.venv-extract/
 venv/
 target/
 vendor/
@@ -30,17 +29,13 @@ tmp/
 .bg-shell/
 src/be/data*
 playwright-*
-.playwright-mcp/
-data.db
-data.db-shm
-data.db-wal
 
 # ── Docker / GraphHopper ──
 data/
 *.pbf
 graph-cache/
 
-# ── GSD baseline (auto-generated) ──
+# ── GSD / opencode (cont.) ──
 .gsd-id
 openspec/
 .opencode/
@@ -50,6 +45,6 @@ data/photon-import/
 /docker/tileserver/cz.mbtiles
 /tsconfig.tsbuildinfo
 
-# ── GSD baseline (auto-generated) ──
+# ── GSD / opencode (cont.) ──
 .mcp.json
 /CODE-REVIEW.md

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Download Czech Republic .pbf data from Geofabrik
-# Usage: ./docker/download-pbf.sh
+# Usage: ./scripts/download-pbf.sh
 
 GEOFABRIK_URL="https://download.geofabrik.de/europe/czech-republic-latest.osm.pbf"
 DATA_DIR="$(dirname "$0")/../data"

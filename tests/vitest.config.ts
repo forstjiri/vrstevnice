@@ -21,6 +21,7 @@ export default defineConfig({
       '@vrstevnice/routing': path.resolve(projectRoot, 'src/routing/index.ts'),
       '@vrstevnice/shared': path.resolve(projectRoot, 'src/shared/index.ts'),
       '@vrstevnice/be': path.resolve(projectRoot, 'src/be/index.ts'),
+      '@vrstevnice/fe/chart-constants': path.resolve(projectRoot, 'src/fe/chart-constants.ts'),
     },
   },
 })

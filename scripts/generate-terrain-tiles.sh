@@ -8,7 +8,7 @@ set -euo pipefail
 # Hosted on AWS Open Data: https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com
 #
 # Prerequisites: Python venv with rasterio + rio-rgbify (run setup-terrain-venv.sh first)
-# Usage: ./docker/generate-terrain-tiles.sh
+# Usage: ./scripts/generate-terrain-tiles.sh
 
 SCRIPT_DIR="$(dirname "$0")"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

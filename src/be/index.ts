@@ -16,7 +16,7 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
-const LOG_FILE = resolve(PROJECT_ROOT, 'logs', 'app.log')
+const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
 const TRANSPARENT_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg==',
   'base64',

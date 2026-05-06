@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Generate vector tiles (cz.mbtiles) from Czech Republic .osm.pbf using planetiler
-# Usage: ./docker/generate-tiles.sh
+# Usage: ./scripts/generate-tiles.sh
 
 DATA_DIR="$(dirname "$0")/../data"
 INPUT="$DATA_DIR/czech-republic-latest.osm.pbf"
@@ -13,7 +13,7 @@ mkdir -p "$DATA_DIR"
 # Verify input PBF exists
 if [ ! -f "$INPUT" ]; then
     echo "❌ Input PBF not found: $INPUT"
-    echo "   Run ./docker/download-pbf.sh first."
+    echo "   Run ./scripts/download-pbf.sh first."
     exit 1
 fi
 
