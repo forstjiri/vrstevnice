@@ -46,14 +46,39 @@ export const SURFACE_LABELS: Record<string, string> = {
 }
 
 export const ROAD_CLASS_LABELS: Record<string, string> = {
-  MOTORWAY: 'dálnice',
-  TRUNK: 'silnice pro motorová vozidla',
-  PRIMARY: 'silnice I. třídy',
-  SECONDARY: 'silnice II. třídy',
-  TERTIARY: 'silnice III. třídy',
-  RESIDENTIAL: 'městská komunikace',
-  UNCLASSIFIED: 'nezatříděná',
-  SERVICE: 'přístupová cesta',
-  TRACK: 'polní cesta',
-  OTHER: 'jiná',
+  motorway: 'dálnice',
+  trunk: 'silnice pro motorová vozidla',
+  primary: 'silnice I. třídy',
+  secondary: 'silnice II. třídy',
+  tertiary: 'silnice III. třídy',
+  residential: 'městská komunikace',
+  living_street: 'obytná zóna',
+  unclassified: 'nezatříděná',
+  service: 'přístupová cesta',
+  track: 'polní cesta',
+  path: 'pěšina',
+  cycleway: 'cyklostezka',
+  steps: 'schody',
+  ferry: 'přívoz',
+  other: 'jiná',
 }
+
+export const ROAD_CLASS_COLORS: Record<string, string> = {
+  motorway: '#dc2626',
+  trunk: '#ea580c',
+  primary: '#f59e0b',
+  secondary: '#eab308',
+  tertiary: '#22c55e',
+  residential: '#3b82f6',
+  living_street: '#60a5fa',
+  unclassified: '#94a3b8',
+  service: '#a78bfa',
+  track: '#65a30d',
+  path: '#4ade80',
+  cycleway: '#ec4899',
+  steps: '#f97316',
+  ferry: '#38bdf8',
+  other: '#6b7280',
+}
+
+export const DEFAULT_ROAD_CLASS_COLOR = '#6b7280'

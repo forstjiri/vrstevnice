@@ -59,6 +59,8 @@ export interface RouteResponse {
   surfaceSegments: SurfaceSegment[]
   /** Road class segments parsed from GraphHopper details */
   roadClassSegments: RoadClassSegment[]
+  /** Road environment segments parsed from GraphHopper (road, bridge, tunnel, ford) */
+  roadEnvSegments: RoadClassSegment[]
   /** POI locations (pubs, bars, restaurants) along the route when lemonadeCoefficient > 0 */
   poiLocations: POILocation[]
   /** All discovered POIs (including non-selected) for map display */

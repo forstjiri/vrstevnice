@@ -377,6 +377,11 @@ const app = new Elysia({ prefix: '/api' })
         to: t.Number(),
         roadClass: t.String(),
       })),
+      roadEnvSegments: t.Array(t.Object({
+        from: t.Number(),
+        to: t.Number(),
+        roadClass: t.String(),
+      })),
       poiLocations: t.Array(t.Object({
         lat: t.Number(),
         lng: t.Number(),

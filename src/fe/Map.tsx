@@ -309,7 +309,7 @@ export default function Map() {
   let contoursReady = false
   const [mapZoom, setMapZoom] = createSignal(7)
   const [inspectMode, setInspectMode] = createSignal(false)
-  const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; properties: Record<string, unknown> } | null>(null)
+  const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; name?: string; properties: Record<string, unknown>; debug?: { zoom: string; allLayers: { layer: string; source?: string; cls?: string; subclass?: string }[]; customLayers: { id: string; exists: boolean; minzoom?: number; maxzoom?: number; visibility?: string; filter?: string }[] } } | null>(null)
   let hillshadeBaseIntensity = 1
   let sunDateTime = formatLocalDateTime(new Date())
   const MIN_TERRAIN_ZOOM = 10
@@ -427,40 +427,18 @@ export default function Map() {
         if (m.getLayer('road_minor')) {
           m.setPaintProperty('road_minor', 'line-color', '#fdf6e3')
         }
-          // Widen forest tracks/paths — thicker + outline for visibility from z12.5
+          // Widen forest tracks/paths — visible from z12
+          // Note: MapLibre minzoom is integer-only, 12.5 would round to 13
           if (m.getLayer('road_path')) {
-            // Hide original thin layer — our custom layers replace it
+            // Hide original thin layer — our custom layer replaces it
             try { m.setLayoutProperty('road_path', 'visibility', 'none') } catch (_) {}
-            // Black outline under the track for contrast
-            m.addLayer({
-              id: 'cycle-path-outline',
-              type: 'line',
-              source: 'openmaptiles',
-              'source-layer': 'transportation',
-              minzoom: 12.5,
-              filter: [
-                'all',
-                ['==', '$type', 'LineString'],
-                ['in', 'class', 'path', 'track'],
-                ['!=', 'subclass', 'cycleway'],
-              ],
-              paint: {
-                'line-color': 'rgba(0, 0, 0, 0.3)',
-                'line-width': [
-                  'interpolate', ['linear'], ['zoom'],
-                  12.5, 1.5,
-                  14, 3,
-                  18, 12,
-                ],
-              },
-            }, 'road_path')
-            // Bright track line on top
+            // Bright track line
             m.addLayer({
               id: 'cycle-path-widen',
               type: 'line',
               source: 'openmaptiles',
               'source-layer': 'transportation',
-              minzoom: 12.5,
+              minzoom: 12,
               filter: [
                 'all',
                 ['==', '$type', 'LineString'],
@@ -472,9 +450,9 @@ export default function Map() {
                 'line-dasharray': [1, 1],
                 'line-width': [
                   'interpolate', ['linear'], ['zoom'],
-                  12.5, 1,
-                  14, 2,
-                  18, 8,
+                  12, 1,
+                  14, 3,
+                  18, 10,
                 ],
               },
             }, 'road_path')
@@ -769,29 +747,64 @@ export default function Map() {
     m.on('click', (e) => {
       if (inspectMode()) {
         const features = m.queryRenderedFeatures(e.point)
+        // Collect debug: all layers under click
+        const allLayers = features.slice(0, 20).map(f => ({
+          layer: String(f.layer?.id ?? '?'),
+          source: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
+          cls: f.properties?.class,
+          subclass: f.properties?.subclass,
+        }))
+        // Custom layer status
+        const customLayers = ['cycle-path-widen', 'road_path']
+          .map(id => {
+            const l = m.getLayer(id)
+            if (!l) return { id, exists: false } as const
+            const style = m.getStyle()
+            const sl: any = style.layers.find((x: any) => x.id === id)
+            return {
+              id,
+              exists: true,
+              minzoom: sl?.minzoom,
+              maxzoom: sl?.maxzoom,
+              visibility: String(sl?.layout?.visibility ?? 'visible'),
+              filter: sl?.filter ? JSON.stringify(sl.filter).slice(0, 80) : undefined,
+            } as const
+          })
         if (features.length > 0) {
           const f = features[0]
           const p = (f.properties ?? {}) as Record<string, unknown>
-          const propsToShow: Record<string, unknown> = {}
-          const interesting = [
-            'name', 'name:cs', 'name:en', 'name:de',
-            'class', 'subclass', 'brunnel',
-            'surface', 'smoothness', 'tracktype',
-            'highway', 'ref', 'osm_id',
-            'wikidata', 'wikipedia',
-          ]
-          for (const k of interesting) {
-            if (k in p) propsToShow[k] = p[k]
+          // Extract name for header, dump all other props
+          const name = p['name:cs'] ?? p['name'] ?? p['name:en'] ?? null
+          const allProps: Record<string, unknown> = {}
+          for (const [k, v] of Object.entries(p)) {
+            if (k === 'name' || k === 'name:cs' || k === 'name:en' || k === 'name:de') continue
+            allProps[k] = v
           }
           setInspectInfo({
             layerId: String(f.layer?.id ?? 'unknown'),
             sourceLayer: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
             lng: e.lngLat.lng.toFixed(6),
             lat: e.lngLat.lat.toFixed(6),
-            properties: propsToShow,
+            name: name ? String(name) : undefined,
+            properties: allProps,
+            debug: {
+              zoom: m.getZoom().toFixed(2),
+              allLayers,
+              customLayers,
+            },
           })
         } else {
-          setInspectInfo(null)
+          setInspectInfo({
+            layerId: '(none)',
+            lng: e.lngLat.lng.toFixed(6),
+            lat: e.lngLat.lat.toFixed(6),
+            properties: {},
+            debug: {
+              zoom: m.getZoom().toFixed(2),
+              allLayers: [],
+              customLayers,
+            },
+          })
         }
         return
       }
@@ -1171,19 +1184,38 @@ export default function Map() {
           {inspectMode() && inspectInfo() && (() => {
             const info = inspectInfo()!
             const props = info.properties
-            const propKeys = Object.keys(props)
+            const dbg = info.debug
             return (
               <div class="map-inspect-panel">
                 <div class="map-inspect-title">{info.layerId}</div>
                 {info.sourceLayer && <div class="map-inspect-subtitle">{info.sourceLayer}</div>}
                 <div class="map-inspect-gps">📍 {info.lat}, {info.lng}</div>
-                {'name' in props && <div class="map-inspect-name">{String(props.name)}</div>}
-                {'name:cs' in props && !('name' in props) && <div class="map-inspect-name">{String(props['name:cs'])}</div>}
-                {propKeys.filter(k => k !== 'name' && k !== 'name:cs').length > 0 && (
-                  <pre class="map-inspect-pre">{JSON.stringify(
-                    Object.fromEntries(propKeys.filter(k => k !== 'name' && k !== 'name:cs').map(k => [k, props[k]])),
-                    null, 2,
-                  )}</pre>
+                {info.name && <div class="map-inspect-name">{info.name}</div>}
+                {Object.keys(props).length > 0 && (
+                  <pre class="map-inspect-pre">{JSON.stringify(props, null, 2)}</pre>
+                )}
+                {dbg && (
+                  <div class="map-inspect-debug">
+                    <div class="map-inspect-debug-header">🔧 Debug (z{dbg.zoom})</div>
+                    <div class="map-inspect-debug-section">
+                      <div class="map-inspect-debug-label">Custom layers:</div>
+                      {dbg.customLayers.map(cl => (
+                        <div class="map-inspect-debug-row">
+                          {cl.id}: {cl.exists
+                            ? `z${cl.minzoom ?? '?'}–${cl.maxzoom ?? '?'} vis=${cl.visibility}${cl.filter ? ` ${cl.filter}` : ''}`
+                            : '❌ missing'}
+                        </div>
+                      ))}
+                    </div>
+                    <div class="map-inspect-debug-section">
+                      <div class="map-inspect-debug-label">All layers at point ({dbg.allLayers.length}):</div>
+                      {dbg.allLayers.slice(0, 15).map((l, i) => (
+                        <div class="map-inspect-debug-row">
+                          {i + 1}. {l.layer}{l.source ? ` [${l.source}]` : ''}{l.cls ? ` cls=${l.cls}` : ''}{l.subclass ? ` sub=${l.subclass}` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             )

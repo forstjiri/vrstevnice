@@ -55,6 +55,7 @@ export interface GHRouteResult {
   geometry: Array<[number, number, number]> // [lon, lat, ele]
   surfaceSegments: SurfaceSegment[]
   roadClassSegments: RoadClassSegment[]
+  roadEnvSegments: RoadClassSegment[] // reuse same shape: { from, to, roadClass: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ export async function fetchRouteFromGH(
     elevation: true,
     points_encoded: false,
     'ch.disable': true,
-    details: ['surface', 'road_class'],
+    details: ['surface', 'road_class', 'road_environment'],
     'custom_model': customModel,
   }
 
@@ -211,6 +212,9 @@ export async function fetchRouteFromGH(
 
   const surfaceSegments = parseSurfaceSegments(path.details)
   const roadClassSegments = parseRoadClassSegments(path.details)
+  const roadEnvSegments = parseDetailTriples(path.details, 'road_environment').map(
+    ([from, to, env]) => ({ from, to, roadClass: env }),
+  )
 
   return {
     distance: path.distance,
@@ -220,6 +224,7 @@ export async function fetchRouteFromGH(
     geometry: path.points.coordinates,
     surfaceSegments,
     roadClassSegments,
+    roadEnvSegments,
   }
 }
 
@@ -298,6 +303,7 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     elevationProfile: computeElevationProfile(ghResult.geometry),
     surfaceSegments: ghResult.surfaceSegments,
     roadClassSegments: ghResult.roadClassSegments,
+    roadEnvSegments: ghResult.roadEnvSegments ?? [],
     poiLocations: [],
     allPOILocations: [],
   }

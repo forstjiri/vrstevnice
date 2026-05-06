@@ -4,7 +4,7 @@ import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, setCameraTarget } from './rideAnimationStore'
-import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS } from './chart-constants'
+import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS, ROAD_CLASS_COLORS, DEFAULT_ROAD_CLASS_COLOR } from './chart-constants'
 
 /**
  * Binary search for the segment containing a given distance.
@@ -57,6 +57,7 @@ export default function ElevationChart() {
   // Per-profile-point surface and road class labels (for tooltip)
   let cachedSurfaceLabels: string[] = []
   let cachedRoadClassLabels: string[] = []
+  let cachedRoadClassColors: string[] = []
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -106,10 +107,11 @@ export default function ElevationChart() {
       return plotY + plotH - ((elev - minElev) / elevSpan) * plotH
     }
 
-    // Draw elevation profile — per-surface colored or fallback blue
+    // Draw elevation profile — fill by surface color, stroke by road_class
     const useSurfaceColors = cachedColorAssignments.length === profile.length
+    const useRoadClassColors = cachedRoadClassColors.length === profile.length
 
-    if (!useSurfaceColors) {
+    if (!useSurfaceColors && !useRoadClassColors) {
       // Original blue gradient fill
       const grad = ctx!.createLinearGradient(0, plotY, 0, plotY + plotH)
       grad.addColorStop(0, 'rgba(37, 99, 235, 0.35)')
@@ -136,44 +138,88 @@ export default function ElevationChart() {
       ctx!.lineJoin = 'round'
       ctx!.stroke()
     } else {
-      // Group consecutive profile points with the same surface color
-      const groups: ProfileGroup[] = []
-      let gi = 0
-      while (gi < profile.length) {
-        const color = cachedColorAssignments[gi]
-        const start = gi
-        while (gi < profile.length && cachedColorAssignments[gi] === color) gi++
-        groups.push({ start, end: gi - 1, color })
+      // --- FILL PASS: surface-colored gradient fill ---
+      if (useSurfaceColors) {
+        // Group consecutive profile points with the same surface color
+        const groups: ProfileGroup[] = []
+        let gi = 0
+        while (gi < profile.length) {
+          const color = cachedColorAssignments[gi]
+          const start = gi
+          while (gi < profile.length && cachedColorAssignments[gi] === color) gi++
+          groups.push({ start, end: gi - 1, color })
+        }
+
+        for (let gi = 0; gi < groups.length; gi++) {
+          const group = groups[gi]
+          const drawStart = gi > 0 ? groups[gi - 1].end : group.start
+
+          const fillGrad = ctx!.createLinearGradient(0, plotY, 0, plotY + plotH)
+          fillGrad.addColorStop(0, hexToRgba(group.color, 0.35))
+          fillGrad.addColorStop(1, hexToRgba(group.color, 0.03))
+
+          ctx!.beginPath()
+          ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
+          for (let j = drawStart + 1; j <= group.end; j++) {
+            ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
+          }
+          ctx!.lineTo(toX(profile[group.end].distance), plotY + plotH)
+          ctx!.lineTo(toX(profile[drawStart].distance), plotY + plotH)
+          ctx!.closePath()
+          ctx!.fillStyle = fillGrad
+          ctx!.fill()
+        }
+      } else {
+        // Fallback: uniform blue fill
+        const grad = ctx!.createLinearGradient(0, plotY, 0, plotY + plotH)
+        grad.addColorStop(0, 'rgba(37, 99, 235, 0.35)')
+        grad.addColorStop(1, 'rgba(37, 99, 235, 0.03)')
+        ctx!.beginPath()
+        ctx!.moveTo(toX(profile[0].distance), toY(profile[0].elevation))
+        for (let i = 1; i < profile.length; i++) {
+          ctx!.lineTo(toX(profile[i].distance), toY(profile[i].elevation))
+        }
+        ctx!.lineTo(toX(profile[profile.length - 1].distance), plotY + plotH)
+        ctx!.lineTo(toX(profile[0].distance), plotY + plotH)
+        ctx!.closePath()
+        ctx!.fillStyle = grad
+        ctx!.fill()
       }
 
-      for (let gi = 0; gi < groups.length; gi++) {
-        const group = groups[gi]
-        // Include previous group's last point for seamless continuity
-        const drawStart = gi > 0 ? groups[gi - 1].end : group.start
-
-        // Fill area with gradient for this surface color
-        const fillGrad = ctx!.createLinearGradient(0, plotY, 0, plotY + plotH)
-        fillGrad.addColorStop(0, hexToRgba(group.color, 0.35))
-        fillGrad.addColorStop(1, hexToRgba(group.color, 0.03))
-
-        ctx!.beginPath()
-        ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
-        for (let j = drawStart + 1; j <= group.end; j++) {
-          ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
+      // --- STROKE PASS: road-class colored line ---
+      if (useRoadClassColors) {
+        // Group consecutive points with same road class color
+        const groups: ProfileGroup[] = []
+        let gi = 0
+        while (gi < profile.length) {
+          const color = cachedRoadClassColors[gi]
+          const start = gi
+          while (gi < profile.length && cachedRoadClassColors[gi] === color) gi++
+          groups.push({ start, end: gi - 1, color })
         }
-        ctx!.lineTo(toX(profile[group.end].distance), plotY + plotH)
-        ctx!.lineTo(toX(profile[drawStart].distance), plotY + plotH)
-        ctx!.closePath()
-        ctx!.fillStyle = fillGrad
-        ctx!.fill()
 
-        // Stroke line for this surface
-        ctx!.beginPath()
-        ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
-        for (let j = drawStart + 1; j <= group.end; j++) {
-          ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
+        for (let gi = 0; gi < groups.length; gi++) {
+          const group = groups[gi]
+          const drawStart = gi > 0 ? groups[gi - 1].end : group.start
+
+          ctx!.beginPath()
+          ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
+          for (let j = drawStart + 1; j <= group.end; j++) {
+            ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
+          }
+          ctx!.strokeStyle = group.color
+          ctx!.lineWidth = 2
+          ctx!.lineJoin = 'round'
+          ctx!.stroke()
         }
-        ctx!.strokeStyle = group.color
+      } else {
+        // Fallback: single-color stroke (use surface color if available)
+        ctx!.beginPath()
+        ctx!.moveTo(toX(profile[0].distance), toY(profile[0].elevation))
+        for (let i = 1; i < profile.length; i++) {
+          ctx!.lineTo(toX(profile[i].distance), toY(profile[i].elevation))
+        }
+        ctx!.strokeStyle = '#2563eb'
         ctx!.lineWidth = 1.5
         ctx!.lineJoin = 'round'
         ctx!.stroke()
@@ -678,24 +724,31 @@ export default function ElevationChart() {
         const rcSegStarts = r.roadClassSegments.map(s => cachedGeomDists[s.from] ?? -Infinity)
         const rcSegEnds = r.roadClassSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
         const rcLabels: string[] = []
+        const rcColors: string[] = []
         for (let i = 0; i < r.elevationProfile.length; i++) {
           const dist = r.elevationProfile[i].distance
           const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
           if (idx >= 0) {
-            rcLabels.push(ROAD_CLASS_LABELS[r.roadClassSegments[idx].roadClass] ?? r.roadClassSegments[idx].roadClass)
+            const cls = r.roadClassSegments[idx].roadClass
+            rcLabels.push(ROAD_CLASS_LABELS[cls] ?? cls)
+            rcColors.push(ROAD_CLASS_COLORS[cls] ?? DEFAULT_ROAD_CLASS_COLOR)
           } else {
             rcLabels.push('')
+            rcColors.push(DEFAULT_ROAD_CLASS_COLOR)
           }
         }
         cachedRoadClassLabels = rcLabels
+        cachedRoadClassColors = rcColors
       } else {
         cachedRoadClassLabels = []
+        cachedRoadClassColors = []
       }
     } else {
       cachedGeomDists = []
       cachedColorAssignments = []
       cachedSurfaceLabels = []
       cachedRoadClassLabels = []
+      cachedRoadClassColors = []
     }
 
     requestAnimationFrame(() => draw())
