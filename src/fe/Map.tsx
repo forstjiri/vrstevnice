@@ -5,6 +5,7 @@ import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import ElevationChart from './ElevationChart'
 import { hoveredPoint } from './hoverStore'
+import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } from './rideAnimationStore'
 import { createStopMarker, createPoiMarker, stopColor } from './map-markers'
 import ShadowControls from './ShadowControls'
 
@@ -63,6 +64,40 @@ function findPositionAtDistance(
     geometry[lo][0] + (geometry[hi][0] - geometry[lo][0]) * t,
     geometry[lo][1] + (geometry[hi][1] - geometry[lo][1]) * t,
   ]
+}
+
+/**
+ * Compute bearing between two [lat, lng] points in degrees (0 = north, 90 = east).
+ */
+function computeBearing(from: [number, number], to: [number, number]): number {
+  const toRad = Math.PI / 180
+  const toDeg = 180 / Math.PI
+  const lat1 = from[0] * toRad
+  const lat2 = to[0] * toRad
+  const dLng = (to[1] - from[1]) * toRad
+  const y = Math.sin(dLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+  return ((Math.atan2(y, x) * toDeg) + 360) % 360
+}
+
+/**
+ * Find bearing at a given distance along route geometry.
+ * Uses the segment the point is on to determine direction.
+ */
+function bearingAtDistance(
+  geometry: [number, number][],
+  geometryDistances: number[],
+  targetDistance: number,
+): number | null {
+  if (geometry.length < 2) return null
+  const totalDist = geometryDistances[geometryDistances.length - 1]
+  // At the very end, use the last segment
+  const lookahead = Math.min(targetDistance + 50, totalDist) // 50m lookahead for bearing
+  const fromPos = findPositionAtDistance(geometry, geometryDistances, targetDistance)
+  const toPos = findPositionAtDistance(geometry, geometryDistances, lookahead)
+  if (!fromPos || !toPos) return null
+  if (fromPos[0] === toPos[0] && fromPos[1] === toPos[1]) return null
+  return computeBearing(fromPos, toPos)
 }
 
 /**
@@ -272,6 +307,9 @@ export default function Map() {
   let hillshadeEnabled = true
   let contoursEnabled = true
   let contoursReady = false
+  const [mapZoom, setMapZoom] = createSignal(7)
+  const [inspectMode, setInspectMode] = createSignal(false)
+  const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; properties: Record<string, unknown> } | null>(null)
   let hillshadeBaseIntensity = 1
   let sunDateTime = formatLocalDateTime(new Date())
   const MIN_TERRAIN_ZOOM = 10
@@ -389,6 +427,58 @@ export default function Map() {
         if (m.getLayer('road_minor')) {
           m.setPaintProperty('road_minor', 'line-color', '#fdf6e3')
         }
+          // Widen forest tracks/paths — thicker + outline for visibility from z12.5
+          if (m.getLayer('road_path')) {
+            // Hide original thin layer — our custom layers replace it
+            try { m.setLayoutProperty('road_path', 'visibility', 'none') } catch (_) {}
+            // Black outline under the track for contrast
+            m.addLayer({
+              id: 'cycle-path-outline',
+              type: 'line',
+              source: 'openmaptiles',
+              'source-layer': 'transportation',
+              minzoom: 12.5,
+              filter: [
+                'all',
+                ['==', '$type', 'LineString'],
+                ['in', 'class', 'path', 'track'],
+                ['!=', 'subclass', 'cycleway'],
+              ],
+              paint: {
+                'line-color': 'rgba(0, 0, 0, 0.3)',
+                'line-width': [
+                  'interpolate', ['linear'], ['zoom'],
+                  12.5, 1.5,
+                  14, 3,
+                  18, 12,
+                ],
+              },
+            }, 'road_path')
+            // Bright track line on top
+            m.addLayer({
+              id: 'cycle-path-widen',
+              type: 'line',
+              source: 'openmaptiles',
+              'source-layer': 'transportation',
+              minzoom: 12.5,
+              filter: [
+                'all',
+                ['==', '$type', 'LineString'],
+                ['in', 'class', 'path', 'track'],
+                ['!=', 'subclass', 'cycleway'],
+              ],
+              paint: {
+                'line-color': 'hsl(0, 0%, 97%)',
+                'line-dasharray': [1, 1],
+                'line-width': [
+                  'interpolate', ['linear'], ['zoom'],
+                  12.5, 1,
+                  14, 2,
+                  18, 8,
+                ],
+              },
+            }, 'road_path')
+          }
         // Highlight tertiary roads — paved, lower traffic
         m.addLayer({
           id: 'cycle-tertiary-highlight',
@@ -676,7 +766,37 @@ export default function Map() {
       e.preventDefault()
       showContextMenu(m, e)
     })
-    m.on('click', () => removeContextMenu())
+    m.on('click', (e) => {
+      if (inspectMode()) {
+        const features = m.queryRenderedFeatures(e.point)
+        if (features.length > 0) {
+          const f = features[0]
+          const p = (f.properties ?? {}) as Record<string, unknown>
+          const propsToShow: Record<string, unknown> = {}
+          const interesting = [
+            'name', 'name:cs', 'name:en', 'name:de',
+            'class', 'subclass', 'brunnel',
+            'surface', 'smoothness', 'tracktype',
+            'highway', 'ref', 'osm_id',
+            'wikidata', 'wikipedia',
+          ]
+          for (const k of interesting) {
+            if (k in p) propsToShow[k] = p[k]
+          }
+          setInspectInfo({
+            layerId: String(f.layer?.id ?? 'unknown'),
+            sourceLayer: typeof f.sourceLayer === 'string' ? f.sourceLayer : undefined,
+            lng: e.lngLat.lng.toFixed(6),
+            lat: e.lngLat.lat.toFixed(6),
+            properties: propsToShow,
+          })
+        } else {
+          setInspectInfo(null)
+        }
+        return
+      }
+      removeContextMenu()
+    })
 
     // Track map center
     const updateCenter = () => {
@@ -686,12 +806,21 @@ export default function Map() {
         setMapCenter({ lat: c.lat, lon: c.lng, zoom: m.getZoom() })
       } catch (_) {}
     }
+    const updateZoom = () => {
+      try { if (!destroyed) setMapZoom(m.getZoom()) } catch (_) {}
+    }
     m.on('moveend', updateCenter)
+    m.on('zoom', updateZoom)
     updateCenter()
+    updateZoom()
 
     // Global escape key handler for context menu
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') removeContextMenu()
+      if (e.key === 'Escape') {
+        removeContextMenu()
+        setInspectMode(false)
+        setInspectInfo(null)
+      }
     }
     document.addEventListener('keydown', handleKey)
 
@@ -702,6 +831,7 @@ export default function Map() {
       document.removeEventListener('keydown', handleKey)
       removeContextMenu()
       m.off('moveend', updateCenter)
+      m.off('zoom', updateZoom)
       m.remove()
     })
   })
@@ -856,6 +986,118 @@ export default function Map() {
     }
   })
 
+  // ── Ride animation: shadow time sync ──
+  // Direct update bypassing refreshHillshade's rAF/idle gate (too slow for animation)
+  createEffect(() => {
+    if (!map) return
+    const anim = rideAnimation()
+    if (!anim.playing || !anim.currentDateTime) return
+
+    sunDateTime = anim.currentDateTime
+    // Call hillshade update directly — no rAF/idle delay
+    try {
+      if (!destroyed && map.isStyleLoaded() && updateHillshadeLightingLocal) {
+        syncDynamicLayers(map)
+        updateHillshadeLightingLocal()
+      }
+    } catch (_) {}
+  })
+
+  // ── Ride animation: smooth camera tracking via rAF ──
+  let cameraRafId = 0
+  let smoothCenter: { lng: number; lat: number } | null = null
+  let smoothBearing = 0
+  // Lerp factor per frame (0.12 = smooth but responsive inertia)
+  const CAM_LERP = 0.06
+  const BEARING_LERP = 0.03 // slower bearing turn for inertia
+
+  function cameraLoop() {
+    if (!map || !cameraTarget.active) {
+      smoothCenter = null
+      cameraRafId = 0
+      return
+    }
+
+    const m = map
+    const target = cameraTarget
+
+    // Initialize smooth position on first frame
+    if (!smoothCenter) {
+      const c = m.getCenter()
+      smoothCenter = { lng: c.lng, lat: c.lat }
+      smoothBearing = m.getBearing()
+    }
+
+    // Lerp toward target
+    const dx = target.lng - smoothCenter.lng
+    const dy = target.lat - smoothCenter.lat
+
+    // Shortest-path bearing interpolation
+    let dBearing = target.bearing - smoothBearing
+    if (dBearing > 180) dBearing -= 360
+    if (dBearing < -180) dBearing += 360
+
+    // Only move if delta is significant (avoid micro-jitter)
+    if (Math.abs(dx) > 0.000001 || Math.abs(dy) > 0.000001) {
+      smoothCenter.lng += dx * CAM_LERP
+      smoothCenter.lat += dy * CAM_LERP
+    }
+    if (Math.abs(dBearing) > 0.01) {
+      smoothBearing += dBearing * BEARING_LERP
+      smoothBearing = ((smoothBearing % 360) + 360) % 360
+    }
+
+    try {
+      m.jumpTo({
+        center: [smoothCenter.lng, smoothCenter.lat],
+        zoom: 14,
+        bearing: smoothBearing,
+        pitch: 60,
+      })
+    } catch (_) {}
+
+    cameraRafId = requestAnimationFrame(cameraLoop)
+  }
+
+  // Watch for animation start/stop to manage camera rAF loop
+  createEffect(() => {
+    const anim = rideAnimation()
+    if (!anim.playing) {
+      // Stop camera loop
+      if (cameraRafId) {
+        cancelAnimationFrame(cameraRafId)
+        cameraRafId = 0
+      }
+      // Restore zoom
+      if (cameraTarget.preZoom !== null && map) {
+        try { map.setZoom(cameraTarget.preZoom) } catch (_) {}
+        cameraTarget.preZoom = null
+      }
+      cameraTarget.active = false
+      return
+    }
+
+    // Start camera loop if not running
+    if (!cameraRafId) {
+      if (map && cameraTarget.preZoom === null) {
+        cameraTarget.preZoom = map.getZoom()
+      }
+      cameraRafId = requestAnimationFrame(cameraLoop)
+    }
+  })
+
+  onCleanup(() => {
+    if (cameraRafId) cancelAnimationFrame(cameraRafId)
+  })
+
+  // Reset animation state when route changes
+  createEffect(() => {
+    const r = route()
+    if (!r) {
+      updateRideAnimation({ playing: false, currentDistance: 0, elapsedMs: 0, currentDateTime: null })
+    }
+  })
+
   onCleanup(() => map?.remove())
 
   const shadowCallbacks = {
@@ -911,6 +1153,42 @@ export default function Map() {
       <div class="map-container">
         <div ref={container} class="map-host" />
         <div ref={(el) => { duskOverlay = el }} class="map-dusk-overlay" aria-hidden="true" />
+        <div class="map-overlay-top-right">
+          <div class="map-zoom-pill" title="Aktuální zoom">
+            z {mapZoom().toFixed(1)}
+          </div>
+          <button
+            class={`map-inspect-btn${inspectMode() ? ' map-inspect-btn-active' : ''}`}
+            type="button"
+            onClick={() => {
+              setInspectMode((v) => !v)
+              setInspectInfo(null)
+            }}
+            title="Zapnout/vypnout inspect mode"
+          >
+            ⌖ Inspect
+          </button>
+          {inspectMode() && inspectInfo() && (() => {
+            const info = inspectInfo()!
+            const props = info.properties
+            const propKeys = Object.keys(props)
+            return (
+              <div class="map-inspect-panel">
+                <div class="map-inspect-title">{info.layerId}</div>
+                {info.sourceLayer && <div class="map-inspect-subtitle">{info.sourceLayer}</div>}
+                <div class="map-inspect-gps">📍 {info.lat}, {info.lng}</div>
+                {'name' in props && <div class="map-inspect-name">{String(props.name)}</div>}
+                {'name:cs' in props && !('name' in props) && <div class="map-inspect-name">{String(props['name:cs'])}</div>}
+                {propKeys.filter(k => k !== 'name' && k !== 'name:cs').length > 0 && (
+                  <pre class="map-inspect-pre">{JSON.stringify(
+                    Object.fromEntries(propKeys.filter(k => k !== 'name' && k !== 'name:cs').map(k => [k, props[k]])),
+                    null, 2,
+                  )}</pre>
+                )}
+              </div>
+            )
+          })()}
+        </div>
         <div class="map-overlay-shadow-controls">
           <ShadowControls {...shadowCallbacks} mapReady={mapReady} webglFailed={webglFailed} />
         </div>

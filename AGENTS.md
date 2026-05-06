@@ -26,6 +26,14 @@ pnpm typecheck           # tsc --build
 pnpm test                # Vitest
 ```
 
+### ⚠️ Agent pravidla pro BE/FE procesy
+
+- **Nikdy nespouštěj `pnpm dev`, `bun index.ts`, ani žádné dev servery bez svolení uživatele.**
+- Pokud potřebuješ BE/FE restart, zeptej se uživatele.
+- Pokud BE/FE běží a ty je potřebuješ pro test (Playwright), zeptej se uživatele — on je spustí.
+- Pokud jsi omylem vytvořil orphaned procesy, okamžitě je zabij a nahlas to.
+- Porty: BE :3002, FE :5173 (nikdy nepoužívej jiné porty)
+
 ## Projektová struktura
 
 ```
@@ -139,6 +147,9 @@ docs/              Architektura, API, gotchas (částečně zastaralé)
 | `src/routing/index.ts` | GraphHopper Custom Model API, POI pipeline |
 | `src/fe/App.tsx` | SolidJS context provider, Eden treaty client |
 | `src/fe/Stops.tsx` | Stop management + slidery (Kobalte Search/Slider/Button) |
-| `src/fe/Map.tsx` | MapLibre GL mapa — stop markery, polyline, context menu |
-| `src/fe/ElevationChart.tsx` | Canvas 2D elevation profil s barvením podle povrchu |
+| `src/fe/Map.tsx` | MapLibre GL mapa — stop markery, polyline, context menu, hillshade, ride animation camera |
+| `src/fe/ElevationChart.tsx` | Canvas 2D elevation profil s barvením podle povrchu, ride animation play/pause/seek |
+| `src/fe/ShadowControls.tsx` | Hillshade/terrain/time UI, sync s rideAnimationStore |
+| `src/fe/rideAnimationStore.ts` | Shared state pro ride animation (playing, speed, cameraTarget) |
+| `src/fe/hoverStore.ts` | Hover sync chart↔map |
 | `docker-compose.yml` | GH + Photon + tileserver služby |

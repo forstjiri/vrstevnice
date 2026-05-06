@@ -3,6 +3,7 @@ import type { ElevationPoint } from '@vrstevnice/shared'
 import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
+import { rideAnimation, updateRideAnimation, setCameraTarget } from './rideAnimationStore'
 import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS } from './chart-constants'
 
 /**
@@ -309,6 +310,8 @@ export default function ElevationChart() {
   }
 
   function onMouseMove(e: MouseEvent) {
+    // Don't interfere with animation
+    if (rideAnimation().playing) return
     const r = route()
     if (!r?.elevationProfile?.length) return
 
@@ -337,6 +340,282 @@ export default function ElevationChart() {
 
   let initialized = false
 
+  // ── Ride animation helpers ──
+
+  /**
+   * Interpolate position on geometry at given distance.
+   * Same logic as findPositionAtDistance in Map.tsx but self-contained.
+   */
+  function findPositionAtDistanceAnim(
+    geometry: [number, number][],
+    targetDistance: number,
+  ): [number, number] | null {
+    if (geometry.length === 0) return null
+    if (geometry.length === 1) return geometry[0]
+    const totalDist = geometry[geometry.length - 1]
+    // Use haversine cumulative distances
+    let cumDist = 0
+    let prev = geometry[0]
+    for (let i = 1; i < geometry.length; i++) {
+      const segLen = haversineMeters(prev[0], prev[1], geometry[i][0], geometry[i][1])
+      cumDist += segLen
+      if (cumDist >= targetDistance) {
+        const segStart = cumDist - segLen
+        const t = segLen > 0 ? (targetDistance - segStart) / segLen : 0
+        return [
+          prev[0] + (geometry[i][0] - prev[0]) * t,
+          prev[1] + (geometry[i][1] - prev[1]) * t,
+        ]
+      }
+      prev = geometry[i]
+    }
+    return geometry[geometry.length - 1]
+  }
+
+  /**
+   * Compute bearing at a given distance along route geometry.
+   * Uses a 50m lookahead for direction.
+   */
+  function computeBearingAnim(
+    geometry: [number, number][],
+    targetDistance: number,
+  ): number {
+    const from = findPositionAtDistanceAnim(geometry, targetDistance)
+    const to = findPositionAtDistanceAnim(geometry, Math.min(targetDistance + 50, totalRouteDistance()))
+    if (!from || !to) return 0
+    if (from[0] === to[0] && from[1] === to[1]) return 0
+    const toRad = Math.PI / 180
+    const toDeg = 180 / Math.PI
+    const lat1 = from[0] * toRad
+    const lat2 = to[0] * toRad
+    const dLng = (to[1] - from[1]) * toRad
+    const y = Math.sin(dLng) * Math.cos(lat2)
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+    return ((Math.atan2(y, x) * toDeg) + 360) % 360
+  }
+
+  function totalRouteDistance(): number {
+    const r = route()
+    if (!r?.geometry?.length) return 0
+    let total = 0
+    let prev = r.geometry[0]
+    for (let i = 1; i < r.geometry.length; i++) {
+      total += haversineMeters(prev[0], prev[1], r.geometry[i][0], r.geometry[i][1])
+      prev = r.geometry[i]
+    }
+    return total
+  }
+
+  // ── Ride animation state ──
+  let animRafId = 0
+  let animLastTimestamp: number | null = null
+  // Base datetime when animation started (from ShadowControls current setting)
+  let animBaseDate: Date | null = null
+
+  function startAnimation() {
+    const r = route()
+    if (!r?.elevationProfile?.length) return
+
+    // Use the current ShadowControls datetime as base
+    const baseStr = rideAnimation().currentDateTime
+    animBaseDate = baseStr ? parseAnimDateTime(baseStr) : new Date()
+    if (!animBaseDate) animBaseDate = new Date()
+
+    // Save base datetime for reset
+    const savedBase = formatAnimDateTime(animBaseDate)
+
+    // If starting from end, reset to beginning
+    const totalDist = r.elevationProfile[r.elevationProfile.length - 1].distance
+    if (rideAnimation().currentDistance >= totalDist) {
+      updateRideAnimation({ currentDistance: 0, elapsedMs: 0, baseDateTime: savedBase })
+    } else {
+      updateRideAnimation({ baseDateTime: savedBase })
+    }
+
+    animLastTimestamp = null
+    updateRideAnimation({ playing: true })
+    animLoop()
+  }
+
+  function stopAnimation() {
+    updateRideAnimation({ playing: false })
+    cancelAnimationFrame(animRafId)
+    animLastTimestamp = null
+  }
+
+  function resetAnimation() {
+    const base = rideAnimation().baseDateTime
+    stopAnimation()
+    setHoveredPoint(null)
+    updateRideAnimation({
+      currentDistance: 0,
+      elapsedMs: 0,
+      currentDateTime: base, // restore original ShadowControls time
+      baseDateTime: null,
+    })
+    cancelAnimationFrame(rafId)
+    rafId = requestAnimationFrame(() => draw())
+  }
+
+  function animLoop() {
+    if (!rideAnimation().playing) return
+
+    const r = route()
+    if (!r?.elevationProfile?.length) { stopAnimation(); return }
+
+    animRafId = requestAnimationFrame((timestamp) => {
+      if (!rideAnimation().playing) return
+
+      if (animLastTimestamp === null) {
+        animLastTimestamp = timestamp
+        animLoop()
+        return
+      }
+
+      const deltaMs = timestamp - animLastTimestamp
+      animLastTimestamp = timestamp
+
+      // Convert real elapsed time → simulated time (with speed multiplier)
+      const simulatedDeltaMs = deltaMs * rideAnimation().speed
+      const newElapsedMs = rideAnimation().elapsedMs + simulatedDeltaMs
+
+      // Convert simulated time → distance (using average speed from route)
+      // route.duration is in ms, route.distance in meters
+      const avgSpeedMs = r.duration > 0 ? r.distance / r.duration : 5.56 // fallback ~20 km/h
+      const newDistance = rideAnimation().currentDistance + simulatedDeltaMs * avgSpeedMs
+
+      const totalDist = r.elevationProfile[r.elevationProfile.length - 1].distance
+
+      if (newDistance >= totalDist) {
+        // Reached end — stop and trigger overview
+        const base = rideAnimation().baseDateTime
+        updateRideAnimation({
+          playing: false,
+          currentDistance: totalDist,
+          elapsedMs: newElapsedMs,
+        })
+        cancelAnimationFrame(animRafId)
+        animLastTimestamp = null
+        // Trigger fitBounds via window.__fitRouteOverview
+        try { (window as any).__fitRouteOverview?.() } catch (_) {}
+        // Reset time to base after a brief delay
+        setTimeout(() => {
+          updateRideAnimation({
+            currentDistance: 0,
+            elapsedMs: 0,
+            currentDateTime: base, // restore original ShadowControls time
+            baseDateTime: null,
+          })
+          setHoveredPoint(null)
+          requestAnimationFrame(() => draw())
+        }, 100)
+        return
+      }
+
+      // Compute current datetime for shadow updates
+      if (animBaseDate) {
+        const currentDate = new Date(animBaseDate.getTime() + newElapsedMs)
+        const dtStr = formatAnimDateTime(currentDate)
+        updateRideAnimation({
+          currentDistance: newDistance,
+          elapsedMs: newElapsedMs,
+          currentDateTime: dtStr,
+        })
+      } else {
+        updateRideAnimation({
+          currentDistance: newDistance,
+          elapsedMs: newElapsedMs,
+        })
+      }
+
+      // Publish to hoveredPoint for map sync
+      const result = findClosestPoint(newDistance)
+      if (result) {
+        setHoveredPoint({ distance: result.point.distance, elevation: result.point.elevation })
+        draw(result.point.distance, result.point.elevation, result.index)
+      }
+
+      // Update camera target for smooth camera tracking in Map.tsx
+      if (r.geometry?.length) {
+        const pos = findPositionAtDistanceAnim(r.geometry, newDistance)
+        if (pos) {
+          const bearing = computeBearingAnim(r.geometry, newDistance)
+          setCameraTarget(pos[1], pos[0], bearing, true)
+        }
+      }
+
+      animLoop()
+    })
+  }
+
+  function parseAnimDateTime(value: string): Date | null {
+    if (!value) return null
+    const [datePart, timePart] = value.split('T')
+    if (!datePart || !timePart) return null
+    const [year, month, day] = datePart.split('-').map(Number)
+    const [hour, minute] = timePart.split(':').map(Number)
+    if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) return null
+    return new Date(year, month - 1, day, hour, minute, 0, 0)
+  }
+
+  function formatAnimDateTime(date: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+
+  function onChartClick(e: MouseEvent) {
+    const r = route()
+    if (!r?.elevationProfile?.length) return
+
+    const rect = canvas.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const plotX = PADDING.left
+    const plotW = displayWidth - PADDING.left - PADDING.right
+
+    // Map clickX to distance
+    const ratio = Math.max(0, Math.min(1, (clickX - plotX) / plotW))
+    const dist = ratio * r.elevationProfile[r.elevationProfile.length - 1].distance
+
+    // Stop animation if playing
+    if (rideAnimation().playing) {
+      stopAnimation()
+    }
+
+    // Update animation position to clicked distance
+    const totalDist = r.elevationProfile[r.elevationProfile.length - 1].distance
+    updateRideAnimation({ currentDistance: Math.min(dist, totalDist) })
+
+    // Update hover point and redraw
+    const result = findClosestPoint(dist)
+    if (result) {
+      setHoveredPoint({ distance: result.point.distance, elevation: result.point.elevation })
+      draw(result.point.distance, result.point.elevation, result.index)
+    }
+
+    // Move camera to clicked position
+    if (r.geometry?.length) {
+      const pos = findPositionAtDistanceAnim(r.geometry, dist)
+      if (pos) {
+        const bearing = computeBearingAnim(r.geometry, dist)
+        setCameraTarget(pos[1], pos[0], bearing, true)
+      }
+    }
+
+    // Compute and set datetime at clicked position
+    if (animBaseDate || rideAnimation().baseDateTime) {
+      const base = animBaseDate
+        ? animBaseDate
+        : parseAnimDateTime(rideAnimation().baseDateTime ?? '')
+      if (base) {
+        const avgSpeedMs = r.duration > 0 ? r.distance / r.duration : 5.56
+        const timeOffsetMs = (dist / avgSpeedMs)
+        const currentDate = new Date(base.getTime() + timeOffsetMs)
+        const dtStr = formatAnimDateTime(currentDate)
+        updateRideAnimation({ currentDateTime: dtStr })
+      }
+    }
+  }
+
   function init() {
     if (!container || !canvas) return
     // If already initialized for THIS canvas element, skip.
@@ -353,6 +632,7 @@ export default function ElevationChart() {
     ro.observe(container)
     canvas.addEventListener('mousemove', onMouseMove)
     canvas.addEventListener('mouseleave', onMouseLeave)
+    canvas.addEventListener('click', onChartClick)
     initialized = true
   }
 
@@ -423,10 +703,12 @@ export default function ElevationChart() {
 
   onCleanup(() => {
     cancelAnimationFrame(rafId)
+    cancelAnimationFrame(animRafId)
     ro?.disconnect()
     if (canvas) {
       canvas.removeEventListener('mousemove', onMouseMove)
       canvas.removeEventListener('mouseleave', onMouseLeave)
+      canvas.removeEventListener('click', onChartClick)
     }
   })
 
@@ -434,6 +716,34 @@ export default function ElevationChart() {
     <Show when={route()?.elevationProfile?.length}>
       <div class="elevation-chart-container" ref={container}>
         <canvas ref={canvas} />
+        <div class="ride-animation-controls">
+          <button
+            class="ride-anim-btn"
+            onClick={() => rideAnimation().playing ? stopAnimation() : startAnimation()}
+            title={rideAnimation().playing ? 'Pauza' : 'Přehrát'}
+          >
+            {rideAnimation().playing ? '⏸' : '▶'}
+          </button>
+          <button
+            class="ride-anim-btn"
+            onClick={resetAnimation}
+            title="Reset"
+          >
+            ⏮
+          </button>
+          <label class="ride-anim-speed">
+            <span class="ride-anim-speed-label">{rideAnimation().speed}×</span>
+            <input
+              type="range"
+              class="ride-anim-speed-slider"
+              min="2"
+              max="100"
+              step="1"
+              value={rideAnimation().speed}
+              onInput={(e) => updateRideAnimation({ speed: Number(e.currentTarget.value) })}
+            />
+          </label>
+        </div>
       </div>
     </Show>
   )

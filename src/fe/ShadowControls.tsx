@@ -1,7 +1,8 @@
-import { createSignal, Show, createEffect } from 'solid-js'
+import { createSignal, Show, createEffect, untrack } from 'solid-js'
 import { Slider } from '@kobalte/core/slider'
 import { Checkbox } from '@kobalte/core/checkbox'
 import { Separator } from '@kobalte/core/separator'
+import { rideAnimation, updateRideAnimation } from './rideAnimationStore'
 
 export interface ShadowControlCallbacks {
   setTerrain: (enabled: boolean) => void
@@ -56,7 +57,15 @@ export default function ShadowControls(props: ShadowControlsProps) {
   // ── Sun datetime ──
   createEffect(() => {
     if (!props.mapReady()) return
-    try { props.setSunDateTime(composeLocalDateTime(sunDate(), sunMinutes()[0])) } catch (_) {}
+    const dtStr = composeLocalDateTime(sunDate(), sunMinutes()[0])
+    try { props.setSunDateTime(dtStr) } catch (_) {}
+    // Sync to rideAnimation store so animation knows the current shadow time
+    // Use untrack to avoid creating a dependency on rideAnimation signal
+    untrack(() => {
+      if (!rideAnimation().playing) {
+        updateRideAnimation({ currentDateTime: dtStr })
+      }
+    })
   })
 
   // ── Contour lines toggle ──

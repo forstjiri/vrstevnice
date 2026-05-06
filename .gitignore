@@ -29,6 +29,11 @@ coverage/
 tmp/
 .bg-shell/
 src/be/data*
+playwright-*
+.playwright-mcp/
+data.db
+data.db-shm
+data.db-wal
 
 # ── Docker / GraphHopper ──
 data/
