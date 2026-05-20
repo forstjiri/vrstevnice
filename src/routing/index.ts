@@ -99,7 +99,7 @@ export function buildCustomModel(
     },
     {
       if: 'road_class == SECONDARY',
-      multiply_by: String(lerp(0.4, 1.0, roadAvoidanceCoefficient)),
+      multiply_by: String(lerp(0.2, 1.0, roadAvoidanceCoefficient)),
     },
   ]
 
@@ -656,7 +656,7 @@ export async function fetchPOIsAlongRoute(
 
   // Pre-compute cumulative distances along geometry for all subsequent lookups
   const geomDists = computeGeometryDistances(geometry)
-  
+
   const delayedPOIs = sorted.filter(poi => {
     const geoIdx = closestGeometryIndex(poi.lat, poi.lng, geometry)
     return geomDists[geoIdx] >= minStartDistance
@@ -697,35 +697,35 @@ function filterPOIsByDetourEfficiency(
   if (pois.length < 2) return pois
 
   const accepted: POILocation[] = []
-  
+
   for (let i = 0; i < pois.length; i++) {
     const current = pois[i]
     const next = pois[i + 1]
-    
+
     // Distance from POI to its closest point on route
     const geoIdx = closestGeometryIndex(current.lat, current.lng, geometry)
     const onRoutePoint = geometry[geoIdx]
     const detourDist = haversineMeters(current.lat, current.lng, onRoutePoint[0], onRoutePoint[1])
-    
+
     // Total cost of detour (going there and back)
     const detourCost = detourDist * 2
 
     if (next) {
       const nextGeoIdx = closestGeometryIndex(next.lat, next.lng, geometry)
-      
+
       // Distance along the route between the two POI projections (pre-computed)
       const distToNextOnRoute = geomDists[nextGeoIdx] - geomDists[geoIdx]
 
       // If detour is longer than the distance to the next candidate on the path,
       // and that next candidate is significantly "cheaper" (closer to route), skip current.
       const nextDetourDist = haversineMeters(next.lat, next.lng, geometry[nextGeoIdx][0], geometry[nextGeoIdx][1])
-      
+
       if (detourCost > distToNextOnRoute && nextDetourDist < detourDist * 0.5) {
         // Skip this one because there's a much better one soon
         continue
       }
     }
-    
+
     accepted.push(current)
   }
 
