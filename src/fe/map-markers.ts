@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 
 export function stopColor(index: number, total: number): string {
   if (total === 1) return '#3b82f6'

@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createSignal } from 'solid-js'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import mlcontour from 'maplibre-contour'
 import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
 import { useApp } from './App'

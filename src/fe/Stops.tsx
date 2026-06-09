@@ -1,4 +1,5 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
+import * as maplibregl from 'maplibre-gl'
 import { Search } from '@kobalte/core/search'
 import { Button } from '@kobalte/core/button'
 import { Slider } from '@kobalte/core/slider'
