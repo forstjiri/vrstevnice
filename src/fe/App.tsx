@@ -27,6 +27,12 @@ interface AppContextValue {
   setError: Setter<string | null>
   mapCenter: Accessor<MapCenter | null>
   setMapCenter: Setter<MapCenter | null>
+  hillshadeEnabled: Accessor<boolean>
+  setHillshadeEnabled: Setter<boolean>
+  shadowDateTime: Accessor<string>
+  setShadowDateTime: Setter<string>
+  regenerateRoute: Accessor<() => Promise<void>>
+  setRegenerateRoute: Setter<() => Promise<void>>
 }
 
 const AppContext = createContext<AppContextValue>()
@@ -50,6 +56,13 @@ export default function App() {
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
   const [mapCenter, setMapCenter] = createSignal<MapCenter | null>(null)
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const [hillshadeEnabled, setHillshadeEnabled] = createSignal(false)
+  const [shadowDateTime, setShadowDateTime] = createSignal(
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  )
+  const [regenerateRoute, setRegenerateRoute] = createSignal<() => Promise<void>>(async () => {})
   const addStop = (stop: Stop) => {
     setStops(prev => [...prev, stop])
   }
@@ -77,6 +90,12 @@ export default function App() {
     setError,
     mapCenter,
     setMapCenter,
+    hillshadeEnabled,
+    setHillshadeEnabled,
+    shadowDateTime,
+    setShadowDateTime,
+    regenerateRoute,
+    setRegenerateRoute,
   }
 
   setLatestAppContext(contextValue)

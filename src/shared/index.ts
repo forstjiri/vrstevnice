@@ -41,6 +41,8 @@ export interface ShadowPoint {
 	distance: number
 	/** True = point is in shadow (blocked by vegetation/building) */
 	shadow: boolean
+	/** Direct sunlight exposure: 0 = full shadow, 1 = full direct sun */
+	sunExposure: number
 }
 
 export interface POILocation {
@@ -83,6 +85,8 @@ export interface RouteRequest {
   cyclewayCoefficient: number
   /** Lemonade coefficient: 0 = off (normal routing), 1 = max pub density along route */
   lemonadeCoefficient: number
+  /** Optional datetime used for terrain-based shadow profile computation */
+  shadowDateTime?: string
 }
 
 // --- Geo utilities ---

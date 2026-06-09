@@ -26,7 +26,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route } = useApp()
+  const { route, setRoute, hillshadeEnabled, shadowDateTime } = useApp()
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null
@@ -46,6 +46,9 @@ export default function ElevationChart() {
   let cachedRoadClassDash: (number[] | undefined)[] = []
 	// Shadow overlay: cached shadow status per profile point
 	let cachedShadowStatus: boolean[] = []
+	let cachedSunExposure: number[] = []
+	let lastShadowFetchKey = ''
+	let shadowFetchSeq = 0
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -71,6 +74,8 @@ export default function ElevationChart() {
     const plotY = PADDING.top
     const plotW = w - PADDING.left - PADDING.right
     const plotH = h - PADDING.top - PADDING.bottom
+    const shadowLaneHeight = hillshadeEnabled() && cachedSunExposure.length === profile.length ? Math.min(42, plotH * 0.32) : 0
+    const profilePlotH = plotH - shadowLaneHeight
 
     ctx!.clearRect(0, 0, w, h)
 
@@ -93,7 +98,13 @@ export default function ElevationChart() {
     }
 
     function toY(elev: number) {
-      return plotY + plotH - ((elev - minElev) / elevSpan) * plotH
+      return plotY + profilePlotH - ((elev - minElev) / elevSpan) * profilePlotH
+    }
+
+    function shadowToY(exposure: number) {
+      const laneTop = plotY + profilePlotH + 2
+      const laneBottom = plotY + plotH
+      return laneBottom - Math.max(0, Math.min(1, exposure)) * Math.max(1, laneBottom - laneTop)
     }
 
     // Draw elevation profile — fill by surface color, stroke by road_class
@@ -222,38 +233,51 @@ export default function ElevationChart() {
       }
     }
 
-		// --- SHADOW OVERLAY: semi-transparent color bands for shadow/sun ---
-		if (cachedShadowStatus.length === profile.length) {
-			const shadowSegments: ProfileGroup[] = []
-			let si = 0
-			while (si < profile.length) {
-				const inShadow = cachedShadowStatus[si]
-				const start = si
-				while (si < profile.length && cachedShadowStatus[si] === inShadow) si++
-				shadowSegments.push({start, end: si - 1, color: inShadow ? '#1e40af' : '#fbbf24'})
-			}
+		if (hillshadeEnabled() && cachedSunExposure.length === profile.length && shadowLaneHeight > 0) {
+			const laneTop = plotY + profilePlotH + 2
+			const laneBottom = plotY + plotH
+			ctx!.fillStyle = 'rgba(253, 230, 138, 0.10)'
+			ctx!.fillRect(plotX, laneTop, plotW, laneBottom - laneTop)
+			ctx!.strokeStyle = 'rgba(250, 204, 21, 0.20)'
+			ctx!.lineWidth = 1
+			ctx!.beginPath()
+			ctx!.moveTo(plotX, laneTop)
+			ctx!.lineTo(plotX + plotW, laneTop)
+			ctx!.moveTo(plotX, (laneTop + laneBottom) / 2)
+			ctx!.lineTo(plotX + plotW, (laneTop + laneBottom) / 2)
+			ctx!.moveTo(plotX, laneBottom)
+			ctx!.lineTo(plotX + plotW, laneBottom)
+			ctx!.stroke()
 
-			for (const seg of shadowSegments) {
-				const drawStart = seg.start
-				ctx!.beginPath()
-				ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
-				for (let j = drawStart + 1; j <= seg.end; j++) {
-					ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
-				}
-				ctx!.lineTo(toX(profile[seg.end].distance), plotY + plotH)
-				ctx!.lineTo(toX(profile[drawStart].distance), plotY + plotH)
-				ctx!.closePath()
-				ctx!.fillStyle = hexToRgba(seg.color, 0.20)
-				ctx!.fill()
+			ctx!.beginPath()
+			ctx!.moveTo(toX(profile[0].distance), laneBottom)
+			ctx!.lineTo(toX(profile[0].distance), shadowToY(cachedSunExposure[0]))
+			for (let i = 1; i < profile.length; i++) {
+				ctx!.lineTo(toX(profile[i].distance), shadowToY(cachedSunExposure[i]))
 			}
+			ctx!.lineTo(toX(profile[profile.length - 1].distance), laneBottom)
+			ctx!.closePath()
+			ctx!.fillStyle = 'rgba(254, 240, 138, 0.22)'
+			ctx!.fill()
 
-			// Thin legend bar at the very bottom
-			for (const seg of shadowSegments) {
-				ctx!.fillStyle = hexToRgba(seg.color, 0.40)
-				ctx!.fillRect(toX(profile[seg.start].distance), plotY + plotH - 3,
-					toX(profile[seg.end].distance) - toX(profile[seg.start].distance), 3)
-      }
-    }
+			ctx!.beginPath()
+			ctx!.moveTo(toX(profile[0].distance), shadowToY(cachedSunExposure[0]))
+			for (let i = 1; i < profile.length; i++) {
+				ctx!.lineTo(toX(profile[i].distance), shadowToY(cachedSunExposure[i]))
+			}
+			ctx!.strokeStyle = 'rgba(253, 224, 71, 0.95)'
+			ctx!.lineWidth = 2
+			ctx!.lineJoin = 'round'
+			ctx!.stroke()
+
+			ctx!.textAlign = 'left'
+			ctx!.textBaseline = 'middle'
+			ctx!.fillStyle = 'rgba(202, 138, 4, 0.95)'
+			ctx!.fillText('Slunce', plotX + 4, laneTop + 7)
+			ctx!.fillText('100', plotX + 4, laneTop + 18)
+			ctx!.fillText('50', plotX + 4, (laneTop + laneBottom) / 2)
+			ctx!.fillText('0', plotX + 4, laneBottom - 2)
+		}
 
     // Y-axis labels
     ctx!.font = '10px ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
@@ -329,13 +353,17 @@ export default function ElevationChart() {
       // Look up surface and road class at hovered profile index
       const surfLabel = hoverIdx !== undefined ? cachedSurfaceLabels[hoverIdx] : ''
       const rcLabel = hoverIdx !== undefined ? cachedRoadClassLabels[hoverIdx] : ''
-      const hasMeta = surfLabel || rcLabel
+      const shadowExposure = hoverIdx !== undefined ? cachedSunExposure[hoverIdx] : undefined
+      const shadowLabel = hillshadeEnabled() && shadowExposure !== undefined
+        ? `slunce ${Math.round(shadowExposure * 100)} %`
+        : ''
+      const hasMeta = surfLabel || rcLabel || shadowLabel
 
       ctx!.font = '11px ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
       const tw = Math.max(
         ctx!.measureText(line1).width,
         ctx!.measureText(line2).width,
-        hasMeta ? ctx!.measureText(surfLabel + ' · ' + rcLabel).width + 8 : 0,
+        hasMeta ? ctx!.measureText([surfLabel, rcLabel, shadowLabel].filter(Boolean).join(' · ')).width + 8 : 0,
       ) + 12
       const th = hasMeta ? 44 : 32
       let tx = hx + TOOLTIP_OFFSET
@@ -357,7 +385,7 @@ export default function ElevationChart() {
       ctx!.fillText(line2, tx + 6, ty + 18)
 
       if (hasMeta) {
-        const metaLine = [surfLabel, rcLabel].filter(Boolean).join(' · ')
+        const metaLine = [surfLabel, rcLabel, shadowLabel].filter(Boolean).join(' · ')
         ctx!.fillStyle = '#d1d5db'
         ctx!.fillText(metaLine, tx + 6, ty + 31)
       }
@@ -729,14 +757,18 @@ export default function ElevationChart() {
 				const shadowDists = r.shadowProfile.map(s => s.distance)
 				const shadowEnds = [...shadowDists.slice(1), Infinity]
 				const shadowStatus: boolean[] = []
+				const sunExposure: number[] = []
 				for (let i = 0; i < r.elevationProfile.length; i++) {
 					const dist = r.elevationProfile[i].distance
 					const idx = binarySearchSegment(shadowDists, shadowEnds, dist)
 					shadowStatus.push(idx >= 0 ? r.shadowProfile[idx].shadow : false)
+					sunExposure.push(idx >= 0 ? r.shadowProfile[idx].sunExposure : 1)
 				}
 				cachedShadowStatus = shadowStatus
+				cachedSunExposure = sunExposure
 			} else {
 				cachedShadowStatus = []
+				cachedSunExposure = []
 			}
     } else {
       cachedGeomDists = []
@@ -744,11 +776,49 @@ export default function ElevationChart() {
       cachedSurfaceLabels = []
       cachedRoadClassLabels = []
       cachedRoadClassColors = []
-      cachedRoadClassDash = []
+			cachedRoadClassDash = []
 			cachedShadowStatus = []
+			cachedSunExposure = []
     }
 
     requestAnimationFrame(() => draw())
+  })
+
+  createEffect(() => {
+    const r = route()
+    const enabled = hillshadeEnabled()
+    const dt = shadowDateTime()
+    const playing = rideAnimation().playing
+
+    if (!r?.geometry.length || !enabled || !dt || playing) return
+
+    const requestKey = `${r.distance}:${r.geometry.length}:${dt}`
+    if (requestKey === lastShadowFetchKey) return
+
+    const currentSeq = ++shadowFetchSeq
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch('http://localhost:3002/api/shadow-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            geometry: r.geometry,
+            datetime: dt,
+            durationMs: r.duration,
+          }),
+        })
+        if (!res.ok) return
+        const data = await res.json() as { shadowProfile?: typeof r.shadowProfile }
+        if (currentSeq !== shadowFetchSeq) return
+        lastShadowFetchKey = requestKey
+        setRoute((prev) => {
+          if (!prev || prev.distance !== r.distance || prev.geometry.length !== r.geometry.length) return prev
+          return { ...prev, shadowProfile: data.shadowProfile ?? [] }
+        })
+      } catch (_) {}
+    }, 180)
+
+    onCleanup(() => window.clearTimeout(timer))
   })
 
   onCleanup(() => {

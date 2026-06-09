@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
 import { rateLimit } from 'elysia-rate-limit'
-import type {GeocodeResult} from '@vrstevnice/shared'
+import type { GeocodeResult } from '@vrstevnice/shared'
 import {
 	buildCustomModel,
 	convertGHToRouteResponse,
@@ -13,26 +13,16 @@ import {
 import { db, routes } from './db'
 import { mapPhotonFeature } from './geocode'
 import { detectAndParseGPS } from './gps'
+import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain'
 import { resolve } from 'node:path'
 import {appendFile, readFile} from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
-import {Database as SqliteDb} from 'bun:sqlite'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
 const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
-
-// ── Terrain mbtiles reader (DMR 5G) ──
-const TERRAIN_MBTILES = resolve(PROJECT_ROOT, 'data', 'cz-terrain.mbtiles')
-let terrainDb: SqliteDb | null = null
-try {
-	terrainDb = new SqliteDb(TERRAIN_MBTILES, {readonly: true})
-	console.log(`[terrain] Loaded ${TERRAIN_MBTILES}`)
-} catch (e) {
-	console.warn(`[terrain] No mbtiles at ${TERRAIN_MBTILES}, falling back to tileserver proxy`)
-}
 
 const TRANSPARENT_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg==',
@@ -140,21 +130,11 @@ const app = new Elysia({ prefix: '/api' })
 		const y = Number(params.y)
 
 		// Try reading from local mbtiles (DMR 5G) first
-		// mbtiles uses TMS y: tms_y = 2^z - 1 - xyz_y
-		if (terrainDb) {
-			try {
-				const tmsY = (1 << z) - 1 - y
-				const row = terrainDb.prepare(
-					'SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?',
-				).get(z, x, tmsY) as { tile_data: Uint8Array } | undefined
-				if (row?.tile_data && row.tile_data.length > 0) {
-					set.headers['Content-Type'] = 'image/png'
-					set.headers['Cache-Control'] = 'public, max-age=86400'
-					return Buffer.from(row.tile_data)
-				}
-			} catch (e) {
-				console.error('[terrain] mbtiles read error:', e)
-			}
+		const tile = readTerrainTile(z, x, y)
+		if (tile) {
+			set.headers['Content-Type'] = 'image/png'
+			set.headers['Cache-Control'] = 'public, max-age=86400'
+			return tile
 		}
 
 		// Fallback: proxy to tileserver when local mbtiles miss a tile.
@@ -430,6 +410,14 @@ const app = new Elysia({ prefix: '/api' })
       // Don't fail the request - route data is still valid
     }
 
+    if (body.shadowDateTime && hasTerrainData()) {
+      try {
+        finalRouteData.shadowProfile = computeShadowProfile(finalRouteData.geometry, body.shadowDateTime)
+      } catch (shadowErr) {
+        pino.warn({ error: (shadowErr as Error).message }, 'Shadow profile computation failed')
+      }
+    }
+
     return finalRouteData
   }, {
     body: t.Object({
@@ -442,6 +430,7 @@ const app = new Elysia({ prefix: '/api' })
       roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       lemonadeCoefficient: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+      shadowDateTime: t.Optional(t.String()),
     }),
     response: t.Object({
       geometry: t.Array(t.Array(t.Number())),
@@ -479,6 +468,39 @@ const app = new Elysia({ prefix: '/api' })
         lng: t.Number(),
         name: t.String(),
         type: t.String(),
+      })),
+      shadowProfile: t.Optional(t.Array(t.Object({
+        distance: t.Number(),
+        shadow: t.Boolean(),
+        sunExposure: t.Number(),
+      }))),
+    }),
+  })
+
+  .post('/shadow-profile', async ({ body }) => {
+    if (!hasTerrainData()) return { shadowProfile: [] }
+    return {
+      shadowProfile: computeShadowProfile(body.geometry as [number, number][], body.datetime, {
+        sampleIntervalM: body.sampleIntervalM,
+        stepM: body.stepM,
+        maxRayM: body.maxRayM,
+        durationMs: body.durationMs,
+      }),
+    }
+  }, {
+    body: t.Object({
+      geometry: t.Array(t.Tuple([t.Number(), t.Number()])),
+      datetime: t.String(),
+      sampleIntervalM: t.Optional(t.Number({ minimum: 1 })),
+      stepM: t.Optional(t.Number({ minimum: 1 })),
+      maxRayM: t.Optional(t.Number({ minimum: 1 })),
+      durationMs: t.Optional(t.Number({ minimum: 1 })),
+    }),
+    response: t.Object({
+      shadowProfile: t.Array(t.Object({
+        distance: t.Number(),
+        shadow: t.Boolean(),
+        sunExposure: t.Number(),
       })),
     }),
   })

@@ -8,7 +8,7 @@
 
 import {describe, expect, it} from 'vitest'
 
-const BE_URL = process.env.BE_URL || 'http://127.0.0.1:3002'
+const BE_URL = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.BE_URL || 'http://127.0.0.1:3002'
 
 describe('Shadow profile API', () => {
 	it('POST /api/shadow-profile returns shadowProfile array', async () => {
@@ -42,6 +42,8 @@ describe('Shadow profile API', () => {
 			expect(typeof entry.distance).toBe('number')
 			expect(entry).toHaveProperty('shadow')
 			expect(typeof entry.shadow).toBe('boolean')
+			expect(entry).toHaveProperty('sunExposure')
+			expect(typeof entry.sunExposure).toBe('number')
 		}
 	})
 

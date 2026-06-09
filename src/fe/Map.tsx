@@ -366,7 +366,7 @@ export default function Map() {
             const dt = parseLocalDateTime(sunDateTime) ?? new Date()
             const center = m.getCenter()
             const pos = SunCalc.getPosition(dt, center.lat, center.lng)
-            const azimuth = (pos.azimuth * 180 / Math.PI + 360) % 360
+            const azimuth = (pos.azimuth * 180 / Math.PI + 180 + 360) % 360
             const altitude = pos.altitude * 180 / Math.PI
             const times = SunCalc.getTimes(dt, center.lat, center.lng)
             const sunrise = times.sunrise ?? null

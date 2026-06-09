@@ -1,9 +1,10 @@
-import { createSignal, Show, createEffect, untrack } from 'solid-js'
+import { createSignal, Show, createEffect, untrack, createMemo } from 'solid-js'
 import { Slider } from '@kobalte/core/slider'
 import { Checkbox } from '@kobalte/core/checkbox'
 import { Separator } from '@kobalte/core/separator'
 import { rideAnimation, updateRideAnimation } from './rideAnimationStore'
-import { formatLocalDate as formatLocalDateShared } from '@vrstevnice/shared'
+import { formatLocalDate as formatLocalDateShared, parseLocalDateTime as parseLocalDateTimeShared } from '@vrstevnice/shared'
+import { useApp } from './App'
 
 export interface ShadowControlCallbacks {
   setTerrain: (enabled: boolean) => void
@@ -21,6 +22,7 @@ interface ShadowControlsProps extends ShadowControlCallbacks {
 }
 
 export default function ShadowControls(props: ShadowControlsProps) {
+  const { setHillshadeEnabled, setShadowDateTime, regenerateRoute, loading, route } = useApp()
   const [terrainOn, setTerrainOn] = createSignal(false)
   const [hillshadeOn, setHillshadeOn] = createSignal(false)
   const [contoursOn, setContoursOn] = createSignal(true)
@@ -30,6 +32,25 @@ export default function ShadowControls(props: ShadowControlsProps) {
   const [sunDate, setSunDate] = createSignal(formatLocalDate(now))
   const [sunMinutes, setSunMinutes] = createSignal<number[]>([now.getHours() * 60 + now.getMinutes()])
   const [collapsed, setCollapsed] = createSignal(false)
+
+  const animatedSunDateTime = createMemo(() => {
+    if (!hillshadeOn()) return null
+    const anim = rideAnimation()
+    if (!anim.playing || !anim.baseDateTime) return null
+    const base = parseLocalDateTimeShared(anim.baseDateTime)
+    if (!base) return null
+    return new Date(base.getTime() + anim.elapsedMs)
+  })
+
+  const effectiveSunDate = createMemo(() => {
+    const animated = animatedSunDateTime()
+    return animated ? formatLocalDateShared(animated) : sunDate()
+  })
+
+  const effectiveSunMinutes = createMemo<number[]>(() => {
+    const animated = animatedSunDateTime()
+    return animated ? [animated.getHours() * 60 + animated.getMinutes()] : sunMinutes()
+  })
 
   // ── Terrain toggle ──
   createEffect(() => {
@@ -49,6 +70,10 @@ export default function ShadowControls(props: ShadowControlsProps) {
     try { props.setHillshade(hillshadeOn()) } catch (_) {}
   })
 
+  createEffect(() => {
+    setHillshadeEnabled(hillshadeOn())
+  })
+
   // ── Hillshade exaggeration ──
   createEffect(() => {
     if (!props.mapReady()) return
@@ -58,12 +83,11 @@ export default function ShadowControls(props: ShadowControlsProps) {
   // ── Sun datetime ──
   createEffect(() => {
     if (!props.mapReady()) return
-    const dtStr = composeLocalDateTime(sunDate(), sunMinutes()[0])
+    const dtStr = composeLocalDateTime(effectiveSunDate(), effectiveSunMinutes()[0])
     try { props.setSunDateTime(dtStr) } catch (_) {}
-    // Sync to rideAnimation store so animation knows the current shadow time
-    // Use untrack to avoid creating a dependency on rideAnimation signal
+    setShadowDateTime(dtStr)
     untrack(() => {
-      if (!rideAnimation().playing) {
+      if (!rideAnimation().playing || !hillshadeOn()) {
         updateRideAnimation({ currentDateTime: dtStr })
       }
     })
@@ -120,22 +144,26 @@ export default function ShadowControls(props: ShadowControlsProps) {
                 id="shadow-date"
                 class="shadow-datetime-input"
                 type="date"
-                value={sunDate()}
+                value={effectiveSunDate()}
                 onInput={(e) => setSunDate(e.currentTarget.value)}
               />
             </div>
 
             <Show when={hillshadeOn()}>
               <Slider
-                value={sunMinutes()}
+                value={effectiveSunMinutes()}
                 onChange={setSunMinutes}
+                onChangeEnd={() => {
+                  if (!route() || loading()) return
+                  void regenerateRoute()()
+                }}
                 minValue={0}
                 maxValue={1439}
                 step={15}
               >
                 <div class="slider-label">
                   <Slider.Label>Čas</Slider.Label>
-                  <span class="slider-value">{formatMinutes(sunMinutes()[0])}</span>
+                  <span class="slider-value">{formatMinutes(effectiveSunMinutes()[0])}</span>
                 </div>
                 <Slider.Track class="slider-track">
                   <Slider.Fill class="slider-range" />

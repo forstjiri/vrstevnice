@@ -51,7 +51,21 @@ function LabeledSlider(props: LabeledSliderProps) {
 }
 
 export default function Stops() {
-  const { treaty, stops, setStops, route, setRoute, loading, setLoading, error, setError, mapCenter } = useApp()
+  const {
+    treaty,
+    stops,
+    setStops,
+    route,
+    setRoute,
+    loading,
+    setLoading,
+    error,
+    setError,
+    mapCenter,
+    hillshadeEnabled,
+    shadowDateTime,
+    setRegenerateRoute,
+  } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
 
   function showSearchPreview(lat: number, lng: number) {
@@ -170,6 +184,7 @@ export default function Stops() {
         roadAvoidanceCoefficient: 1 - (roadAvoidCoeff()[0] ?? DEFAULT_ROAD_AVOIDANCE),
         cyclewayCoefficient: cyclewayCoeff()[0] ?? DEFAULT_CYCLEWAY,
         lemonadeCoefficient: lemonadeCoeff()[0] ?? 0,
+        shadowDateTime: hillshadeEnabled() ? shadowDateTime() : undefined,
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -184,6 +199,8 @@ export default function Stops() {
   }
 
   const canCompute = () => stops().length >= 2 && !loading()
+
+  setRegenerateRoute(() => calculateRoute)
 
   return (
     <aside class="panel">
