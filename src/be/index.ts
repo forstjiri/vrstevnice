@@ -2,21 +2,38 @@ import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
 import { rateLimit } from 'elysia-rate-limit'
-import type { GeocodeResult, RouteResponse, POILocation } from '@vrstevnice/shared'
-import { buildCustomModel, fetchRouteFromGH, convertGHToRouteResponse, fetchPOIsAlongRoute, insertPOIWaypoints } from '@vrstevnice/routing'
+import type {GeocodeResult} from '@vrstevnice/shared'
+import {
+	buildCustomModel,
+	convertGHToRouteResponse,
+	fetchPOIsAlongRoute,
+	fetchRouteFromGH,
+	insertPOIWaypoints
+} from '@vrstevnice/routing'
 import { db, routes } from './db'
 import { mapPhotonFeature } from './geocode'
 import { detectAndParseGPS } from './gps'
 import { resolve } from 'node:path'
-import { appendFile } from 'node:fs/promises'
-import { readFile } from 'node:fs/promises'
+import {appendFile, readFile} from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
+import {Database as SqliteDb} from 'bun:sqlite'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
 const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
+
+// ── Terrain mbtiles reader (DMR 5G) ──
+const TERRAIN_MBTILES = resolve(PROJECT_ROOT, 'data', 'cz-terrain.mbtiles')
+let terrainDb: SqliteDb | null = null
+try {
+	terrainDb = new SqliteDb(TERRAIN_MBTILES, {readonly: true})
+	console.log(`[terrain] Loaded ${TERRAIN_MBTILES}`)
+} catch (e) {
+	console.warn(`[terrain] No mbtiles at ${TERRAIN_MBTILES}, falling back to tileserver proxy`)
+}
+
 const TRANSPARENT_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg==',
   'base64',
@@ -74,7 +91,8 @@ const softWarnPlugin = new Elysia({ name: 'soft-warn-rate-limit' }).onBeforeHand
 
     if (entry.count === 60) {
       const msg = `WARN Rate limit soft threshold reached {"ip":"${ip}","count":60,"threshold":"soft"}\n`
-      appendFile(LOG_FILE, msg).catch(() => {})
+			appendFile(LOG_FILE, msg).catch(() => {
+			})
     }
   },
 )
@@ -117,6 +135,31 @@ const app = new Elysia({ prefix: '/api' })
   )
 
   .get('/terrain/:z/:x/:y', async ({ params, set }) => {
+		const z = Number(params.z)
+		const x = Number(params.x)
+		const y = Number(params.y)
+
+		// Try reading from local mbtiles (DMR 5G) first
+		// mbtiles uses TMS y: tms_y = 2^z - 1 - xyz_y
+		if (terrainDb) {
+			try {
+				const tmsY = (1 << z) - 1 - y
+				const row = terrainDb.prepare(
+					'SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?',
+				).get(z, x, tmsY) as { tile_data: Uint8Array } | undefined
+				if (row?.tile_data && row.tile_data.length > 0) {
+					set.headers['Content-Type'] = 'image/png'
+					set.headers['Cache-Control'] = 'public, max-age=86400'
+					return Buffer.from(row.tile_data)
+				}
+			} catch (e) {
+				console.error('[terrain] mbtiles read error:', e)
+			}
+		}
+
+		// Fallback: proxy to tileserver when local mbtiles miss a tile.
+		// This avoids rectangular holes in contours/hillshade when generated
+		// terrain coverage is incomplete or a tile is absent in the mbtiles.
     const upstream = `http://localhost:2323/data/cz-terrain/${params.z}/${params.x}/${params.y}.png`
     try {
       const res = await fetch(upstream)
@@ -170,7 +213,14 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .get('/geocode', async ({ query, store }) => {
-    const { pino } = store as { pino: { debug: (...args: any[]) => void; info: (...args: any[]) => void; warn: (...args: any[]) => void; error: (...args: any[]) => void } }
+		const {pino} = store as {
+			pino: {
+				debug: (...args: any[]) => void;
+				info: (...args: any[]) => void;
+				warn: (...args: any[]) => void;
+				error: (...args: any[]) => void
+			}
+		}
     pino.debug({ q: query.q }, 'Geocode request')
 
     // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
@@ -264,11 +314,30 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .post('/route', async ({ body, store }) => {
-    const { pino } = store as { pino: { debug: (...args: any[]) => void; info: (...args: any[]) => void; warn: (...args: any[]) => void; error: (...args: any[]) => void } }
-    const { stops, elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient, lemonadeCoefficient: rawLemonade = 0 } = body
+		const {pino} = store as {
+			pino: {
+				debug: (...args: any[]) => void;
+				info: (...args: any[]) => void;
+				warn: (...args: any[]) => void;
+				error: (...args: any[]) => void
+			}
+		}
+		const {
+			stops,
+			elevationCoefficient,
+			roadAvoidanceCoefficient,
+			cyclewayCoefficient,
+			lemonadeCoefficient: rawLemonade = 0
+		} = body
 
     pino.info(
-      { stopCount: stops.length, elevCoeff: elevationCoefficient, roadAvoid: roadAvoidanceCoefficient, cycleway: cyclewayCoefficient, lemonade: rawLemonade },
+			{
+				stopCount: stops.length,
+				elevCoeff: elevationCoefficient,
+				roadAvoid: roadAvoidanceCoefficient,
+				cycleway: cyclewayCoefficient,
+				lemonade: rawLemonade
+			},
       'Route request',
     )
 
@@ -282,7 +351,16 @@ const app = new Elysia({ prefix: '/api' })
     const elapsed = Math.round(performance.now() - t0)
 
     pino.info(
-      { distance: routeData.distance, duration: routeData.duration, gain: routeData.elevationGain, loss: routeData.elevationLoss, points: routeData.geometry.length, profilePoints: routeData.elevationProfile.length, surfaceSegments: routeData.surfaceSegments.length, elapsedMs: elapsed },
+			{
+				distance: routeData.distance,
+				duration: routeData.duration,
+				gain: routeData.elevationGain,
+				loss: routeData.elevationLoss,
+				points: routeData.geometry.length,
+				profilePoints: routeData.elevationProfile.length,
+				surfaceSegments: routeData.surfaceSegments.length,
+				elapsedMs: elapsed
+			},
       'Route calculated',
     )
 
@@ -310,7 +388,12 @@ const app = new Elysia({ prefix: '/api' })
           finalRouteData = reRouted
 
           pino.info(
-            { poiCount: selected.length, allPOIs: all.length, reRouteDistance: reRouted.distance, reRouteElapsedMs: reRouteElapsed },
+						{
+							poiCount: selected.length,
+							allPOIs: all.length,
+							reRouteDistance: reRouted.distance,
+							reRouteElapsedMs: reRouteElapsed
+						},
             'POI pipeline: re-route complete',
           )
         } else {
@@ -320,7 +403,10 @@ const app = new Elysia({ prefix: '/api' })
         }
       } catch (poiErr) {
         const elapsed = Math.round(performance.now() - poiT0)
-        pino.error({ error: (poiErr as Error).message, elapsedMs: elapsed }, 'POI pipeline failed - returning base route')
+				pino.error({
+					error: (poiErr as Error).message,
+					elapsedMs: elapsed
+				}, 'POI pipeline failed - returning base route')
         // Fallback: return the original base route with empty poiLocations
       }
     }

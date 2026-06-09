@@ -13,8 +13,8 @@ import ShadowControls from './ShadowControls'
 const demSource = new mlcontour.DemSource({
   url: 'http://localhost:3002/api/terrain/{z}/{x}/{y}',
   encoding: 'terrarium',
-  maxzoom: 12,
-  worker: true,
+  maxzoom: 14,
+  worker: false,
 })
 demSource.setupMaplibre(maplibregl)
 
@@ -483,19 +483,12 @@ export default function Map() {
           tiles: ['http://localhost:3002/api/terrain/{z}/{x}/{y}'],
           encoding: 'terrarium',
           tileSize: 256,
-          maxzoom: 11,
-        })
-        m.addSource('hillshade-dem', {
-          type: 'raster-dem',
-          tiles: ['http://localhost:3002/api/terrain/{z}/{x}/{y}'],
-          encoding: 'terrarium',
-          tileSize: 256,
-          maxzoom: 11,
+          maxzoom: 14,
         })
         m.addLayer({
           id: 'hillshade',
           type: 'hillshade',
-          source: 'hillshade-dem',
+          source: 'terrain-dem',
           layout: {
             visibility: hillshadeEnabled ? 'visible' : 'none',
           },

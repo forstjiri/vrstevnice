@@ -36,6 +36,13 @@ export interface RoadClassSegment {
   roadClass: string
 }
 
+export interface ShadowPoint {
+	/** Cumulative distance from route start (meters) */
+	distance: number
+	/** True = point is in shadow (blocked by vegetation/building) */
+	shadow: boolean
+}
+
 export interface POILocation {
   /** Latitude */
   lat: number
@@ -61,6 +68,8 @@ export interface RouteResponse {
   roadClassSegments: RoadClassSegment[]
   /** Road environment segments parsed from GraphHopper (road, bridge, tunnel, ford) */
   roadEnvSegments: RoadClassSegment[]
+	/** Shadow profile computed from DSM ray-tracing (optional, requires elevation service) */
+	shadowProfile?: ShadowPoint[]
   /** POI locations (pubs, bars, restaurants) along the route when lemonadeCoefficient > 0 */
   poiLocations: POILocation[]
   /** All discovered POIs (including non-selected) for map display */

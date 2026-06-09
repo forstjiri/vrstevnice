@@ -1,10 +1,22 @@
-import { onMount, onCleanup, createEffect, Show } from 'solid-js'
+import {createEffect, onCleanup, onMount, Show} from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
-import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
+import {computeGeometryDistances, haversineMeters} from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
-import { rideAnimation, updateRideAnimation, setCameraTarget } from './rideAnimationStore'
-import { PADDING, TOOLTIP_OFFSET, SURFACE_COLORS, DEFAULT_SURFACE_COLOR, SURFACE_LABELS, ROAD_CLASS_LABELS, ROAD_CLASS_COLORS, DEFAULT_ROAD_CLASS_COLOR, ROAD_CLASS_DASH, binarySearchSegment, hexToRgba } from './chart-constants'
+import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
+import {
+  binarySearchSegment,
+  DEFAULT_ROAD_CLASS_COLOR,
+  DEFAULT_SURFACE_COLOR,
+  hexToRgba,
+  PADDING,
+  ROAD_CLASS_COLORS,
+  ROAD_CLASS_DASH,
+  ROAD_CLASS_LABELS,
+  SURFACE_COLORS,
+  SURFACE_LABELS,
+  TOOLTIP_OFFSET
+} from './chart-constants'
 
 interface ProfileGroup {
   start: number
@@ -32,6 +44,8 @@ export default function ElevationChart() {
   let cachedRoadClassLabels: string[] = []
   let cachedRoadClassColors: string[] = []
   let cachedRoadClassDash: (number[] | undefined)[] = []
+	// Shadow overlay: cached shadow status per profile point
+	let cachedShadowStatus: boolean[] = []
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -77,6 +91,7 @@ export default function ElevationChart() {
     function toX(dist: number) {
       return plotX + (dist / totalDist) * plotW
     }
+
     function toY(elev: number) {
       return plotY + plotH - ((elev - minElev) / elevSpan) * plotH
     }
@@ -204,6 +219,39 @@ export default function ElevationChart() {
         ctx!.lineWidth = 1.5
         ctx!.lineJoin = 'round'
         ctx!.stroke()
+      }
+    }
+
+		// --- SHADOW OVERLAY: semi-transparent color bands for shadow/sun ---
+		if (cachedShadowStatus.length === profile.length) {
+			const shadowSegments: ProfileGroup[] = []
+			let si = 0
+			while (si < profile.length) {
+				const inShadow = cachedShadowStatus[si]
+				const start = si
+				while (si < profile.length && cachedShadowStatus[si] === inShadow) si++
+				shadowSegments.push({start, end: si - 1, color: inShadow ? '#1e40af' : '#fbbf24'})
+			}
+
+			for (const seg of shadowSegments) {
+				const drawStart = seg.start
+				ctx!.beginPath()
+				ctx!.moveTo(toX(profile[drawStart].distance), toY(profile[drawStart].elevation))
+				for (let j = drawStart + 1; j <= seg.end; j++) {
+					ctx!.lineTo(toX(profile[j].distance), toY(profile[j].elevation))
+				}
+				ctx!.lineTo(toX(profile[seg.end].distance), plotY + plotH)
+				ctx!.lineTo(toX(profile[drawStart].distance), plotY + plotH)
+				ctx!.closePath()
+				ctx!.fillStyle = hexToRgba(seg.color, 0.20)
+				ctx!.fill()
+			}
+
+			// Thin legend bar at the very bottom
+			for (const seg of shadowSegments) {
+				ctx!.fillStyle = hexToRgba(seg.color, 0.40)
+				ctx!.fillRect(toX(profile[seg.start].distance), plotY + plotH - 3,
+					toX(profile[seg.end].distance) - toX(profile[seg.start].distance), 3)
       }
     }
 
@@ -488,7 +536,10 @@ export default function ElevationChart() {
     if (!rideAnimation().playing) return
 
     const r = route()
-    if (!r?.elevationProfile?.length) { stopAnimation(); return }
+		if (!r?.elevationProfile?.length) {
+			stopAnimation();
+			return
+		}
 
     animRafId = requestAnimationFrame((timestamp) => {
       if (!rideAnimation().playing) return
@@ -524,7 +575,10 @@ export default function ElevationChart() {
         cancelAnimationFrame(animRafId)
         animLastTimestamp = null
         // Trigger fitBounds via window.__fitRouteOverview
-        try { (window as any).__fitRouteOverview?.() } catch (_) {}
+				try {
+					(window as any).__fitRouteOverview?.()
+				} catch (_) {
+				}
         // Reset time to base after a brief delay
         setTimeout(() => {
           updateRideAnimation({
@@ -737,6 +791,21 @@ export default function ElevationChart() {
         cachedRoadClassColors = []
         cachedRoadClassDash = []
       }
+
+			// Shadow profile: interpolate r.shadowProfile to profile points
+			if (r.shadowProfile && r.shadowProfile.length > 0) {
+				const shadowDists = r.shadowProfile.map(s => s.distance)
+				const shadowEnds = [...shadowDists.slice(1), Infinity]
+				const shadowStatus: boolean[] = []
+				for (let i = 0; i < r.elevationProfile.length; i++) {
+					const dist = r.elevationProfile[i].distance
+					const idx = binarySearchSegment(shadowDists, shadowEnds, dist)
+					shadowStatus.push(idx >= 0 ? r.shadowProfile[idx].shadow : false)
+				}
+				cachedShadowStatus = shadowStatus
+			} else {
+				cachedShadowStatus = []
+			}
     } else {
       cachedGeomDists = []
       cachedColorAssignments = []
@@ -744,6 +813,7 @@ export default function ElevationChart() {
       cachedRoadClassLabels = []
       cachedRoadClassColors = []
       cachedRoadClassDash = []
+			cachedShadowStatus = []
     }
 
     requestAnimationFrame(() => draw())

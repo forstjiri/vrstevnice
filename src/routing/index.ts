@@ -1,5 +1,12 @@
-import type { Stop, RouteResponse, ElevationPoint, SurfaceSegment, RoadClassSegment, POILocation } from '@vrstevnice/shared'
-import { haversineMeters, EARTH_RADIUS_M, computeGeometryDistances } from '@vrstevnice/shared'
+import type {
+	ElevationPoint,
+	POILocation,
+	RoadClassSegment,
+	RouteResponse,
+	Stop,
+	SurfaceSegment
+} from '@vrstevnice/shared'
+import {computeGeometryDistances, haversineMeters} from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -598,7 +605,13 @@ export async function fetchPOIsAlongRoute(
   const radius = Math.min(1_200, interval * 0.5)
 
   console.info(
-    { coefficient, routeLengthKm: Math.round(routeLengthKm * 10) / 10, intervalM: Math.round(interval), radiusM: Math.round(radius), maxSamples },
+		{
+			coefficient,
+			routeLengthKm: Math.round(routeLengthKm * 10) / 10,
+			intervalM: Math.round(interval),
+			radiusM: Math.round(radius),
+			maxSamples
+		},
     'POI pipeline: sampling route',
   )
 
@@ -675,7 +688,14 @@ export async function fetchPOIsAlongRoute(
   const capped = thinned.slice(0, maxWaypoints)
 
   console.info(
-    { deduped: deduped.length, detourAware: detourAware.length, thinned: thinned.length, capped: capped.length, maxWaypoints, minStopDistM: Math.round(minStopDistance) },
+		{
+			deduped: deduped.length,
+			detourAware: detourAware.length,
+			thinned: thinned.length,
+			capped: capped.length,
+			maxWaypoints,
+			minStopDistM: Math.round(minStopDistance)
+		},
     'POI pipeline: final POIs after thinning + cap',
   )
 
