@@ -1,6 +1,6 @@
 import {createEffect, onCleanup, onMount, Show} from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
-import {computeGeometryDistances, haversineMeters} from '@vrstevnice/shared'
+import {computeGeometryDistances, haversineMeters, findPositionAtDistance, computeBearing, parseLocalDateTime as parseLocalDateTimeShared, formatLocalDateTime as formatLocalDateTimeShared} from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
 import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
@@ -415,70 +415,16 @@ export default function ElevationChart() {
 
   let initialized = false
 
-  // ── Ride animation helpers ──
+  let cachedAnimDistances: number[] = []
+  let cachedTotalDist = 0
 
-  /**
-   * Interpolate position on geometry at given distance.
-   * Same logic as findPositionAtDistance in Map.tsx but self-contained.
-   */
-  function findPositionAtDistanceAnim(
-    geometry: [number, number][],
-    targetDistance: number,
-  ): [number, number] | null {
-    if (geometry.length === 0) return null
-    if (geometry.length === 1) return geometry[0]
-    const totalDist = geometry[geometry.length - 1]
-    // Use haversine cumulative distances
-    let cumDist = 0
-    let prev = geometry[0]
-    for (let i = 1; i < geometry.length; i++) {
-      const segLen = haversineMeters(prev[0], prev[1], geometry[i][0], geometry[i][1])
-      cumDist += segLen
-      if (cumDist >= targetDistance) {
-        const segStart = cumDist - segLen
-        const t = segLen > 0 ? (targetDistance - segStart) / segLen : 0
-        return [
-          prev[0] + (geometry[i][0] - prev[0]) * t,
-          prev[1] + (geometry[i][1] - prev[1]) * t,
-        ]
-      }
-      prev = geometry[i]
-    }
-    return geometry[geometry.length - 1]
-  }
-
-  /**
-   * Compute bearing at a given distance along route geometry.
-   * Uses a 50m lookahead for direction.
-   */
-  function computeBearingAnim(
-    geometry: [number, number][],
-    targetDistance: number,
-  ): number {
-    const from = findPositionAtDistanceAnim(geometry, targetDistance)
-    const to = findPositionAtDistanceAnim(geometry, Math.min(targetDistance + 50, totalRouteDistance()))
-    if (!from || !to) return 0
-    if (from[0] === to[0] && from[1] === to[1]) return 0
-    const toRad = Math.PI / 180
-    const toDeg = 180 / Math.PI
-    const lat1 = from[0] * toRad
-    const lat2 = to[0] * toRad
-    const dLng = (to[1] - from[1]) * toRad
-    const y = Math.sin(dLng) * Math.cos(lat2)
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-    return ((Math.atan2(y, x) * toDeg) + 360) % 360
-  }
-
-  function totalRouteDistance(): number {
+  function getAnimDistances(): number[] {
     const r = route()
-    if (!r?.geometry?.length) return 0
-    let total = 0
-    let prev = r.geometry[0]
-    for (let i = 1; i < r.geometry.length; i++) {
-      total += haversineMeters(prev[0], prev[1], r.geometry[i][0], r.geometry[i][1])
-      prev = r.geometry[i]
-    }
-    return total
+    if (!r?.geometry?.length) { cachedAnimDistances = []; cachedTotalDist = 0; return [] }
+    if (cachedAnimDistances.length === r.geometry.length) return cachedAnimDistances
+    cachedAnimDistances = computeGeometryDistances(r.geometry)
+    cachedTotalDist = cachedAnimDistances[cachedAnimDistances.length - 1] ?? 0
+    return cachedAnimDistances
   }
 
   // ── Ride animation state ──
@@ -618,9 +564,12 @@ export default function ElevationChart() {
 
       // Update camera target for smooth camera tracking in Map.tsx
       if (r.geometry?.length) {
-        const pos = findPositionAtDistanceAnim(r.geometry, newDistance)
+        const dists = getAnimDistances()
+        const pos = findPositionAtDistance(r.geometry, dists, newDistance)
         if (pos) {
-          const bearing = computeBearingAnim(r.geometry, newDistance)
+          const lookahead = Math.min(newDistance + 50, cachedTotalDist)
+          const toPos = findPositionAtDistance(r.geometry, dists, lookahead)
+          const bearing = (pos && toPos && !(pos[0] === toPos[0] && pos[1] === toPos[1])) ? computeBearing(pos, toPos) : 0
           setCameraTarget(pos[1], pos[0], bearing, true)
         }
       }
@@ -629,20 +578,8 @@ export default function ElevationChart() {
     })
   }
 
-  function parseAnimDateTime(value: string): Date | null {
-    if (!value) return null
-    const [datePart, timePart] = value.split('T')
-    if (!datePart || !timePart) return null
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hour, minute] = timePart.split(':').map(Number)
-    if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) return null
-    return new Date(year, month - 1, day, hour, minute, 0, 0)
-  }
-
-  function formatAnimDateTime(date: Date): string {
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  }
+  const parseAnimDateTime = parseLocalDateTimeShared
+  const formatAnimDateTime = formatLocalDateTimeShared
 
   function onChartClick(e: MouseEvent) {
     const r = route()
@@ -675,9 +612,12 @@ export default function ElevationChart() {
 
     // Move camera to clicked position
     if (r.geometry?.length) {
-      const pos = findPositionAtDistanceAnim(r.geometry, dist)
+      const dists = getAnimDistances()
+      const pos = findPositionAtDistance(r.geometry, dists, dist)
       if (pos) {
-        const bearing = computeBearingAnim(r.geometry, dist)
+        const lookahead = Math.min(dist + 50, cachedTotalDist)
+        const toPos = findPositionAtDistance(r.geometry, dists, lookahead)
+        const bearing = (toPos && !(pos[0] === toPos[0] && pos[1] === toPos[1])) ? computeBearing(pos, toPos) : 0
         setCameraTarget(pos[1], pos[0], bearing, true)
       }
     }
@@ -760,6 +700,7 @@ export default function ElevationChart() {
         const rcSegEnds = r.roadClassSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
         const rcLabels: string[] = []
         const rcColors: string[] = []
+        const rcDash: (number[] | undefined)[] = []
         for (let i = 0; i < r.elevationProfile.length; i++) {
           const dist = r.elevationProfile[i].distance
           const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
@@ -767,19 +708,10 @@ export default function ElevationChart() {
             const cls = r.roadClassSegments[idx].roadClass
             rcLabels.push(ROAD_CLASS_LABELS[cls] ?? cls)
             rcColors.push(ROAD_CLASS_COLORS[cls] ?? DEFAULT_ROAD_CLASS_COLOR)
+            rcDash.push(ROAD_CLASS_DASH[cls] ?? undefined)
           } else {
             rcLabels.push('')
             rcColors.push(DEFAULT_ROAD_CLASS_COLOR)
-          }
-        }
-        const rcDash: (number[] | undefined)[] = []
-        for (let i = 0; i < r.elevationProfile.length; i++) {
-          const dist = r.elevationProfile[i].distance
-          const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
-          if (idx >= 0) {
-            const cls = r.roadClassSegments[idx].roadClass
-            rcDash.push(ROAD_CLASS_DASH[cls] ?? undefined)
-          } else {
             rcDash.push(undefined)
           }
         }

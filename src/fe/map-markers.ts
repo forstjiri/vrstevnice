@@ -7,39 +7,19 @@ export function stopColor(index: number, total: number): string {
   return '#3b82f6'
 }
 
-/**
- * Build a context menu from a declarative items list.
- */
-function buildPoiMenu(
-  name: string,
-  lat: number,
-  lng: number,
-  type: string,
+export function buildContextMenu(
+  items: Array<{ label: string; action: () => void }>,
+  title?: string,
 ): HTMLDivElement {
   const menu = document.createElement('div')
   menu.className = 'map-contextmenu'
 
-  const title = document.createElement('div')
-  title.className = 'map-contextmenu-title'
-  title.textContent = `${name} (${type})`
-  menu.appendChild(title)
-
-  const items = [
-    {
-      label: 'Mapy.cz',
-      action: () => window.open(
-        `https://en.mapy.cz/zakladni?x=${lng.toFixed(7)}&y=${lat.toFixed(7)}&z=19`,
-        '_blank',
-      ),
-    },
-    {
-      label: 'Google Maps',
-      action: () => window.open(
-        `https://www.google.com/maps/@${lat.toFixed(7)},${lng.toFixed(7)},19z`,
-        '_blank',
-      ),
-    },
-  ]
+  if (title) {
+    const titleEl = document.createElement('div')
+    titleEl.className = 'map-contextmenu-title'
+    titleEl.textContent = title
+    menu.appendChild(titleEl)
+  }
 
   for (const item of items) {
     const el = document.createElement('div')
@@ -49,6 +29,33 @@ function buildPoiMenu(
     menu.appendChild(el)
   }
   return menu
+}
+
+function buildPoiMenu(
+  name: string,
+  lat: number,
+  lng: number,
+  type: string,
+): HTMLDivElement {
+  return buildContextMenu(
+    [
+      {
+        label: 'Mapy.cz',
+        action: () => window.open(
+          `https://en.mapy.cz/zakladni?x=${lng.toFixed(7)}&y=${lat.toFixed(7)}&z=19`,
+          '_blank',
+        ),
+      },
+      {
+        label: 'Google Maps',
+        action: () => window.open(
+          `https://www.google.com/maps/@${lat.toFixed(7)},${lng.toFixed(7)},19z`,
+          '_blank',
+        ),
+      },
+    ],
+    `${name} (${type})`,
+  )
 }
 
 export function createStopElement(color: string, index: number, name: string): HTMLElement {

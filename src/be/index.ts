@@ -129,7 +129,7 @@ const app = new Elysia({ prefix: '/api' })
   .use(
     rateLimit({
       duration: 60_000,
-      max: 300,
+      max: 900,
       errorResponse: new RateLimitError('Rate limit exceeded. Please try again later.'),
     }),
   )

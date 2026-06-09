@@ -3,6 +3,7 @@ import { Slider } from '@kobalte/core/slider'
 import { Checkbox } from '@kobalte/core/checkbox'
 import { Separator } from '@kobalte/core/separator'
 import { rideAnimation, updateRideAnimation } from './rideAnimationStore'
+import { formatLocalDate as formatLocalDateShared } from '@vrstevnice/shared'
 
 export interface ShadowControlCallbacks {
   setTerrain: (enabled: boolean) => void
@@ -197,10 +198,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
   )
 }
 
-function formatLocalDate(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
+const formatLocalDate = formatLocalDateShared
 
 function formatMinutes(totalMinutes: number): string {
   const minutes = ((Math.round(totalMinutes) % 1440) + 1440) % 1440

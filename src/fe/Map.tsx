@@ -1,12 +1,17 @@
 import { onMount, onCleanup, createEffect, createSignal } from 'solid-js'
 import * as maplibregl from 'maplibre-gl'
 import mlcontour from 'maplibre-contour'
-import { haversineMeters, computeGeometryDistances } from '@vrstevnice/shared'
+import SunCalc from 'suncalc'
+
+maplibregl.setWorkerUrl(
+  new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).href,
+)
+import { haversineMeters, computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime, formatLocalDateTime } from '@vrstevnice/shared'
 import { useApp } from './App'
 import ElevationChart from './ElevationChart'
 import { hoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } from './rideAnimationStore'
-import { createStopMarker, createPoiMarker, stopColor } from './map-markers'
+import { createStopMarker, createPoiMarker, stopColor, buildContextMenu } from './map-markers'
 import ShadowControls from './ShadowControls'
 
 // ── Contour line setup (module-level, before any Map instance) ──
@@ -31,56 +36,6 @@ const contourTileUrl = demSource.contourProtocolUrl({
 })
 
 /**
- * Find [lat, lng] on the polyline at a given cumulative distance.
- * Linearly interpolates between the two bracketing geometry points.
- */
-function findPositionAtDistance(
-  geometry: [number, number][],
-  geometryDistances: number[],
-  targetDistance: number,
-): [number, number] | null {
-  if (geometry.length === 0) return null
-  if (geometry.length === 1) return geometry[0]
-
-  // Clamp to last point if target exceeds total distance
-  if (targetDistance >= geometryDistances[geometryDistances.length - 1]) {
-    return geometry[geometry.length - 1]
-  }
-
-  // Binary search for the segment containing targetDistance
-  let lo = 0
-  let hi = geometryDistances.length - 1
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1
-    if (geometryDistances[mid] <= targetDistance) lo = mid
-    else hi = mid
-  }
-
-  const segStart = geometryDistances[lo]
-  const segEnd = geometryDistances[hi]
-  const t = segEnd > segStart ? (targetDistance - segStart) / (segEnd - segStart) : 0
-
-  return [
-    geometry[lo][0] + (geometry[hi][0] - geometry[lo][0]) * t,
-    geometry[lo][1] + (geometry[hi][1] - geometry[lo][1]) * t,
-  ]
-}
-
-/**
- * Compute bearing between two [lat, lng] points in degrees (0 = north, 90 = east).
- */
-function computeBearing(from: [number, number], to: [number, number]): number {
-  const toRad = Math.PI / 180
-  const toDeg = 180 / Math.PI
-  const lat1 = from[0] * toRad
-  const lat2 = to[0] * toRad
-  const dLng = (to[1] - from[1]) * toRad
-  const y = Math.sin(dLng) * Math.cos(lat2)
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-  return ((Math.atan2(y, x) * toDeg) + 360) % 360
-}
-
-/**
  * Find bearing at a given distance along route geometry.
  * Uses the segment the point is on to determine direction.
  */
@@ -91,13 +46,29 @@ function bearingAtDistance(
 ): number | null {
   if (geometry.length < 2) return null
   const totalDist = geometryDistances[geometryDistances.length - 1]
-  // At the very end, use the last segment
-  const lookahead = Math.min(targetDistance + 50, totalDist) // 50m lookahead for bearing
+  const lookahead = Math.min(targetDistance + 50, totalDist)
   const fromPos = findPositionAtDistance(geometry, geometryDistances, targetDistance)
   const toPos = findPositionAtDistance(geometry, geometryDistances, lookahead)
   if (!fromPos || !toPos) return null
   if (fromPos[0] === toPos[0] && fromPos[1] === toPos[1]) return null
   return computeBearing(fromPos, toPos)
+}
+
+/**
+ * Upsert a GeoJSON source + layer on the map. If source exists, update data only.
+ */
+function upsertGeoJSON(
+  map: maplibregl.Map,
+  sourceId: string,
+  data: Record<string, unknown>,
+  layerSpec: Record<string, unknown>,
+) {
+  if (map.getSource(sourceId)) {
+    ;(map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(data as any)
+  } else {
+    map.addSource(sourceId, { type: 'geojson', data: data as any })
+    map.addLayer({ ...layerSpec, source: sourceId } as any)
+  }
 }
 
 /**
@@ -111,114 +82,6 @@ function removeMapSource(map: maplibregl.Map, sourceId: string, layerId?: string
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
-}
-
-function parseLocalDateTime(value: string): Date | null {
-  if (!value) return null
-  const [datePart, timePart] = value.split('T')
-  if (!datePart || !timePart) return null
-  const [year, month, day] = datePart.split('-').map(Number)
-  const [hour, minute] = timePart.split(':').map(Number)
-  if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) return null
-  return new Date(year, month - 1, day, hour, minute, 0, 0)
-}
-
-function formatLocalDateTime(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function computeSolarPosition(date: Date, latDeg: number, lonDeg: number): { azimuth: number; altitude: number } {
-  const rad = Math.PI / 180
-  const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86400000)
-  const minutes = date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60
-  const tzOffset = date.getTimezoneOffset() // minutes west of UTC
-  const gamma = (2 * Math.PI / 365) * (dayOfYear - 1 + (minutes - 720) / 1440)
-
-  const eqTime = 229.18 * (
-    0.000075
-    + 0.001868 * Math.cos(gamma)
-    - 0.032077 * Math.sin(gamma)
-    - 0.014615 * Math.cos(2 * gamma)
-    - 0.040849 * Math.sin(2 * gamma)
-  )
-
-  const decl = (
-    0.006918
-    - 0.399912 * Math.cos(gamma)
-    + 0.070257 * Math.sin(gamma)
-    - 0.006758 * Math.cos(2 * gamma)
-    + 0.000907 * Math.sin(2 * gamma)
-    - 0.002697 * Math.cos(3 * gamma)
-    + 0.00148 * Math.sin(3 * gamma)
-  )
-
-  // getTimezoneOffset() is minutes west of UTC, so it already has the sign
-  // NOAA's timezone term expects.
-  const timeOffset = eqTime + 4 * lonDeg + tzOffset
-  const trueSolarTime = (minutes + timeOffset + 1440) % 1440
-  const hourAngle = ((trueSolarTime / 4) - 180) * rad
-  const lat = latDeg * rad
-
-  const cosZenith = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle)
-  const zenith = Math.acos(clamp(cosZenith, -1, 1))
-  const altitude = 90 - (zenith / rad)
-
-  const azimuthRad = Math.atan2(
-    Math.sin(hourAngle),
-    Math.cos(hourAngle) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat),
-  ) + Math.PI
-  const azimuth = (azimuthRad / rad + 360) % 360
-
-  return { azimuth, altitude }
-}
-
-function computeSunriseSunset(date: Date, latDeg: number, lonDeg: number): { sunrise: Date | null; sunset: Date | null } {
-  const rad = Math.PI / 180
-  const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86400000)
-  const lngHour = lonDeg / 15
-  const year = date.getFullYear()
-  const month = date.getMonth()
-  const day = date.getDate()
-
-  const calc = (isSunrise: boolean): Date | null => {
-    const t = dayOfYear + ((isSunrise ? 6 : 18) - lngHour) / 24
-    const meanAnomaly = 0.9856 * t - 3.289
-    let trueLng = meanAnomaly
-      + 1.916 * Math.sin(meanAnomaly * rad)
-      + 0.020 * Math.sin(2 * meanAnomaly * rad)
-      + 282.634
-    trueLng = ((trueLng % 360) + 360) % 360
-
-    let rightAscension = Math.atan(0.91764 * Math.tan(trueLng * rad)) / rad
-    rightAscension = ((rightAscension % 360) + 360) % 360
-    const lQuadrant = Math.floor(trueLng / 90) * 90
-    const raQuadrant = Math.floor(rightAscension / 90) * 90
-    rightAscension += lQuadrant - raQuadrant
-    rightAscension /= 15
-
-    const sinDec = 0.39782 * Math.sin(trueLng * rad)
-    const cosDec = Math.cos(Math.asin(sinDec))
-    const cosH = (
-      Math.cos(90.833 * rad) - sinDec * Math.sin(latDeg * rad)
-    ) / (cosDec * Math.cos(latDeg * rad))
-
-    if (cosH > 1 || cosH < -1) return null
-
-    let hourAngle = isSunrise ? 360 - Math.acos(cosH) / rad : Math.acos(cosH) / rad
-    hourAngle /= 15
-
-    const localMeanTime = hourAngle + rightAscension - 0.06571 * t - 6.622
-    let utcHours = localMeanTime - lngHour
-    utcHours = ((utcHours % 24) + 24) % 24
-
-    const hours = Math.floor(utcHours)
-    const minutes = Math.floor((utcHours - hours) * 60)
-    const seconds = Math.round((((utcHours - hours) * 60) - minutes) * 60)
-    return new Date(Date.UTC(year, month, day, hours, minutes, seconds))
-  }
-
-  return { sunrise: calc(true), sunset: calc(false) }
 }
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
@@ -276,19 +139,6 @@ function hillshadeExaggerationFromIntensity(intensity: number): number {
 /**
  * Build a context menu from a declarative items list.
  */
-function buildContextMenu(items: Array<{ label: string; action: () => void }>): HTMLDivElement {
-  const menu = document.createElement('div')
-  menu.className = 'map-contextmenu'
-  for (const item of items) {
-    const el = document.createElement('div')
-    el.className = 'map-contextmenu-item'
-    el.textContent = item.label
-    el.addEventListener('click', () => { item.action(); menu.remove() })
-    menu.appendChild(el)
-  }
-  return menu
-}
-
 export default function Map() {
   const { stops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
   let container!: HTMLDivElement
@@ -515,8 +365,12 @@ export default function Map() {
             }
             const dt = parseLocalDateTime(sunDateTime) ?? new Date()
             const center = m.getCenter()
-            const { azimuth, altitude } = computeSolarPosition(dt, center.lat, center.lng)
-            const { sunrise, sunset } = computeSunriseSunset(dt, center.lat, center.lng)
+            const pos = SunCalc.getPosition(dt, center.lat, center.lng)
+            const azimuth = (pos.azimuth * 180 / Math.PI + 360) % 360
+            const altitude = pos.altitude * 180 / Math.PI
+            const times = SunCalc.getTimes(dt, center.lat, center.lng)
+            const sunrise = times.sunrise ?? null
+            const sunset = times.sunset ?? null
             const daylightFactor = hillshadeVisibilityFactor(dt, sunrise, sunset)
             const nightMix = hillshadeNightMix(dt, sunrise, sunset)
             const strengthT = clamp((hillshadeBaseIntensity - 1) / 2, 0, 1)
@@ -872,20 +726,14 @@ export default function Map() {
       },
     }
 
-    if (m.getSource('route')) {
-      ;(m.getSource('route') as maplibregl.GeoJSONSource).setData(geojson)
-    } else {
-      m.addSource('route', { type: 'geojson', data: geojson })
-      m.addLayer({
-        id: 'route-line',
-        type: 'line',
-        source: 'route',
-        paint: {
-          'line-color': '#9900ff',
-          'line-width': 4,
-        },
-      })
-    }
+    upsertGeoJSON(m, 'route', geojson, {
+      id: 'route-line',
+      type: 'line',
+      paint: {
+        'line-color': '#9900ff',
+        'line-width': 4,
+      },
+    })
 
     // Fit bounds — only on first route computation
     const bounds = coords.reduce(
@@ -950,22 +798,16 @@ export default function Map() {
       },
     }
 
-    if (m.getSource('highlight')) {
-      ;(m.getSource('highlight') as maplibregl.GeoJSONSource).setData(pointGeoJSON)
-    } else {
-      m.addSource('highlight', { type: 'geojson', data: pointGeoJSON })
-      m.addLayer({
-        id: 'highlight-circle',
-        type: 'circle',
-        source: 'highlight',
-        paint: {
-          'circle-radius': 7,
-          'circle-color': '#f59e0b',
-          'circle-stroke-color': '#fff',
-          'circle-stroke-width': 2,
-        },
-      })
-    }
+    upsertGeoJSON(m, 'highlight', pointGeoJSON, {
+      id: 'highlight-circle',
+      type: 'circle',
+      paint: {
+        'circle-radius': 7,
+        'circle-color': '#f59e0b',
+        'circle-stroke-color': '#fff',
+        'circle-stroke-width': 2,
+      },
+    })
   })
 
   // ── Ride animation: shadow time sync ──

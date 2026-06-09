@@ -51,6 +51,10 @@ function mergeElevation(
  * and track points with latitude, longitude, and elevation data
  * interleaved from the geometry and elevationProfile.
  */
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 export function generateGPX(route: RouteResponse): string {
   const merged = mergeElevation(route.geometry, route.elevationProfile)
   const time = new Date().toISOString()
@@ -65,7 +69,7 @@ export function generateGPX(route: RouteResponse): string {
   <metadata>
     <name>Vrstevnice Route</name>
     <time>${time}</time>
-    <desc>${(route.distance / 1000).toFixed(1)} km, ${Math.round(route.duration / 60)} min, ↑${route.elevationGain}m ↓${route.elevationLoss}m</desc>
+    <desc>${escapeXml(`${(route.distance / 1000).toFixed(1)} km, ${Math.round(route.duration / 60)} min, ↑${route.elevationGain}m ↓${route.elevationLoss}m`)}</desc>
   </metadata>
   <trk>
     <name>Route</name>

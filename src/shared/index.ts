@@ -110,3 +110,67 @@ export function computeGeometryDistances(geometry: [number, number][]): number[]
   }
   return distances
 }
+
+/**
+ * Interpolate [lat, lng] position at a given cumulative distance along geometry.
+ * Requires pre-computed distances from computeGeometryDistances().
+ */
+export function findPositionAtDistance(
+  geometry: [number, number][],
+  geometryDistances: number[],
+  targetDistance: number,
+): [number, number] | null {
+  if (geometry.length === 0) return null
+  if (geometry.length === 1) return geometry[0]
+  if (targetDistance >= geometryDistances[geometryDistances.length - 1]) {
+    return geometry[geometry.length - 1]
+  }
+  let lo = 0
+  let hi = geometryDistances.length - 1
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1
+    if (geometryDistances[mid] <= targetDistance) lo = mid
+    else hi = mid
+  }
+  const segStart = geometryDistances[lo]
+  const segEnd = geometryDistances[hi]
+  const t = segEnd > segStart ? (targetDistance - segStart) / (segEnd - segStart) : 0
+  return [
+    geometry[lo][0] + (geometry[hi][0] - geometry[lo][0]) * t,
+    geometry[lo][1] + (geometry[hi][1] - geometry[lo][1]) * t,
+  ]
+}
+
+/**
+ * Compute bearing in degrees (0=north, 90=east) between two [lat, lng] points.
+ */
+export function computeBearing(from: [number, number], to: [number, number]): number {
+  const toRad = Math.PI / 180
+  const toDeg = 180 / Math.PI
+  const lat1 = from[0] * toRad
+  const lat2 = to[0] * toRad
+  const dLng = (to[1] - from[1]) * toRad
+  const y = Math.sin(dLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+  return ((Math.atan2(y, x) * toDeg) + 360) % 360
+}
+
+export function parseLocalDateTime(value: string): Date | null {
+  if (!value) return null
+  const [datePart, timePart] = value.split('T')
+  if (!datePart || !timePart) return null
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute] = timePart.split(':').map(Number)
+  if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) return null
+  return new Date(year, month - 1, day, hour, minute, 0, 0)
+}
+
+export function formatLocalDateTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+export function formatLocalDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
