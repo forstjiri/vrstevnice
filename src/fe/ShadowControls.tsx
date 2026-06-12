@@ -71,7 +71,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
   })
 
   createEffect(() => {
-    setHillshadeEnabled(hillshadeOn())
+    setHillshadeEnabled(terrainOn() && hillshadeOn())
   })
 
   // ── Hillshade exaggeration ──

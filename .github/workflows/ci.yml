@@ -25,7 +25,12 @@ jobs:
 
       # Integration tests (require running BE/FE/Docker services) are excluded from CI.
       # Run them manually via the "Integration Tests" workflow or locally with `pnpm test -- tests/<name>.test.ts`.
-      - run: pnpm test -- --reporter=verbose --exclude tests/e2e-smoke.test.ts --exclude tests/routing/smoke.test.ts --exclude tests/routing/routing.test.ts --exclude tests/shadow-profile.test.ts
+      - run: |
+          pnpm test -- --reporter=verbose \
+            --exclude tests/e2e-smoke.test.ts \
+            --exclude tests/routing/smoke.test.ts \
+            --exclude tests/routing/routing.test.ts \
+            --exclude tests/shadow-profile.test.ts
 
   typecheck:
     runs-on: ubuntu-latest

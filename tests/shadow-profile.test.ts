@@ -12,10 +12,6 @@ const BE_URL = (globalThis as { process?: { env?: Record<string, string | undefi
 
 describe('Shadow profile API', () => {
 	it('POST /api/shadow-profile returns shadowProfile array', async () => {
-		// First verify BE is reachable
-		const health = await fetch(`${BE_URL}/api/history`, {signal: AbortSignal.timeout(3000)})
-		expect(health.ok).toBe(true)
-
 		const res = await fetch(`${BE_URL}/api/shadow-profile`, {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
@@ -48,9 +44,6 @@ describe('Shadow profile API', () => {
 	})
 
 	it('POST /api/shadow-profile rejects request missing datetime', async () => {
-		const health = await fetch(`${BE_URL}/api/history`, {signal: AbortSignal.timeout(3000)})
-		if (!health.ok) return // skip if BE down
-
 		const res = await fetch(`${BE_URL}/api/shadow-profile`, {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
@@ -62,9 +55,6 @@ describe('Shadow profile API', () => {
 	})
 
 	it('POST /api/shadow-profile works with real route geometry', async () => {
-		const health = await fetch(`${BE_URL}/api/history`, {signal: AbortSignal.timeout(3000)})
-		if (!health.ok) return // skip if BE down
-
 		const routeRes = await fetch(`${BE_URL}/api/route`, {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json'},
