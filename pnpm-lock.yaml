@@ -63,8 +63,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       maplibre-gl:
-        specifier: 6.0.0-13
-        version: 6.0.0-13
+        specifier: ^6.0.0-14
+        version: 6.0.0-14
       solid-js:
         specifier: ^1.9.0
         version: 1.9.12
@@ -923,8 +923,8 @@ packages:
   maplibre-contour@0.1.0:
     resolution: {integrity: sha512-H8muT7JWYE4oLbFv7L2RSbIM1NOu5JxjA9P/TQqhODDnRChE8ENoDkQIWOKgfcKNU77ypLk2ggGoh4/pt4UPLA==}
 
-  maplibre-gl@6.0.0-13:
-    resolution: {integrity: sha512-9J5vRJWs4jvC9VMB8v9VkbzCFNYuj/LS+GLoDhGSpnysp005CBa4+V0xOheuXnOQCIoFTk0S9xuk+ykV3VQdxg==}
+  maplibre-gl@6.0.0-14:
+    resolution: {integrity: sha512-QcFYp1rMA7dMBoIoNbj0ngOAWZsbf6j53hLSyL4CRcef89Qpo4tANszEirQ1CGwGuxGZM/+hqOIHuqI5ZzVHHQ==}
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
   memoirist@0.4.0:
@@ -1958,7 +1958,7 @@ snapshots:
 
   maplibre-contour@0.1.0: {}
 
-  maplibre-gl@6.0.0-13:
+  maplibre-gl@6.0.0-14:
     dependencies:
       '@mapbox/point-geometry': 1.1.0
       '@mapbox/tiny-sdf': 2.2.0

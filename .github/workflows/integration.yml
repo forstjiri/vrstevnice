@@ -29,8 +29,9 @@ jobs:
         working-directory: docker
         run: docker compose -f docker-compose.test.yml up -d --wait
 
+      # These tests are excluded from CI (see ci.yml) because they require running services.
       - name: Run integration tests
-        run: pnpm test -- --reporter=verbose tests/e2e-smoke.test.ts tests/routing/smoke.test.ts tests/routing/routing.test.ts
+        run: pnpm test -- --reporter=verbose tests/e2e-smoke.test.ts tests/routing/smoke.test.ts tests/routing/routing.test.ts tests/shadow-profile.test.ts
         env:
           GRAPHHOPPER_URL: "http://localhost:8988"
 
