@@ -1,4 +1,4 @@
-import { createSignal, For, Show, type JSX } from 'solid-js'
+import { createSignal, For, Show, onMount, type JSX } from 'solid-js'
 import * as maplibregl from 'maplibre-gl'
 import { Search } from '@kobalte/core/search'
 import { Button } from '@kobalte/core/button'
@@ -8,12 +8,17 @@ import { Progress } from '@kobalte/core/progress'
 import { Tooltip } from '@kobalte/core/tooltip'
 import { useApp } from './App'
 import { downloadGPX } from './gpx'
-import type { GeocodeResult, RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
+import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
+import { mapPhotonFeature, detectAndParseGPS, type GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
 const DEFAULT_ROAD_AVOIDANCE = 1;
 const DEFAULT_CYCLEWAY = 1;
 const DEFAULT_ELEVATION = .7;
+
+// Photon geocoder — called directly from browser (FE-only, no BE roundtrip).
+// Local Photon in dev (CZ database), public komoot Photon in production.
+const PHOTON_URL = import.meta.env.DEV ? 'http://localhost:2322' : 'https://photon.komoot.io'
 
 interface LabeledSliderProps {
   value: number[]
@@ -129,20 +134,41 @@ export default function Stops() {
     if (query.length < 3) { setResults([]); return }
     setError(null)
     try {
-      const center = mapCenter()
-      const params: { q: string; lat?: string; lon?: string; zoom?: string } = { q: query }
-      if (center) {
-        params.lat = String(center.lat)
-        params.lon = String(center.lon)
-        params.zoom = String(center.zoom)
-      }
-      const { data, error } = await treaty.api.geocode.get({ $query: params })
-      if (error) {
-        setError(`Chyba vyhledávání: ${error.status} ${error.value?.message || ''}`)
-        setResults([])
+      // GPS coordinate detection — reverse geocode directly via Photon
+      const gps = detectAndParseGPS(query)
+      if (gps) {
+        const res = await fetch(`${PHOTON_URL}/reverse?lon=${gps.lng}&lat=${gps.lat}`)
+        if (res.ok) {
+          const data = await res.json()
+          const features: any[] = data?.features ?? []
+          if (features.length > 0) {
+            setResults([mapPhotonFeature(features[0])])
+            return
+          }
+        }
+        // Fallback: raw coordinate as result
+        setResults([{
+          lat: gps.lat, lng: gps.lng,
+          name: `${gps.lat}, ${gps.lng}`,
+          displayName: `${gps.lat}, ${gps.lng}`,
+        }])
         return
       }
-      setResults(data ?? [])
+
+      // Forward geocode — direct browser call to Photon API
+      const center = mapCenter()
+      const params = new URLSearchParams({ q: query, limit: '5' })
+      if (center) {
+        params.set('lat', String(center.lat))
+        params.set('lon', String(center.lon))
+        params.set('zoom', String(Math.round(center.zoom)))
+        params.set('location_bias_scale', '0.2')
+      }
+      const res = await fetch(`${PHOTON_URL}/api/?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const features: any[] = data?.features ?? []
+      setResults(features.map(mapPhotonFeature))
     } catch (err) {
       console.error('Geocode error:', err)
       setError('Chyba při vyhledávání místa')
@@ -200,7 +226,8 @@ export default function Stops() {
 
   const canCompute = () => stops().length >= 2 && !loading()
 
-  setRegenerateRoute(() => calculateRoute)
+  // Register route calculator in app context (once, after mount — not during render)
+  onMount(() => setRegenerateRoute(() => calculateRoute))
 
   return (
     <aside class="panel">

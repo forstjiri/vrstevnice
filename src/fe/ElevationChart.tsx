@@ -798,7 +798,7 @@ export default function ElevationChart() {
     const currentSeq = ++shadowFetchSeq
     const timer = window.setTimeout(async () => {
       try {
-        const res = await fetch('http://localhost:3002/api/shadow-profile', {
+        const res = await fetch('/api/shadow-profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

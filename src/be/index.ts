@@ -19,8 +19,32 @@ import {appendFile, readFile} from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
-const PHOTON_URL = process.env.PHOTON_URL || 'http://localhost:2322'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
+
+// Photon geocode backends — tried in order. Local first (fast, no external dep),
+// then public komoot Photon as fallback when local is down (e.g. low-RAM deployments).
+const PHOTON_URLS = (process.env.PHOTON_URLS || 'http://localhost:2322,https://photon.komoot.io')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+/** Try each Photon backend in order; return first successful Response. */
+async function fetchPhoton(pathWithQuery: string, pino: any): Promise<Response | null> {
+  for (const base of PHOTON_URLS) {
+    const url = `${base}${pathWithQuery}`
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (res.ok) {
+        if (base !== PHOTON_URLS[0]) pino.warn({ base }, 'Photon fallback used')
+        return res
+      }
+      pino.debug({ base, status: res.status }, 'Photon backend non-OK')
+    } catch (err) {
+      pino.debug({ base, error: (err as Error).message }, 'Photon backend unreachable')
+    }
+  }
+  return null
+}
 
 const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
 
@@ -163,7 +187,7 @@ const app = new Elysia({ prefix: '/api' })
     }),
   })
 
-  .onError(({ code, error, request }) => {
+  .onError(async ({ code, error, request }) => {
     const msg = error instanceof Error ? error.message : String(error)
     const cors = corsHeadersForRequest(request)
 
@@ -182,6 +206,52 @@ const app = new Elysia({ prefix: '/api' })
     }
 
     if (code === 'NOT_FOUND') {
+      // SPA fallback: serve static FE files for non-API paths
+      const url = new URL(request.url)
+      const reqPath = url.pathname
+      if (!reqPath.startsWith('/api/')) {
+        const FE_DIST = resolve(PROJECT_ROOT, 'src', 'fe', 'dist')
+        const MIME: Record<string, string> = {
+          '.html': 'text/html; charset=utf-8',
+          '.js': 'application/javascript; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.json': 'application/json; charset=utf-8',
+          '.svg': 'image/svg+xml',
+          '.png': 'image/png',
+          '.ico': 'image/x-icon',
+          '.woff2': 'font/woff2',
+          '.woff': 'font/woff',
+          '.mjs': 'application/javascript; charset=utf-8',
+          '.map': 'application/json; charset=utf-8',
+        }
+        const cleanPath = reqPath.replace(/\.\./g, '')
+        const candidate = resolve(FE_DIST, cleanPath === '/' ? 'index.html' : cleanPath.slice(1))
+        // Guard against path traversal — candidate must stay within FE_DIST
+        if (!candidate.startsWith(FE_DIST)) return new Response('Forbidden', { status: 403, headers: cors })
+        try {
+          const file = Bun.file(candidate)
+          if (await file.exists()) {
+            const ext = candidate.slice(candidate.lastIndexOf('.'))
+            const headers: Record<string, string> = {
+              'Content-Type': MIME[ext] ?? 'application/octet-stream',
+              ...cors,
+            }
+            if (ext === '.html') headers['Cache-Control'] = 'no-cache'
+            else headers['Cache-Control'] = 'public, max-age=86400'
+            return new Response(file, { status: 200, headers })
+          }
+        } catch { /* fall through */ }
+        // SPA index.html fallback
+        try {
+          const index = Bun.file(resolve(FE_DIST, 'index.html'))
+          if (await index.exists()) {
+            return new Response(index, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ...cors },
+            })
+          }
+        } catch { /* dev mode — no dist */ }
+      }
       return new Response('Not Found', { status: 404, headers: cors })
     }
 
@@ -207,24 +277,21 @@ const app = new Elysia({ prefix: '/api' })
     const gpsCoord = detectAndParseGPS(query.q)
     if (gpsCoord) {
       pino.debug({ lat: gpsCoord.lat, lng: gpsCoord.lng }, 'GPS detected')
-      const reverseUrl = `${PHOTON_URL}/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`
 
-      try {
-        const reverseRes = await fetch(reverseUrl)
-        if (reverseRes.ok) {
+      const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`, pino)
+      if (reverseRes) {
+        try {
           const reverseData = await reverseRes.json() as any
           const features: any[] = reverseData?.features ?? []
           pino.debug({ count: features.length }, 'Reverse geocode results')
-
           if (features.length > 0) {
             return [mapPhotonFeature(features[0])]
           }
-        } else {
-          const text = await reverseRes.text()
-          pino.error({ status: reverseRes.status, body: text }, 'Photon reverse geocode failed')
+        } catch (err) {
+          pino.error({ error: (err as Error).message }, 'Photon reverse geocode: malformed response')
         }
-      } catch (err) {
-        pino.error({ error: (err as Error).message }, 'Photon reverse geocode unreachable')
+      } else {
+        pino.warn('All Photon backends unreachable for reverse geocode')
       }
 
       // Fallback: return raw coordinate as a GeocodeResult
@@ -238,29 +305,21 @@ const app = new Elysia({ prefix: '/api' })
 
     pino.debug('GPS: no match, forward geocode')
 
-    // ── Forward geocode via Photon ──
+    // ── Forward geocode via Photon (with fallback chain) ──
     // viewbox/bounded accepted for backward compat but ignored by Photon
-    let photonUrl = `${PHOTON_URL}/api?q=${encodeURIComponent(query.q)}&limit=5`
+    let photonPath = `/api?q=${encodeURIComponent(query.q)}&limit=5`
 
     // Apply Photon location bias when lat/lon are provided by the frontend
     if (query.lat && query.lon) {
       const biasZoom = Math.round(parseFloat(query.zoom || '14'))
-      photonUrl += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`
+      photonPath += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`
       pino.debug({ lat: query.lat, lon: query.lon, zoom: biasZoom }, 'Location bias applied to Photon geocode')
     }
 
-    let res: Response
-    try {
-      res = await fetch(photonUrl)
-    } catch (err) {
-      pino.error({ error: (err as Error).message, photonUrl }, 'Photon geocode unreachable')
+    const res = await fetchPhoton(photonPath, pino)
+    if (!res) {
+      pino.error({ path: photonPath }, 'All Photon backends unreachable')
       throw new Error('Geocode service unavailable')
-    }
-
-    if (!res.ok) {
-      const text = await res.text()
-      pino.error({ status: res.status, body: text }, 'Photon geocode failed')
-      throw new Error(`Geocode failed: ${res.status}`)
     }
 
     let data: any

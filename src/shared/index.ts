@@ -178,3 +178,85 @@ export function formatLocalDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
+
+// ── Geocode helpers (shared between FE and BE) ──
+
+/** Map a Photon GeoJSON Feature to a GeocodeResult. GeoJSON [lon,lat] → [lat,lng]. */
+export function mapPhotonFeature(feature: any): GeocodeResult {
+  const props = feature.properties ?? {}
+  const coordinates = feature.geometry?.coordinates ?? [0, 0]
+  return {
+    lat: coordinates[1],
+    lng: coordinates[0],
+    name: props.name || props.street || 'Unknown',
+    displayName: [
+      props.name, props.street, props.housenumber, props.city, props.postcode, props.country,
+    ].filter((v: string | undefined) => v != null && v !== '').join(', ') || 'Unknown location',
+  }
+}
+
+// ── GPS coordinate parsing (shared between FE and BE) ──
+
+export interface GpsCoord {
+  lat: number
+  lng: number
+}
+
+function normalizeGpsInput(input: string): string {
+  return input
+    .replace(/%C2%B0/gi, '°').replace(/%2C/gi, ',').replace(/%27/gi, "'")
+    .replace(/%22/gi, '"').replace(/%20/gi, ' ').replace(/%09/gi, ' ')
+    .replace(/%0A/gi, ' ').replace(/%0D/gi, ' ').replace(/\+/g, ' ')
+    .replace(/″/g, '"').replace(/′/g, "'")
+}
+
+function parseDmsPart(s: string): number {
+  let m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*°\s*(\d+(?:\.\d+)?)\s*'\s*(\d+(?:\.\d+)?)\s*(?:["″]|'')\s*([NSEWnsew])\s*$/)
+  if (m) {
+    const r = parseFloat(m[1]) + parseFloat(m[2]) / 60 + parseFloat(m[3]) / 3600
+    return (m[4].toUpperCase() === 'S' || m[4].toUpperCase() === 'W') ? -r : r
+  }
+  m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*°\s*(\d+(?:\.\d+)?)\s*['′]\s*([NSEWnsew])\s*$/)
+  if (m) {
+    const r = parseFloat(m[1]) + parseFloat(m[2]) / 60
+    return (m[3].toUpperCase() === 'S' || m[3].toUpperCase() === 'W') ? -r : r
+  }
+  return NaN
+}
+
+/** Detect and parse GPS coordinates (DD/DDM/DMS). Returns null if not GPS. */
+export function detectAndParseGPS(input: string): GpsCoord | null {
+  if (!input || input.trim().length === 0) return null
+  const normalized = normalizeGpsInput(input.trim())
+  const parts = normalized.split(/[\s,]+/).filter((p) => p.length > 0)
+
+  if (parts.length >= 2 && parts[0].includes('°')) {
+    let part1End = 1
+    for (let i = 1; i < parts.length; i++) {
+      if (parts[i].includes('°')) { part1End = i; break }
+      part1End = i + 1
+    }
+    const part1 = parts.slice(0, part1End).join(' ')
+    const part2 = parts.slice(part1End).join(' ')
+    if (part1.length > 0 && part2.length > 0) {
+      const v1 = parseDmsPart(part1)
+      const v2 = parseDmsPart(part2)
+      if (!isNaN(v1) && !isNaN(v2)) {
+        const dir1 = part1.toUpperCase()
+        const isLat1 = dir1.includes('N') || dir1.includes('S')
+        const lat = isLat1 ? v1 : v2
+        const lng = isLat1 ? v2 : v1
+        if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }
+      }
+    }
+  }
+
+  const ddMatch = normalized.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/)
+  if (ddMatch) {
+    const a = parseFloat(ddMatch[1])
+    const b = parseFloat(ddMatch[2])
+    if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lng: b }
+  }
+
+  return null
+}

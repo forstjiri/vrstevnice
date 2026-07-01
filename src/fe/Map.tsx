@@ -14,9 +14,15 @@ import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } fro
 import { createStopMarker, createPoiMarker, stopColor, buildContextMenu } from './map-markers'
 import ShadowControls from './ShadowControls'
 
+// Tileserver URL: localhost in dev, same-host in prod (port 2323 exposed by Docker)
+const TILESERVER_URL = import.meta.env.DEV
+  ? 'http://localhost:2323'
+  : `${window.location.protocol}//${window.location.hostname}:2323`
+
 // ── Contour line setup (module-level, before any Map instance) ──
+// Relative URL — works in dev (Vite proxy origin) and prod (same-origin via BE)
 const demSource = new mlcontour.DemSource({
-  url: 'http://localhost:3002/api/terrain/{z}/{x}/{y}',
+  url: '/api/terrain/{z}/{x}/{y}',
   encoding: 'terrarium',
   maxzoom: 14,
   worker: false,
@@ -236,7 +242,7 @@ export default function Map() {
     try {
       map = new maplibregl.Map({
         container,
-        style: 'http://localhost:2323/styles/basic/style.json?v=2',
+        style: `${TILESERVER_URL}/styles/basic/style.json?v=2`,
         center: [15.47, 49.82], // [lng, lat]
         zoom: 7,
       })
@@ -330,7 +336,7 @@ export default function Map() {
       try {
         m.addSource('terrain-dem', {
           type: 'raster-dem',
-          tiles: ['http://localhost:3002/api/terrain/{z}/{x}/{y}'],
+          tiles: ['/api/terrain/{z}/{x}/{y}'],
           encoding: 'terrarium',
           tileSize: 256,
           maxzoom: 14,
@@ -544,7 +550,7 @@ export default function Map() {
       }
 
       // Load KČT cycle routes overlay
-      fetch('http://localhost:3002/api/cycleroutes')
+      fetch('/api/cycleroutes')
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           return res.json()
