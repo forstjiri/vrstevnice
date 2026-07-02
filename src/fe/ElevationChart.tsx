@@ -26,7 +26,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route, setRoute, hillshadeEnabled, shadowDateTime } = useApp()
+  const { route, setRoute, shadowRouteEnabled, shadowDateTime } = useApp()
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null
@@ -74,7 +74,7 @@ export default function ElevationChart() {
     const plotY = PADDING.top
     const plotW = w - PADDING.left - PADDING.right
     const plotH = h - PADDING.top - PADDING.bottom
-    const shadowLaneHeight = hillshadeEnabled() && cachedSunExposure.length === profile.length ? Math.min(42, plotH * 0.32) : 0
+    const shadowLaneHeight = shadowRouteEnabled() && cachedSunExposure.length === profile.length ? Math.min(42, plotH * 0.32) : 0
     const profilePlotH = plotH - shadowLaneHeight
 
     ctx!.clearRect(0, 0, w, h)
@@ -233,7 +233,7 @@ export default function ElevationChart() {
       }
     }
 
-		if (hillshadeEnabled() && cachedSunExposure.length === profile.length && shadowLaneHeight > 0) {
+		if (shadowRouteEnabled() && cachedSunExposure.length === profile.length && shadowLaneHeight > 0) {
 			const laneTop = plotY + profilePlotH + 2
 			const laneBottom = plotY + plotH
 			ctx!.fillStyle = 'rgba(253, 230, 138, 0.10)'
@@ -354,7 +354,7 @@ export default function ElevationChart() {
       const surfLabel = hoverIdx !== undefined ? cachedSurfaceLabels[hoverIdx] : ''
       const rcLabel = hoverIdx !== undefined ? cachedRoadClassLabels[hoverIdx] : ''
       const shadowExposure = hoverIdx !== undefined ? cachedSunExposure[hoverIdx] : undefined
-      const shadowLabel = hillshadeEnabled() && shadowExposure !== undefined
+      const shadowLabel = shadowRouteEnabled() && shadowExposure !== undefined
         ? `slunce ${Math.round(shadowExposure * 100)} %`
         : ''
       const hasMeta = surfLabel || rcLabel || shadowLabel
@@ -786,7 +786,7 @@ export default function ElevationChart() {
 
   createEffect(() => {
     const r = route()
-    const enabled = hillshadeEnabled()
+    const enabled = shadowRouteEnabled()
     const dt = shadowDateTime()
     const playing = rideAnimation().playing
 

@@ -20,6 +20,7 @@ import { Buffer } from 'node:buffer'
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
+const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1'
 
 // Photon geocode backends — tried in order. Local first (fast, no external dep),
 // then public komoot Photon as fallback when local is down (e.g. low-RAM deployments).
@@ -125,16 +126,18 @@ const app = new Elysia({ prefix: '/api' })
         showStartupMessage: true,
         ip: true,
         timestamp: { translateTime: 'yyyy-mm-dd HH:MM:ss.SSS' },
-        logFilePath: LOG_FILE,
-        logRotation: {
-          maxSize: '10m',
-          interval: '1d',
-          maxFiles: '7d',
-          compress: true,
-        },
+        ...(ENABLE_FILE_LOGGING ? {
+          logFilePath: LOG_FILE,
+          logRotation: {
+            maxSize: '10m',
+            interval: '1d',
+            maxFiles: '7d',
+            compress: true,
+          },
+        } : {}),
         pino: {
           level: LOG_LEVEL,
-          prettyPrint: true,
+          prettyPrint: false,
         },
       },
     }),

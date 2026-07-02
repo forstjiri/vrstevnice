@@ -22,9 +22,10 @@ interface ShadowControlsProps extends ShadowControlCallbacks {
 }
 
 export default function ShadowControls(props: ShadowControlsProps) {
-  const { setHillshadeEnabled, setShadowDateTime, regenerateRoute, loading, route } = useApp()
+  const { setHillshadeEnabled, setShadowRouteEnabled, setShadowDateTime, regenerateRoute, loading, route, shadowRouteEnabled } = useApp()
   const [terrainOn, setTerrainOn] = createSignal(false)
   const [hillshadeOn, setHillshadeOn] = createSignal(false)
+  const [shadowRouteOn, setShadowRouteOn] = createSignal(false)
   const [contoursOn, setContoursOn] = createSignal(true)
   const [hillshadeExaggeration, setHillshadeExaggeration] = createSignal<number[]>([1])
   const [exaggeration, setExaggeration] = createSignal<number[]>([1.5])
@@ -72,6 +73,10 @@ export default function ShadowControls(props: ShadowControlsProps) {
 
   createEffect(() => {
     setHillshadeEnabled(terrainOn() && hillshadeOn())
+  })
+
+  createEffect(() => {
+    setShadowRouteEnabled(terrainOn() && hillshadeOn() && shadowRouteOn())
   })
 
   // ── Hillshade exaggeration ──
@@ -124,6 +129,16 @@ export default function ShadowControls(props: ShadowControlsProps) {
                   <Checkbox.Label class="shadow-checkbox-label">Stínování svahů</Checkbox.Label>
                 </Checkbox>
               </div>
+
+              <Show when={hillshadeOn()}>
+                <div class="shadow-control-row">
+                  <Checkbox checked={shadowRouteOn()} onChange={setShadowRouteOn} class="shadow-checkbox">
+                    <Checkbox.Input class="shadow-checkbox-input" />
+                    <Checkbox.Control class="shadow-checkbox-control" />
+                    <Checkbox.Label class="shadow-checkbox-label">Při výpočtu trasy řešit stín 🐢</Checkbox.Label>
+                  </Checkbox>
+                </div>
+              </Show>
             </Show>
 
             <div class="shadow-control-row">
@@ -154,7 +169,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
                 value={effectiveSunMinutes()}
                 onChange={setSunMinutes}
                 onChangeEnd={() => {
-                  if (!route() || loading()) return
+                  if (!route() || loading() || !shadowRouteEnabled()) return
                   void regenerateRoute()()
                 }}
                 minValue={0}

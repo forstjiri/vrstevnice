@@ -301,13 +301,17 @@ export function convertGHGeometryToLeaflet(
  * - geometry: swapped for Leaflet
  */
 export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse {
+  const rawProfile = computeElevationProfile(ghResult.geometry)
+  const smoothedProfile = smoothElevationProfile(rawProfile)
+  const { gain, loss } = computeElevationGainLoss(smoothedProfile)
+
   return {
     geometry: convertGHGeometryToLeaflet(ghResult.geometry),
     distance: Math.round(ghResult.distance / 100) / 10,   // meters → km, 1 decimal
     duration: Math.round(ghResult.duration / 1000),        // ms → seconds
-    elevationGain: Math.round(ghResult.elevationGain),
-    elevationLoss: Math.round(ghResult.elevationLoss),
-    elevationProfile: computeElevationProfile(ghResult.geometry),
+    elevationGain: gain,
+    elevationLoss: loss,
+    elevationProfile: smoothedProfile,
     surfaceSegments: ghResult.surfaceSegments,
     roadClassSegments: ghResult.roadClassSegments,
     roadEnvSegments: ghResult.roadEnvSegments ?? [],
@@ -350,6 +354,72 @@ export function computeElevationProfile(
   }
 
   return profile
+}
+
+/**
+ * Smooth an elevation profile using a distance-based moving average.
+ *
+ * SRTM DEM data (used by GraphHopper) contains pixel-level jitter that inflates
+ * the apparent roughness of terrain. A ~100m symmetric window removes most of
+ * this noise while preserving real climbs and descents.
+ *
+ * Only elevation values are averaged — distances are left untouched.
+ */
+export function smoothElevationProfile(
+  profile: ElevationPoint[],
+  halfWindowM = 50,
+): ElevationPoint[] {
+  if (profile.length < 3) return profile.map(p => ({ ...p }))
+
+  const smoothed: ElevationPoint[] = []
+  for (let i = 0; i < profile.length; i++) {
+    let sum = 0
+    let count = 0
+    for (let j = i; j >= 0 && profile[i].distance - profile[j].distance <= halfWindowM; j--) {
+      sum += profile[j].elevation
+      count++
+    }
+    for (let j = i + 1; j < profile.length && profile[j].distance - profile[i].distance <= halfWindowM; j++) {
+      sum += profile[j].elevation
+      count++
+    }
+    smoothed.push({ distance: profile[i].distance, elevation: Math.round(sum / count) })
+  }
+  return smoothed
+}
+
+/**
+ * Compute total ascent and descent from an elevation profile.
+ *
+ * Uses a minimum-delta threshold: only elevation changes exceeding `minDeltaM`
+ * (measured from the last counted point, not the immediately preceding point)
+ * are accumulated. This filters out residual DEM noise that survives smoothing.
+ *
+ * Without this, consecutive sub-threshold jitter would still inflate totals.
+ */
+export function computeElevationGainLoss(
+  profile: ElevationPoint[],
+  minDeltaM = 1.5,
+): { gain: number; loss: number } {
+  if (profile.length < 2) return { gain: 0, loss: 0 }
+
+  let gain = 0
+  let loss = 0
+  let lastCounted = profile[0].elevation
+
+  for (let i = 1; i < profile.length; i++) {
+    const delta = profile[i].elevation - lastCounted
+    if (delta > minDeltaM) {
+      gain += delta
+      lastCounted = profile[i].elevation
+    } else if (delta < -minDeltaM) {
+      loss += -delta
+      lastCounted = profile[i].elevation
+    }
+    // Sub-threshold: don't update lastCounted — accumulate until a real feature emerges
+  }
+
+  return { gain: Math.round(gain), loss: Math.round(loss) }
 }
 
 // ---------------------------------------------------------------------------

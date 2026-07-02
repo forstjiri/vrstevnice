@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { convertGHToRouteResponse } from '@vrstevnice/routing'
+import {
+  convertGHToRouteResponse,
+  computeElevationProfile,
+  smoothElevationProfile,
+  computeElevationGainLoss,
+} from '@vrstevnice/routing'
 import type { GHRouteResult } from '@vrstevnice/routing'
 
 function makeGHResult(overrides: Partial<GHRouteResult> = {}): GHRouteResult {
@@ -85,13 +90,21 @@ describe('convertGHToRouteResponse', () => {
     expect(result.elevationProfile[1].distance).toBeGreaterThan(0)
   })
 
-  it('preserves elevationGain and elevationLoss', () => {
-    const result = convertGHToRouteResponse(makeGHResult({
+  it('recomputes elevationGain and elevationLoss from the smoothed profile', () => {
+    const gh = makeGHResult({
       elevationGain: 350,
       elevationLoss: 280,
-    }))
-    expect(result.elevationGain).toBe(350)
-    expect(result.elevationLoss).toBe(280)
+    })
+    const result = convertGHToRouteResponse(gh)
+    const expectedProfile = smoothElevationProfile(computeElevationProfile(gh.geometry))
+    const expectedGainLoss = computeElevationGainLoss(expectedProfile)
+
+    expect(result.elevationProfile).toEqual(expectedProfile)
+    expect(result.elevationGain).toBe(expectedGainLoss.gain)
+    expect(result.elevationLoss).toBe(expectedGainLoss.loss)
+    // Raw GH ascend/descend should no longer be passed through unchanged.
+    expect(result.elevationGain).not.toBe(350)
+    expect(result.elevationLoss).not.toBe(280)
   })
 
   it('handles empty roadEnvSegments (undefined)', () => {

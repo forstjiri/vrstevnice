@@ -17,8 +17,8 @@ const DEFAULT_CYCLEWAY = 1;
 const DEFAULT_ELEVATION = .7;
 
 // Photon geocoder — called directly from browser (FE-only, no BE roundtrip).
-// Local Photon in dev (CZ database), public komoot Photon in production.
-const PHOTON_URL = import.meta.env.DEV ? 'http://localhost:2322' : 'https://photon.komoot.io'
+// Use public Photon with strong local bias from current map center.
+const PHOTON_URL = 'https://photon.komoot.io'
 
 interface LabeledSliderProps {
   value: number[]
@@ -68,6 +68,7 @@ export default function Stops() {
     setError,
     mapCenter,
     hillshadeEnabled,
+    shadowRouteEnabled,
     shadowDateTime,
     setRegenerateRoute,
   } = useApp()
@@ -210,7 +211,7 @@ export default function Stops() {
         roadAvoidanceCoefficient: 1 - (roadAvoidCoeff()[0] ?? DEFAULT_ROAD_AVOIDANCE),
         cyclewayCoefficient: cyclewayCoeff()[0] ?? DEFAULT_CYCLEWAY,
         lemonadeCoefficient: lemonadeCoeff()[0] ?? 0,
-        shadowDateTime: hillshadeEnabled() ? shadowDateTime() : undefined,
+        shadowDateTime: shadowRouteEnabled() ? shadowDateTime() : undefined,
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -363,10 +364,9 @@ export default function Stops() {
           <>
             <Tooltip openDelay={0}>
               <Slider.Label class="slider-label-text">Limonádová cesta</Slider.Label>
-              <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
             </Tooltip>
             <Tooltip openDelay={0}>
-              <Tooltip.Trigger class="experimental-badge" as="span">⚠️</Tooltip.Trigger>
+              <Tooltip.Trigger class="experimental-badge" as="span">⚠️🐢</Tooltip.Trigger>
               <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
             </Tooltip>
           </>

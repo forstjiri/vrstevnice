@@ -11,7 +11,7 @@
 #   REMOTE=root@10.0.0.30 bash scripts/deploy.sh
 #
 # Proměnné (přes env):
-#   REMOTE        SSH cíl            (default: root@10.0.0.29)
+#   REMOTE        SSH cíl            (defalult: root@10.0.0.29)
 #   REMOTE_DIR    Cíl na serveru     (default: /opt/vrstevnice)
 #   GH_HEAP       GraphHopper -Xmx   (default: 1500m)
 # ═══════════════════════════════════════════════════════════════════════

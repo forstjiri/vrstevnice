@@ -5,7 +5,11 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { computeElevationProfile } from '@vrstevnice/routing'
+import {
+  computeElevationProfile,
+  smoothElevationProfile,
+  computeElevationGainLoss,
+} from '@vrstevnice/routing'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,5 +149,129 @@ describe('computeElevationProfile', () => {
     // Haversine should be very close
     expect(profile[1].distance).toBeGreaterThan(10)
     expect(profile[1].distance).toBeLessThan(20)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// smoothElevationProfile
+// ---------------------------------------------------------------------------
+
+describe('smoothElevationProfile', () => {
+  it('returns copy for short profiles (< 3 points)', () => {
+    const profile = [{ distance: 0, elevation: 100 }, { distance: 50, elevation: 110 }]
+    const smoothed = smoothElevationProfile(profile)
+    expect(smoothed).toHaveLength(2)
+    expect(smoothed[0].elevation).toBe(100)
+    expect(smoothed[1].elevation).toBe(110)
+  })
+
+  it('does not alter distances', () => {
+    const profile = [
+      { distance: 0, elevation: 100 },
+      { distance: 30, elevation: 120 },
+      { distance: 60, elevation: 110 },
+      { distance: 90, elevation: 130 },
+    ]
+    const smoothed = smoothElevationProfile(profile)
+    for (let i = 0; i < profile.length; i++) {
+      expect(smoothed[i].distance).toBe(profile[i].distance)
+    }
+  })
+
+  it('reduces noise in sawtooth pattern', () => {
+    // Simulate SRTM jitter: ±5m noise around 200m baseline
+    const profile = Array.from({ length: 20 }, (_, i) => ({
+      distance: i * 10,
+      elevation: 200 + (i % 2 === 0 ? 5 : -5),
+    }))
+    const smoothed = smoothElevationProfile(profile)
+
+    // Raw range: 195-205 (10m spread)
+    // Smoothed should be much tighter — within ±2m of 200
+    const rawRange = Math.max(...profile.map(p => p.elevation)) - Math.min(...profile.map(p => p.elevation))
+    const smoothedRange = Math.max(...smoothed.map(p => p.elevation)) - Math.min(...smoothed.map(p => p.elevation))
+    expect(smoothedRange).toBeLessThan(rawRange / 2)
+  })
+
+  it('preserves real climbs after smoothing', () => {
+    // A genuine 100m climb over 500m distance
+    const profile = Array.from({ length: 11 }, (_, i) => ({
+      distance: i * 50,
+      elevation: 200 + i * 10, // 200 → 300
+    }))
+    const smoothed = smoothElevationProfile(profile)
+    // Start and end should be close to original values
+    expect(Math.abs(smoothed[0].elevation - 200)).toBeLessThan(15)
+    expect(Math.abs(smoothed[10].elevation - 300)).toBeLessThan(15)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeElevationGainLoss
+// ---------------------------------------------------------------------------
+
+describe('computeElevationGainLoss', () => {
+  it('returns zero for empty or single-point profiles', () => {
+    expect(computeElevationGainLoss([])).toEqual({ gain: 0, loss: 0 })
+    expect(computeElevationGainLoss([{ distance: 0, elevation: 100 }])).toEqual({ gain: 0, loss: 0 })
+  })
+
+  it('computes simple monotonic climb', () => {
+    const profile = [
+      { distance: 0, elevation: 100 },
+      { distance: 100, elevation: 150 },
+      { distance: 200, elevation: 200 },
+    ]
+    const { gain, loss } = computeElevationGainLoss(profile)
+    expect(gain).toBe(100)
+    expect(loss).toBe(0)
+  })
+
+  it('computes simple monotonic descent', () => {
+    const profile = [
+      { distance: 0, elevation: 300 },
+      { distance: 100, elevation: 200 },
+      { distance: 200, elevation: 100 },
+    ]
+    const { gain, loss } = computeElevationGainLoss(profile)
+    expect(gain).toBe(0)
+    expect(loss).toBe(200)
+  })
+
+  it('ignores sub-threshold noise (DEM jitter)', () => {
+    // ±0.5m oscillation around 200m baseline — delta of 1m between points, below 1.5m threshold
+    const profile = Array.from({ length: 20 }, (_, i) => ({
+      distance: i * 10,
+      elevation: 200 + (i % 2 === 0 ? 0.5 : -0.5),
+    }))
+    const { gain, loss } = computeElevationGainLoss(profile)
+    expect(gain).toBe(0)
+    expect(loss).toBe(0)
+  })
+
+  it('accumulates real climb across multiple sub-threshold steps', () => {
+    // Gradual 5m climb in 0.5m steps — each step is sub-threshold but total is real
+    const profile = Array.from({ length: 11 }, (_, i) => ({
+      distance: i * 10,
+      elevation: 200 + i * 0.5, // 200 → 205
+    }))
+    const { gain, loss } = computeElevationGainLoss(profile, 1.5)
+    // After 4 steps (2m), the threshold is crossed — gain should be ~5m
+    expect(gain).toBeGreaterThan(3)
+    expect(gain).toBeLessThan(6)
+    expect(loss).toBe(0)
+  })
+
+  it('counts a hill + valley correctly', () => {
+    const profile = [
+      { distance: 0, elevation: 100 },
+      { distance: 100, elevation: 200 },
+      { distance: 200, elevation: 150 },
+      { distance: 300, elevation: 250 },
+    ]
+    const { gain, loss } = computeElevationGainLoss(profile)
+    // Climb 100→200 (+100), descend 200→150 (-50), climb 150→250 (+100)
+    expect(gain).toBe(200)
+    expect(loss).toBe(50)
   })
 })
