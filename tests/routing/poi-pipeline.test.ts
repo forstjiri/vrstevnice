@@ -1,16 +1,16 @@
 /**
  * Unit tests for the POI pipeline: sampling, deduplication, waypoint insertion,
- * and Overpass response parsing.
+ * and POI query orchestration.
  *
- * All tests use mock geometries and mock fetch — no real network or GH instance.
+ * All tests use mock geometries and a mock `queryFn` — no real network or GH instance.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   sampleRouteGeometry,
   deduplicatePOIs,
   insertPOIWaypoints,
-  queryOverpassAround,
   fetchPOIsAlongRoute,
+  type POIQueryFn,
 } from '@vrstevnice/routing'
 import { haversineMeters } from '@vrstevnice/shared'
 import type { POILocation, Stop } from '@vrstevnice/shared'
@@ -364,13 +364,15 @@ describe('insertPOIWaypoints', () => {
 describe('coefficient-to-interval/radius mapping', () => {
   it('coefficient=0 returns empty (no-op)', async () => {
     const geometry = makeRouteGeometry(10, 100)
-    const result = await fetchPOIsAlongRoute(geometry, 0)
+    const queryFn: POIQueryFn = async () => []
+    const result = await fetchPOIsAlongRoute(geometry, 0, queryFn)
     expect(result).toEqual({ selected: [], all: [] })
   })
 
   it('coefficient negative returns empty', async () => {
     const geometry = makeRouteGeometry(10, 100)
-    const result = await fetchPOIsAlongRoute(geometry, -0.5)
+    const queryFn: POIQueryFn = async () => []
+    const result = await fetchPOIsAlongRoute(geometry, -0.5, queryFn)
     expect(result).toEqual({ selected: [], all: [] })
   })
 
@@ -379,22 +381,12 @@ describe('coefficient-to-interval/radius mapping', () => {
     // 20km route → desiredSamples = max(8, ceil(20/5)) = 8
     const geometry = makeRouteGeometry(20, 200)
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ elements: [] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    try {
-      const result = await fetchPOIsAlongRoute(geometry, 1.0)
-      expect(result.selected).toEqual([])
-      expect(result.all).toEqual([])
-      // 20km route → 8 samples → 8 fetch calls
-      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(8)
-    } finally {
-      fetchSpy.mockRestore()
-    }
+    const queryFn = vi.fn<POIQueryFn>(async () => [])
+    const result = await fetchPOIsAlongRoute(geometry, 1.0, queryFn)
+    expect(result.selected).toEqual([])
+    expect(result.all).toEqual([])
+    // 20km route → 8 samples → 8 query calls
+    expect(queryFn.mock.calls.length).toBeLessThanOrEqual(8)
   })
 
   it('coefficient=0.1 on short route uses same sample count as high coefficient', async () => {
@@ -402,150 +394,11 @@ describe('coefficient-to-interval/radius mapping', () => {
     // controls spatial thinning of results
     const geometry = makeRouteGeometry(10, 100)
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ elements: [] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    try {
-      const result = await fetchPOIsAlongRoute(geometry, 0.1)
-      expect(result.selected).toEqual([])
-      expect(result.all).toEqual([])
-      // 10km route → desiredSamples = max(8, ceil(10/5)) = 8 → 8 samples → 8 fetches
-      expect(fetchSpy.mock.calls.length).toBe(8)
-    } finally {
-      fetchSpy.mockRestore()
-    }
-  })
-})
-
-// ---------------------------------------------------------------------------
-// queryOverpassAround response parsing
-// ---------------------------------------------------------------------------
-describe('queryOverpassAround', () => {
-  beforeEach(() => {
-    vi.spyOn(globalThis, 'fetch').mockReset()
-  })
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('parses a successful Overpass JSON response', async () => {
-    const mockData = {
-      elements: [
-        { lat: 50.0, lon: 14.4, tags: { name: 'U Zlatého Tygra', amenity: 'pub' } },
-        { lat: 50.001, lon: 14.401, tags: { name: 'Lokál', amenity: 'restaurant' } },
-      ],
-    }
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-
-    expect(result).toHaveLength(2)
-    expect(result[0]).toEqual({
-      lat: 50.0,
-      lng: 14.4,
-      name: 'U Zlatého Tygra',
-      type: 'pub',
-    })
-    expect(result[1]).toEqual({
-      lat: 50.001,
-      lng: 14.401,
-      name: 'Lokál',
-      type: 'restaurant',
-    })
-  })
-
-  it('returns empty array on HTML error page', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('<html><body>Error 503</body></html>', {
-        status: 503,
-        headers: { 'content-type': 'text/html' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-    expect(result).toEqual([])
-  })
-
-  it('returns empty array on network error', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network timeout'))
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-    expect(result).toEqual([])
-  })
-
-  it('filters out elements without name tag', async () => {
-    const mockData = {
-      elements: [
-        { lat: 50.0, lon: 14.4, tags: { name: 'Named Pub', amenity: 'pub' } },
-        { lat: 50.001, lon: 14.401, tags: { amenity: 'pub' } }, // no name
-        { lat: 50.002, lon: 14.402, tags: {} }, // no tags at all
-      ],
-    }
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-
-    expect(result).toHaveLength(1)
-    expect(result[0].name).toBe('Named Pub')
-  })
-
-  it('returns empty array for empty elements array', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ elements: [] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-    expect(result).toEqual([])
-  })
-
-  it('returns empty array for non-JSON response', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('not json', {
-        status: 200,
-        headers: { 'content-type': 'text/plain' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-    expect(result).toEqual([])
-  })
-
-  it('defaults type to "unknown" when amenity tag missing', async () => {
-    const mockData = {
-      elements: [
-        { lat: 50.0, lon: 14.4, tags: { name: 'Mystery Place' } },
-      ],
-    }
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    )
-
-    const result = await queryOverpassAround(50.0, 14.4, 500)
-
-    expect(result).toHaveLength(1)
-    expect(result[0].type).toBe('unknown')
+    const queryFn = vi.fn<POIQueryFn>(async () => [])
+    const result = await fetchPOIsAlongRoute(geometry, 0.1, queryFn)
+    expect(result.selected).toEqual([])
+    expect(result.all).toEqual([])
+    // 10km route → desiredSamples = max(8, ceil(10/5)) = 8 → 8 samples → 8 query calls
+    expect(queryFn.mock.calls.length).toBe(8)
   })
 })

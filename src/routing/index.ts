@@ -70,7 +70,6 @@ export interface GHRouteResult {
 // ---------------------------------------------------------------------------
 
 const GRAPHHOPPER_URL = process.env.GRAPHHOPPER_URL || 'http://localhost:8989'
-const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter'
 
 // ---------------------------------------------------------------------------
 // Custom model builder
@@ -423,7 +422,7 @@ export function computeElevationGainLoss(
 }
 
 // ---------------------------------------------------------------------------
-// Overpass API — Lemonade route pipeline
+// POI lookup — Lemonade route pipeline
 // ---------------------------------------------------------------------------
 
 const DEFAULT_DEDUP_DISTANCE = 100 // meters
@@ -436,6 +435,9 @@ export interface POIResult {
   all: POILocation[]
 }
 
+/** Callback injected by the BE: queries local POIs (SQLite) for a given area. */
+export type POIQueryFn = (lat: number, lng: number, radius: number) => Promise<POILocation[]>
+
 /** Compute total route length in meters from Leaflet [lat, lng] geometry. */
 function computeRouteLength(geometry: [number, number][]): number {
   let total = 0
@@ -446,73 +448,10 @@ function computeRouteLength(geometry: [number, number][]): number {
 }
 
 /**
- * Query Overpass API for nearby pubs, bars, restaurants, cafes, biergarten.
- *
- * Returns [] on any error (network, parsing, non-JSON response).
- * Overpass uses lat,lon order (not lon,lat like GeoJSON).
- */
-export async function queryOverpassAround(
-  lat: number,
-  lon: number,
-  radius: number,
-): Promise<POILocation[]> {
-  const query = `[out:json];node["amenity"~"pub|bar|restaurant|cafe|biergarten"](around:${radius},${lat},${lon});out body;`
-
-  let res: Response
-  try {
-    res = await fetch(OVERPASS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Vrstevnice/1.0 (https://github.com/jiriforst/vrstevnice)',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    })
-  } catch (err) {
-    console.error(`Overpass fetch failed: ${OVERPASS_URL} — ${(err as Error).message}`)
-    return []
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '(empty)')
-    console.error(`Overpass error: ${res.status} — ${text.slice(0, 500)}`)
-    return []
-  }
-
-  const contentType = res.headers.get('content-type') || ''
-  if (!contentType.includes('application/json')) {
-    console.error(`Overpass returned non-JSON content-type: ${contentType}`)
-    return []
-  }
-
-  let data: any
-  try {
-    data = await res.json()
-  } catch {
-    console.error('Overpass returned invalid JSON')
-    return []
-  }
-
-  const elements: any[] = data?.elements ?? []
-  if (elements.length === 0) {
-    console.warn(`Overpass: no POIs found at (${lat},${lon}) radius=${radius}m`)
-  }
-
-  return elements
-    .filter((el) => el.lat != null && el.lon != null && el.tags?.name)
-    .map((el) => ({
-      lat: el.lat,
-      lng: el.lon,
-      name: el.tags.name,
-      type: el.tags.amenity || 'unknown',
-    }))
-}
-
-/**
  * Sample route geometry at regular distance intervals.
  *
  * Input is Leaflet [lat, lng] format. Returns sample points in the same format.
- * @param maxSamples Cap on number of sample points (default 8, to limit Overpass API load).
+ * @param maxSamples Cap on number of sample points (default 8, to limit query load).
  */
 export function sampleRouteGeometry(
   geometry: [number, number][],
@@ -654,10 +593,14 @@ export function insertPOIWaypoints(
  *      Scales with route length (capped at 3× for long routes)
  *   2) Spatial thinning (ensures even spacing along route)
  * - Returns both selected (capped + thinned) and all (deduplicated) POIs
+ *
+ * POIs are looked up via the injected `queryFn` — in production this is a SQLite
+ * query against data/cz-pois.sqlite; tests inject mocks.
  */
 export async function fetchPOIsAlongRoute(
   geometry: [number, number][],
   coefficient: number,
+  queryFn: POIQueryFn,
 ): Promise<POIResult> {
   if (coefficient <= 0) return { selected: [], all: [] }
 
@@ -688,12 +631,12 @@ export async function fetchPOIsAlongRoute(
   const samplePoints = sampleRouteGeometry(geometry, interval, maxSamples)
   if (samplePoints.length === 0) return { selected: [], all: [] }
 
-  console.info({ sampleCount: samplePoints.length }, 'POI pipeline: querying Overpass')
+  console.info({ sampleCount: samplePoints.length }, 'POI pipeline: querying local POIs')
 
-  // Query Overpass at each sample point
+  // Query local POI store (SQLite) at each sample point
   const allPOIs: POILocation[] = []
   for (const [lat, lng] of samplePoints) {
-    const pois = await queryOverpassAround(lat, lng, radius)
+    const pois = await queryFn(lat, lng, radius)
     allPOIs.push(...pois)
   }
 

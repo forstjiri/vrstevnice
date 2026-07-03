@@ -1,6 +1,6 @@
 import {createEffect, onCleanup, onMount, Show} from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
-import {computeGeometryDistances, haversineMeters, findPositionAtDistance, computeBearing, parseLocalDateTime as parseLocalDateTimeShared, formatLocalDateTime as formatLocalDateTimeShared} from '@vrstevnice/shared'
+import {computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime as parseLocalDateTimeShared, formatLocalDateTime as formatLocalDateTimeShared} from '@vrstevnice/shared'
 import { useApp } from './App'
 import { setHoveredPoint } from './hoverStore'
 import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
@@ -44,9 +44,8 @@ export default function ElevationChart() {
   let cachedRoadClassLabels: string[] = []
   let cachedRoadClassColors: string[] = []
   let cachedRoadClassDash: (number[] | undefined)[] = []
-	// Shadow overlay: cached shadow status per profile point
-	let cachedShadowStatus: boolean[] = []
-	let cachedSunExposure: number[] = []
+	// Shadow overlay: cached sun exposure per profile point
+	let cachedSunExposure: number[] = []	
 	let lastShadowFetchKey = ''
 	let shadowFetchSeq = 0
 
@@ -756,18 +755,14 @@ export default function ElevationChart() {
 			if (r.shadowProfile && r.shadowProfile.length > 0) {
 				const shadowDists = r.shadowProfile.map(s => s.distance)
 				const shadowEnds = [...shadowDists.slice(1), Infinity]
-				const shadowStatus: boolean[] = []
 				const sunExposure: number[] = []
 				for (let i = 0; i < r.elevationProfile.length; i++) {
 					const dist = r.elevationProfile[i].distance
 					const idx = binarySearchSegment(shadowDists, shadowEnds, dist)
-					shadowStatus.push(idx >= 0 ? r.shadowProfile[idx].shadow : false)
 					sunExposure.push(idx >= 0 ? r.shadowProfile[idx].sunExposure : 1)
 				}
-				cachedShadowStatus = shadowStatus
 				cachedSunExposure = sunExposure
 			} else {
-				cachedShadowStatus = []
 				cachedSunExposure = []
 			}
     } else {
@@ -777,7 +772,6 @@ export default function ElevationChart() {
       cachedRoadClassLabels = []
       cachedRoadClassColors = []
 			cachedRoadClassDash = []
-			cachedShadowStatus = []
 			cachedSunExposure = []
     }
 

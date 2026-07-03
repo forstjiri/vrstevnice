@@ -9,16 +9,12 @@ import { Tooltip } from '@kobalte/core/tooltip'
 import { useApp } from './App'
 import { downloadGPX } from './gpx'
 import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
-import { mapPhotonFeature, detectAndParseGPS, type GeocodeResult } from '@vrstevnice/shared'
+import type { GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
 const DEFAULT_ROAD_AVOIDANCE = 1;
 const DEFAULT_CYCLEWAY = 1;
 const DEFAULT_ELEVATION = .7;
-
-// Photon geocoder — called directly from browser (FE-only, no BE roundtrip).
-// Use public Photon with strong local bias from current map center.
-const PHOTON_URL = 'https://photon.komoot.io'
 
 interface LabeledSliderProps {
   value: number[]
@@ -135,41 +131,23 @@ export default function Stops() {
     if (query.length < 3) { setResults([]); return }
     setError(null)
     try {
-      // GPS coordinate detection — reverse geocode directly via Photon
-      const gps = detectAndParseGPS(query)
-      if (gps) {
-        const res = await fetch(`${PHOTON_URL}/reverse?lon=${gps.lng}&lat=${gps.lat}`)
-        if (res.ok) {
-          const data = await res.json()
-          const features: any[] = data?.features ?? []
-          if (features.length > 0) {
-            setResults([mapPhotonFeature(features[0])])
-            return
-          }
-        }
-        // Fallback: raw coordinate as result
-        setResults([{
-          lat: gps.lat, lng: gps.lng,
-          name: `${gps.lat}, ${gps.lng}`,
-          displayName: `${gps.lat}, ${gps.lng}`,
-        }])
+      // Geocode via BE — BE handles GPS detection (DD/DDM/DMS),
+      // Photon fallback chain (local :2322 → photon.komoot.io),
+      // and location bias from map center.
+      const center = mapCenter()
+      const queryParams: { q: string; lat?: string; lon?: string; zoom?: string } = { q: query }
+      if (center) {
+        queryParams.lat = String(center.lat)
+        queryParams.lon = String(center.lon)
+        queryParams.zoom = String(Math.round(center.zoom))
+      }
+      const { data, error } = await treaty.api.geocode.get({ $query: queryParams })
+      if (error) {
+        setError('Chyba při vyhledávání místa')
+        setResults([])
         return
       }
-
-      // Forward geocode — direct browser call to Photon API
-      const center = mapCenter()
-      const params = new URLSearchParams({ q: query, limit: '5' })
-      if (center) {
-        params.set('lat', String(center.lat))
-        params.set('lon', String(center.lon))
-        params.set('zoom', String(Math.round(center.zoom)))
-        params.set('location_bias_scale', '0.2')
-      }
-      const res = await fetch(`${PHOTON_URL}/api/?${params}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      const features: any[] = data?.features ?? []
-      setResults(features.map(mapPhotonFeature))
+      setResults((data ?? []) as GeocodeResult[])
     } catch (err) {
       console.error('Geocode error:', err)
       setError('Chyba při vyhledávání místa')

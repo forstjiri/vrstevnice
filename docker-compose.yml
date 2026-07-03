@@ -24,25 +24,25 @@ services:
       retries: 5
       start_period: 600s
 
-  # Photon — geocoding nyní běží z FE přímo na photon.komoot.io.
-  # Pro lokální vývoj odkomentuj (vyžaduje photon-data volume s CZ databází).
-  # photon:
-  #   image: rtuszik/photon-docker:latest
-  #   container_name: vrstevnice-photon
-  #   restart: unless-stopped
-  #   ports:
-  #     - "2322:2322"
-  #   volumes:
-  #     - photon-data:/photon/data
-  #   environment:
-  #     INITIAL_DOWNLOAD: "FALSE"
-  #     UPDATE_STRATEGY: "DISABLED"
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:2322/status"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 10
-  #     start_period: 30s
+  photon:
+    image: rtuszik/photon-docker:latest
+    container_name: vrstevnice-photon
+    restart: unless-stopped
+    ports:
+      - "2322:2322"
+    volumes:
+      - photon-data:/photon/data
+    environment:
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+      INITIAL_DOWNLOAD: "FALSE"
+      UPDATE_STRATEGY: "DISABLED"
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2322/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   tileserver:
     image: maptiler/tileserver-gl-light:latest
@@ -64,3 +64,4 @@ services:
 
 volumes:
   gh-data:
+  photon-data:

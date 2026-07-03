@@ -14,6 +14,7 @@ import { db, routes } from './db'
 import { mapPhotonFeature } from './geocode'
 import { detectAndParseGPS } from './gps'
 import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain'
+import { queryLocalPOIs } from './pois'
 import { resolve } from 'node:path'
 import {appendFile, readFile} from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
@@ -22,29 +23,14 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1'
 
-// Photon geocode backends — tried in order. Local first (fast, no external dep),
-// then public komoot Photon as fallback when local is down (e.g. low-RAM deployments).
-const PHOTON_URLS = (process.env.PHOTON_URLS || 'http://localhost:2322,https://photon.komoot.io')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
+// Photon geocode — local instance only (no external fallback).
+const PHOTON_URL = 'http://localhost:2322'
 
-/** Try each Photon backend in order; return first successful Response. */
-async function fetchPhoton(pathWithQuery: string, pino: any): Promise<Response | null> {
-  for (const base of PHOTON_URLS) {
-    const url = `${base}${pathWithQuery}`
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-      if (res.ok) {
-        if (base !== PHOTON_URLS[0]) pino.warn({ base }, 'Photon fallback used')
-        return res
-      }
-      pino.debug({ base, status: res.status }, 'Photon backend non-OK')
-    } catch (err) {
-      pino.debug({ base, error: (err as Error).message }, 'Photon backend unreachable')
-    }
-  }
-  return null
+async function fetchPhoton(pathWithQuery: string): Promise<Response> {
+  const url = `${PHOTON_URL}${pathWithQuery}`
+  const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+  if (!res.ok) throw new Error(`Photon returned ${res.status}`)
+  return res
 }
 
 const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
@@ -281,20 +267,16 @@ const app = new Elysia({ prefix: '/api' })
     if (gpsCoord) {
       pino.debug({ lat: gpsCoord.lat, lng: gpsCoord.lng }, 'GPS detected')
 
-      const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`, pino)
-      if (reverseRes) {
-        try {
-          const reverseData = await reverseRes.json() as any
-          const features: any[] = reverseData?.features ?? []
-          pino.debug({ count: features.length }, 'Reverse geocode results')
-          if (features.length > 0) {
-            return [mapPhotonFeature(features[0])]
-          }
-        } catch (err) {
-          pino.error({ error: (err as Error).message }, 'Photon reverse geocode: malformed response')
+      try {
+        const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`)
+        const reverseData = await reverseRes.json() as any
+        const features: any[] = reverseData?.features ?? []
+        pino.debug({ count: features.length }, 'Reverse geocode results')
+        if (features.length > 0) {
+          return [mapPhotonFeature(features[0])]
         }
-      } else {
-        pino.warn('All Photon backends unreachable for reverse geocode')
+      } catch (err) {
+        pino.error({ error: (err as Error).message }, 'Photon reverse geocode failed')
       }
 
       // Fallback: return raw coordinate as a GeocodeResult
@@ -308,7 +290,7 @@ const app = new Elysia({ prefix: '/api' })
 
     pino.debug('GPS: no match, forward geocode')
 
-    // ── Forward geocode via Photon (with fallback chain) ──
+    // ── Forward geocode via local Photon ──
     // viewbox/bounded accepted for backward compat but ignored by Photon
     let photonPath = `/api?q=${encodeURIComponent(query.q)}&limit=5`
 
@@ -319,18 +301,13 @@ const app = new Elysia({ prefix: '/api' })
       pino.debug({ lat: query.lat, lon: query.lon, zoom: biasZoom }, 'Location bias applied to Photon geocode')
     }
 
-    const res = await fetchPhoton(photonPath, pino)
-    if (!res) {
-      pino.error({ path: photonPath }, 'All Photon backends unreachable')
-      throw new Error('Geocode service unavailable')
-    }
-
     let data: any
     try {
+      const res = await fetchPhoton(photonPath)
       data = await res.json()
     } catch (err) {
-      pino.error({ error: (err as Error).message }, 'Photon geocode: malformed JSON response')
-      throw new Error('Geocode service returned invalid data')
+      pino.error({ error: (err as Error).message }, 'Photon geocode failed')
+      throw new Error('Geocode service unavailable')
     }
 
     const features: any[] = data?.features ?? []
@@ -413,7 +390,7 @@ const app = new Elysia({ prefix: '/api' })
       try {
         pino.info({ lemonadeCoefficient: rawLemonade }, 'POI pipeline: starting')
 
-        const { selected, all } = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade)
+        const { selected, all } = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade, queryLocalPOIs)
 
         if (selected.length > 0) {
           pino.info({ poiCount: selected.length, allPOIs: all.length }, 'POI pipeline: inserting waypoints')

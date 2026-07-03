@@ -73,7 +73,7 @@ fi
 
 # Local data files
 info "Local data files"
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite; do
   [[ -f "$f" ]] || die "Chybí $f — spusť nejdřív setup skripty lokálně"
 done
 ok "Datové soubory přítomny"
@@ -86,7 +86,7 @@ printf "\033[1;37mGH:  \033[0m  -Xmx%s\n" "$GH_HEAP"
 printf "\033[1;37mRežim:\033[0m %s\n" "$([[ $CODE_ONLY == true ]] && echo 'jen kód+restart' || echo 'plný deploy')"
 
 if [[ "$CODE_ONLY" == false ]]; then
-  printf "\n\033[1;33mPhoton NEPOJEDNE — geocode fallbackuje na photon.komoot.io\033[0m\n"
+  printf "\n\033[1;32m✓ Photon + SQLite POI — 100%% self-hosted, žádné externí API\033[0m\n"
 fi
 
 echo ""
@@ -154,7 +154,7 @@ ok "Kód synchronizován"
 if [[ "$CODE_ONLY" == false ]]; then
   phase "DATA SYNC"
 
-  for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite; do
     fname=$(basename "$f")
     info "$fname"
 
@@ -201,6 +201,20 @@ if [[ "$CODE_ONLY" == false ]]; then
     docker run --rm -v vrstevnice_gh-data:/d alpine tar c -C /d . 2>/dev/null \
       | runc "docker run --rm -i -v ${GH_VOL}:/d alpine tar x -C /d 2>/dev/null"
     ok "graph-cache přenesen"
+  fi
+
+  # photon-data volume — CZ Photon database
+  info "Photon CZ database volume"
+  PHOTON_VOL="${COMPOSE_PROJECT}_photon-data"
+  PHOTON_DB_EXISTS=$(runc "docker run --rm -v ${PHOTON_VOL}:/d alpine sh -c 'test -f /d/photon_data.lock && echo yes || echo no' 2>/dev/null" || echo "no")
+  if [[ "$PHOTON_DB_EXISTS" == "yes" ]]; then
+    ok "photon-data volume už populované"
+  else
+    warn "Přenáším Photon CZ databázi..."
+    runc "docker volume create $PHOTON_VOL >/dev/null 2>&1"
+    docker run --rm -v vrstevnice_photon-data:/d alpine tar c -C /d . 2>/dev/null \
+      | runc "docker run --rm -i -v ${PHOTON_VOL}:/d alpine tar x -C /d 2>/dev/null"
+    ok "photon-data přeneseno"
   fi
 fi
 
@@ -267,8 +281,8 @@ ok "FE postaven"
 # ═══════════════════════════════════════════════════════════════════════
 phase "LAUNCH"
 
-info "Docker: GraphHopper + tileserver"
-runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT up -d graphhopper tileserver" 2>&1 | grep -E '(Starting|Started|Error)' | head -6
+info "Docker: GraphHopper + tileserver + photon"
+runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT up -d graphhopper tileserver photon" 2>&1 | grep -E '(Starting|Started|Error)' | head -6
 
 info "Čekám na GraphHopper health..."
 for i in $(seq 1 24); do
@@ -277,6 +291,16 @@ for i in $(seq 1 24); do
     break
   fi
   [[ $i -eq 24 ]] && die "GraphHopper se neozval jako healthy — zkontroluj: ssh $REMOTE 'docker logs vrstevnice-gh --tail 30'"
+  sleep 5
+done
+
+info "Čekám na Photon health..."
+for i in $(seq 1 12); do
+  if runc 'curl -sf --max-time 3 http://localhost:2322/status' >/dev/null 2>&1; then
+    ok "Photon healthy (${i}x5s)"
+    break
+  fi
+  [[ $i -eq 12 ]] && die "Photon se neozval jako healthy — zkontroluj: ssh $REMOTE 'docker logs vrstevnice-photon --tail 30'"
   sleep 5
 done
 
@@ -352,9 +376,7 @@ echo "║    • Plánování tras, 3D terén, stíny, vrstevnice             �
 echo "║    • Profilový graf s barvením povrchu                       ║"
 echo "║    • GPX export, ride animation                             ║"
 echo "║                                                              ║"
-echo "║  \033[1;33mOmezení:\033[0m                                                ║"
-echo "║    • Vyhledávání míst jede přes photon.komoot.io (veřejné)  ║"
-echo "║    • Lokální Photon není spuštěn (RAM kompromis)             ║"
+echo "║  \033[1;32m✓ 100%% self-hosted: lokální Photon + SQLite POI\033[0m       ║"
 echo "║                                                              ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║  \033[1;37mÚdržba:\033[0m                                                  ║"
