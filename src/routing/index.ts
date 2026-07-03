@@ -614,8 +614,15 @@ export async function fetchPOIsAlongRoute(
   // Spread samples evenly across the route
   const interval = routeLengthM / (maxSamples - 1)
 
-  // Search radius: proportional to sample interval, capped at 1.2km
-  const radius = Math.min(1_200, interval * 0.5)
+  // Search radius: proportional to sample interval AND scaled by coefficient.
+  // Higher coefficient → larger radius → more POIs found for map display + rerouting.
+  // Normalize coefficient to [0, 1]: at WAYPOINT_THRESHOLD → 0, at 1.0 → 1
+  const RADIUS_THRESHOLD = 0.07
+  const normRadius = Math.max(0, Math.min(1, (coefficient - RADIUS_THRESHOLD) / (1 - RADIUS_THRESHOLD)))
+  // Radius multiplier: 1× at low coeff, up to 4× at full coeff
+  const radiusMult = 1 + normRadius * 3
+  const baseRadius = interval * 0.5
+  const radius = Math.min(2_000, baseRadius * radiusMult)
 
   console.info(
 		{
@@ -623,6 +630,7 @@ export async function fetchPOIsAlongRoute(
 			routeLengthKm: Math.round(routeLengthKm * 10) / 10,
 			intervalM: Math.round(interval),
 			radiusM: Math.round(radius),
+			radiusMult: Math.round(radiusMult * 10) / 10,
 			maxSamples
 		},
     'POI pipeline: sampling route',

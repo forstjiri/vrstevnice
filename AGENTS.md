@@ -1,9 +1,8 @@
 # Vrstevnice — Agent Reference
 
-Souhrn klíčových informací pro AI agenty pracující s tímto projektem.
+Key information for AI agents working on this project.
 
-Cyklistický plánovač tras s 3D terénem, stínováním, profilovým grafem a animací jízdy. Všechna data lokální, žádné cloud
-API.
+Cycling route planner with 3D terrain, shadows, elevation profile chart, and ride animation. All data is local — no cloud APIs.
 
 ## Tech Stack
 
@@ -11,11 +10,11 @@ API.
 |-------------|-----------------------------------------------------------------------------------|
 | Frontend | SolidJS 1.9, Kobalte 0.13 (UI primitives), MapLibre GL JS (map), Vite 8 (build) |
 | Backend | Elysia 1.4 (HTTP), Bun (runtime), Logixlysia (logging) |
-| Database | Drizzle ORM + Bun SQLite (WAL mode), soubor v `data/data.db` |
+| Database | Drizzle ORM + Bun SQLite (WAL mode), file at `data/data.db` |
 | Routing | GraphHopper 12.0 (Custom Models API, bike profile, SRTM elevation, flexible mode) |
-| Geocoding | Photon (komoot) v Dockeru, CZ databáze |
-| Map tiles | Planetiler + tileserver-gl-light (lokální vector tiles, OpenMapTiles schema) |
-| POI | Overpass API (hospody/bary/restaurace podél trasy) |
+| Geocoding | Photon in Docker, CZ database |
+| Map tiles | Planetiler + tileserver-gl-light (local vector tiles, OpenMapTiles schema) |
+| POI | Local SQLite (no external API) |
 | Type safety | Eden treaty (end-to-end typed API client) |
 | Monorepo | pnpm workspaces |
 
@@ -29,233 +28,238 @@ pnpm typecheck           # tsc --build
 pnpm test                # Vitest
 ```
 
-Jednorázový setup (po prvním klonu):
+One-time setup (after first clone):
 
 ```bash
 bash scripts/generate-tiles.sh          # ~684 MB vector tiles
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb tiles
-pnpm extract-routes                   # cyklostezky z OSM (vyžaduje Python + osmium)
+pnpm extract-routes                   # cycle routes from OSM (requires Python + osmium)
+pnpm import-pois                      # SQLite POI DB from OSM PBF
 ```
 
-### Agent pravidla pro BE/FE procesy
+### Agent rules for BE/FE processes
 
-- **Nikdy nespouštěj `pnpm dev`, `bun index.ts`, ani žádné dev servery bez svolení uživatele.**
-- Pokud potřebuješ BE/FE restart, zeptej se uživatele.
-- Pokud BE/FE běží a ty je potřebuješ pro test (Playwright), zeptej se uživatele — on je spustí.
-- Pokud jsi omylem vytvořil orphaned procesy, okamžitě je zabij a nahlas to.
-- Porty: BE :3002, FE :5173 (nikdy nepoužívej jiné porty)
+- **Never run `pnpm dev`, `bun index.ts`, or any dev servers without user permission.**
+- If you need BE/FE restarted, ask the user.
+- If BE/FE is running and you need it for testing (Playwright), ask the user — they will start it.
+- If you accidentally created orphaned processes, kill them immediately and report it.
+- Ports: BE :3002, FE :5173 (never use different ports)
 
-## Projektová struktura
+## Project structure
 
 ```
 src/
   shared/          @vrstevnice/shared — Stop, GeocodeResult, RouteResponse, RouteRequest
-  be/              @vrstevnice/be    — Elysia server (index.ts), geocode.ts, gps.ts, db.ts
+  be/              @vrstevnice/be    — Elysia server (index.ts), geocode.ts, gps.ts, db.ts, pois.ts
   fe/              @vrstevnice/fe    — SolidJS app, MapLibre mapa, elevation chart, GPX export
   routing/         @vrstevnice/routing — GraphHopper Custom Model API, POI pipeline
 docker/            GH config, tileserver config, tile generation scripts
-tests/             Vitest + Docker GH lifecycle, syntetický OSM graf, e2e smoke
-scripts/           extrakce cyklostezek z OSM
+tests/             Vitest + Docker GH lifecycle, synthetic OSM graph, e2e smoke
+scripts/           OSM data extraction (cycle routes, POIs)
 data/              mbtiles, GeoJSON, DEM data, SQLite DB (gitignored)
 ```
 
-## Porty
+## Ports
 
-| Služba | Port | Poznámka |
+| Service | Port | Notes |
 |-------------|------|--------------------------------------------|
-| Backend | 3002 | 3000 obsazen Dockerem |
+| Backend | 3002 | 3000 taken by Docker |
 | Frontend | 5173 | Vite dev server |
 | GraphHopper | 8989 | israelhikingmap/graphhopper, flexible mode |
-| GH (test) | 8988 | Pro testy, externí port 8988→interní 8989 |
-| Photon | 2322 | Lokální geocoder, CZ databáze |
-| tileserver | 2323 | Vector tiles z data/cz.mbtiles |
+| GH (test) | 8988 | For tests, external 8988→internal 8989 |
+| Photon | 2322 | Local geocoder, CZ database |
+| tileserver | 2323 | Vector tiles from data/cz.mbtiles |
 
-## API endpointy
+## API endpoints
 
-| Metoda | Cesta | Popis |
+| Method | Path | Description |
 |--------|-------------------------|------------------------------------------------------|
-| GET | `/api/geocode` | Hledání míst (Photon) + reverzní geokódování GPS |
-| POST | `/api/route` | Výpočet trasy (GraphHopper + volitelná POI pipeline) |
-| GET | `/api/history` | Historie tras z SQLite |
-| GET | `/api/cycleroutes` | GeoJSON cyklostezek |
-| GET | `/api/terrain/:z/:x/:y` | Proxy terrain tiles s 404 fallback (transparent PNG) |
+| GET | `/api/geocode` | Place search (Photon) + reverse GPS geocoding |
+| POST | `/api/route` | Route calculation (GraphHopper + optional POI pipeline) |
+| GET | `/api/history` | Route history from SQLite |
+| GET | `/api/cycleroutes` | GeoJSON of cycle routes |
+| GET | `/api/terrain/:z/:x/:y` | Terrain tile proxy with 404 fallback (transparent PNG) |
+| POST | `/api/shadow-profile` | Compute shadow profile for route geometry + datetime |
 
 Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
-## Uživatelské funkce
+## User features
 
-### Plánování tras
+### Route planning
 
-- **4 parametry trasy** (slidery): vyhýbání kopcům, vyhýbání silnicím, preference cyklostezek, limonádová cesta
-- **POI pipeline ("Limonádová cesta")**: Overpass API najde hospody/bary/restaurace podél trasy, vloží je jako zastávky
-  a přepočítá trasu přes ně
-- **Drag & drop zastávek**: tažení markerů na mapě aktualizuje souřadnice
-- **GPX export**: stažení trasy jako GPX 1.1 s elevací
+- **4 route parameters** (sliders): avoid hills, avoid roads, prefer cycleways, lemonade route
+- **POI pipeline ("Limonádová cesta")**: local SQLite finds pubs/bars/restaurants along the route and reroutes through them
+- **Drag & drop stops**: dragging markers on the map updates coordinates
+- **GPX export**: download route as GPX 1.1 with elevation
 
-### Mapa
+### Map
 
-- **3D terén** (Exaggeration slider) + **hillshade** (sluneční osvětlení podle data/času)
-- **Vrstevnice** z DEM dat přes maplibre-contour protokol
-- **Cyklistické stylování**: zeslabení dálnic/primárek, zvětšení lesních cest (`cycle-path-widen` layer, minzoom 12)
-- **KČT cyklostezky**: barevné překrytí z cycleroutes.geojson (~48 MB, budoucnost → vector tiles)
-- **Transit vrstvy**: železnice, zastávky vlaků, autobusové zastávky
-- **Inspect mode**: zobrazení layer ID, source-layer, zoom, GPS, relevantních OSM tagů
-- **Context menu**: přidat zastávku, otevřít Mapy.cz
+- **3D terrain** (Exaggeration slider) + **hillshade** (solar lighting from date/time + map center)
+- **Contour lines** from DEM data via maplibre-contour protocol
+- **Cycling styling**: highways/primary roads dimmed, forest tracks widened (`cycle-path-widen` layer, minzoom 12)
+- **KČT cycle routes**: colored overlay from cycleroutes.geojson (~48 MB, future: vector tiles)
+- **Transit layers**: railways, train stops, bus stops
+- **Inspect mode**: shows layer ID, source-layer, zoom, GPS, relevant OSM tags
+- **Context menu**: add stop, open Mapy.cz
 
-### Stíny a čas
+### Shadows and time
 
-- **Hillshade**: sluneční osvětlení z data/času + střed mapy (NOAA-style solar position)
-- **Nocní overlay**: automatické ztmavení mapy při západu/východu slunce
-- **Ride animation**: přehrávání trasy s kamerovým sledem, synchronizací stínů s virtuálním časem
+- **Hillshade**: solar lighting from date/time + map center (NOAA-style solar position)
+- **Night overlay**: automatic map darkening at sunrise/sunset based on chosen date/time
+- **Ride animation**: route playback with camera tracking, shadow sync with virtual time
 
-### Profilový graf
+### Elevation profile chart
 
-- **Fill podle povrchu**: barva plochy pod křivkou odpovídá typu povrchu (asfalt, štěrk, tráva, …)
-- **Čára podle typu cesty**: barva křivky odpovídá road_class (path = hnědá přerušovaná, cycleway = růžová přerušovaná,
-  track = olivová plná, …)
-- **Hover sync**: najetí myší na graf zobrazí kříž na mapě a naopak
-- **Ride animation**: play/pause/reset, speed slider (2×–100×), klik pro seek
+- **Surface-colored fill**: area under the curve colored by surface type (asphalt, gravel, grass, …)
+- **Road-class line color**: line color reflects road_class (path = brown dashed, cycleway = pink dashed,
+  track = olive solid, …)
+- **Hover sync**: hovering over chart shows crosshair on map and vice versa
+- **Ride animation**: play/pause/reset, speed slider (2×–100×), click to seek
 
-### Hledání
+### Search
 
-- **Photon geocoding**: lokální Docker, CZ databáze, silný location bias
-- **GPS koordináty**: zadání DD/DDM/DMS přímo do search pole s automatickou detekcí a reverzním geokódováním
-- **Search preview**: dočasný marker na mapě při najetí na návrh
+- **Photon geocoding**: local Docker, CZ database, strong location bias
+- **GPS coordinates**: enter DD/DDM/DMS directly in search field with auto-detection and reverse geocoding
+- **Search preview**: temporary marker on map when hovering over a suggestion
 
 ## Debug hooks
 
-- `window.__map` — přístup k MapLibre instanci
-- `window.__fitRouteOverview` — fitnutí mapy na trasu
+- `window.__map` — access MapLibre instance
+- `window.__fitRouteOverview` — fit map to route bounds
 
-## Klíčová architektonická rozhodnutí
+## Key architectural decisions
 
-- **Monorepo:** pnpm workspaces — shared typy zajišťují type safety mezi FE a BE přes Eden treaty
-- **GraphHopper Custom Models:** umožňuje runtime pravidla (priority multiply_by, speed limit_to, distance_influence)
-  přes Custom Model API
-- **Flexible mode (bez CH):** Custom models vyžadují `profiles_ch: []` — pomalejší routování, ale podporuje runtime
-  změny modelu
-- **max_visited_nodes: 5M** pro CZ pokrytí (default 1M nestačí na dlouhé cyklo trasy)
-- **Photon:** lokální Docker, nativní location bias (location_bias_scale=0.2), žádný viewbox cascade
-- **MapLibre GL JS:** vector tiles z lokálního tileserveru, MapTiler Basic style
-- **Planetiler + tileserver-gl-light:** jednorázový build step, ~684 MB mbtiles, 15 vector layers, z0-14
-- **POI pipeline dvoustupňová:** Base route → Overpass POI dotazy → přepočítání přes rozšířené stops
+- **Monorepo:** pnpm workspaces — shared types ensure type safety between FE and BE via Eden treaty
+- **GraphHopper Custom Models:** enables runtime rules (priority multiply_by, speed limit_to, distance_influence)
+  via Custom Model API
+- **Flexible mode (no CH):** Custom models require `profiles_ch: []` — slower routing but supports runtime
+  model changes
+- **max_visited_nodes: 5M** for CZ coverage (default 1M is not enough for long cycle routes)
+- **Photon:** local Docker, native location bias (location_bias_scale=0.2), no viewbox cascade
+- **MapLibre GL JS:** vector tiles from local tileserver, MapTiler Basic style
+- **Planetiler + tileserver-gl-light:** one-time build step, ~684 MB mbtiles, 15 vector layers, z0-14
+- **POI pipeline two-stage:** Base route → local SQLite POI queries → reroute through extended stops
 - **Rate limiting:** elysia-rate-limit, soft-warn 60/min, hard-stop 300/min
-- **Datové zdroje:**
+- **Data sources:**
   - Vector tiles: `data/cz.mbtiles` (OpenMapTiles, z0–14, ~684 MB)
-    - Terrain tiles: `data/cz-terrain.mbtiles` (terrain-rgb, DMR 5G z0–14)
-  - Cyklostezky: `data/cycleroutes.geojson` (~48 MB, 3510 features)
-- **Jediná externí API volání** (mimo Docker): Overpass API pro POI pipeline
+  - Terrain tiles: `data/cz-terrain.mbtiles` (terrain-rgb, DMR 5G z0–14)
+  - Cycle routes: `data/cycleroutes.geojson` (~48 MB, 3510 features)
+  - POIs: `data/cz-pois.sqlite` (~20k amenity nodes: pubs, bars, restaurants, cafes, biergartens)
+- **Zero external API calls** (all data local)
 
-## Gotchas & Patterny
+## Gotchas & Patterns
 
-### Coordinate order — #1 zdroj bugů
+### Coordinate order — #1 source of bugs
 
-- **App používá [lat, lng]** ve všech shared typech
-- **Photon/GeoJSON používá [lon, lat]** — explicit swap s komentářem v mapPhotonFeature()
-- **MapLibre používá [lng, lat]** — `toLngLat()` helper na každém API boundary
-- **GraphHopper vrací [lon, lat, ele]** v GeoJSON struktuře
-- **Overpass QL používá lat,lon pořadí** (na rozdíl od GeoJSON)
+- **App uses [lat, lng]** in all shared types
+- **Photon/GeoJSON uses [lon, lat]** — explicit swap with comment in mapPhotonFeature()
+- **MapLibre uses [lng, lat]** — `toLngLat()` helper at every API boundary
+- **GraphHopper returns [lon, lat, ele]** in GeoJSON structure
+- **SQLite POI queries use lat, lng** (standard order)
 
 ### Eden Treaty
 
-- Query params musí být explicitně typované — nikdy `Record<string, string>`
-- `t.Array(t.Array(t.Number()))` inferuje `number[][]`, ne `[number, number][]` — narrowing cast je v pořádku
-- Elysia response schema musí mirrorovat RouteResponse — Eden inferuje z Elysia schema, ne ze shared typu
+- Query params must be explicitly typed — never `Record<string, string>`
+- `t.Array(t.Array(t.Number()))` infers `number[][]`, not `[number, number][]` — narrowing cast is fine
+- Elysia response schema must mirror RouteResponse — Eden infers from Elysia schema, not from shared type
 
 ### GraphHopper
 
-- Docker image: `israelhikingmap/graphhopper:latest` — komunitní fork s předpřipraveným SRTM
-- GH 12.0 vyžaduje `import.osm.ignored_highways: ''` v configu
-- Custom model file name se nesmí jmenovat jako built-in profily (bike.json, car.json)
-- `points_encoded: false` → GeoJSON struktura `{ type: "LineString", coordinates: [[lon, lat, ele], ...] }`
-- Vzdálenost v metrech, čas v milisekundách
-- Nepoužívat `abs()` v custom model expressions — není povoleno
-- Názvy encoded values: `average_slope` a `max_slope` (ne `slope`)
-- Surface detail přijde jako `[fromIdx, toIdx, surfaceValue]` triples
+- Docker image: `israelhikingmap/graphhopper:latest` — community fork with pre-built SRTM
+- GH 12.0 requires `import.osm.ignored_highways: ''` in config
+- Custom model file name must not be named like built-in profiles (bike.json, car.json)
+- `points_encoded: false` → GeoJSON structure `{ type: "LineString", coordinates: [[lon, lat, ele], ...] }`
+- Distance in meters, time in milliseconds
+- Do not use `abs()` in custom model expressions — not allowed
+- Encoded value names: `average_slope` and `max_slope` (not `slope`)
+- Surface details come as `[fromIdx, toIdx, surfaceValue]` triples
 
 ### MapLibre GL JS
 
-- **Style-load gate je povinný** — všechny addSource/addLayer/getSource musí být PO `load` eventu
-- **Žádné setDOMContent na Marker** — při změně obsahu markeru remove+recreate
-- GeoJSON source expects `Feature` s `properties` field — vždy include i když prázdný
-- Context menu je custom div — MapLibre nemá built-in
-- **`minzoom` na layers je integer-only** — `12.5` se silently zaokrouhlí na `13`
-- **Planetiler generalizuje** některé track/path features pryč na z12–13; zobrazí se až od vyššího zoomu
+- **Style-load gate is required** — all addSource/addLayer/getSource must be AFTER `load` event
+- **No setDOMContent on Marker** — when marker content changes, remove and recreate
+- GeoJSON source expects `Feature` with `properties` field — always include even if empty
+- Context menu is a custom div — MapLibre has no built-in
+- **`minzoom` on layers is integer-only** — `12.5` silently rounds to `13`
+- **Planetiler generalizes** some track/path features away at z12–13; they only appear at higher zoom
 
-### Overpass API
+### POI pipeline (local SQLite)
 
-- Vrací HTML error pages při 503 — vždy zkontrolovat `content-type` před JSON parse
-- Dynamic sample count: `min(20, max(8, ceil(routeKm / 5)))` — ~1 vzorek na 5km
-- Search radius: `min(1200, interval * 0.5)`
-- Fallback pattern: Overpass chyby → `[]` → base route se vrací jako fallback
+- Bounding-box pre-filter with haversine post-filter (bbox is widened by 5% for circle corners)
+- Dynamic sample count: `min(20, max(8, ceil(routeKm / 5)))` — ~1 sample per 5km
+- Search radius scales with coefficient: 1× at low coeff, up to 4× at full coeff, max 2000m
+- Fallback pattern: query errors → `[]` → base route is returned as fallback
 
 ### Elysia
 
-- `onBeforeHandle` v separate plugin vyžaduje `{ as: 'global' }` jinak se nikdy nezavolá
-- logixlysia file logging zachytává jen access logy — custom log entries přes `appendFile()`
-- elysia-rate-limit `errorResponse` je static value (string|Response|Error), ne callback — použít custom Error subclass
-  pro 429
+- `onBeforeHandle` in a separate plugin requires `{ as: 'global' }` otherwise it never fires
+- logixlysia file logging captures only access logs — custom log entries via `appendFile()`
+- elysia-rate-limit `errorResponse` is a static value (string|Response|Error), not a callback — use custom Error subclass
+  for 429
 
 ### Canvas Elevation Chart
 
 - HiDPI scaling: canvas.width/height = displayWidth * devicePixelRatio, ctx.scale(dpr, dpr)
-- ResizeObserver na container div pro re-scale při resize
-- Surface-colored segments: group consecutive same-color points pro efektivní kresbu (~245 draw calls místo ~5000)
-- Chart↔Map sync: distance-fraction interpolation s binary search (`binarySearchSegment`), nikdy index-based mapping
-- Road class stroke: `ROAD_CLASS_COLORS` (lowercase keys matching GH output), `ROAD_CLASS_DASH` pro přerušované čáry
-- `binarySearchSegment` boundary: inclusive obou konců, přesná hranice vrací dřívější segment
+- ResizeObserver on container div for re-scale on resize
+- Surface-colored segments: group consecutive same-color points for efficient drawing (~245 draw calls vs ~5000)
+- Chart↔Map sync: distance-fraction interpolation with binary search (`binarySearchSegment`), never index-based mapping
+- Road class stroke: `ROAD_CLASS_COLORS` (lowercase keys matching GH output), `ROAD_CLASS_DASH` for dashed lines
+- `binarySearchSegment` boundary: inclusive on both ends, exact boundary returns earlier segment
 
 ### Photon
 
-- `zoom` param vyžaduje integer — MapLibre předává float (12.33), vždy `Math.round()`
-- `/reverse` bere `lon=...&lat=...` (GeoJSON pořadí)
-- location_bias_scale=0.2 = silná lokální preference
+- `zoom` param requires integer — MapLibre passes float (12.33), always use `Math.round()`
+- `/reverse` takes `lon=...&lat=...` (GeoJSON order)
+- location_bias_scale=0.2 = strong local preference
 
 ### Ride Animation
 
 - `rideAnimationStore.ts`: signals (`rideAnimation`, `updateRideAnimation`) + mutable ref (`cameraTarget`,
   `setCameraTarget`)
-- `untrack()` povinný při čtení `rideAnimation()` v ShadowControls createEffect — jinak infinite SolidJS loop
-- Shadow time sync během animace volá `updateHillshadeLightingLocal()` přímo, nikoliv přes `refreshHillshade()` rAF gate
-- Camera smoothing: lerp (CAM_LERP=0.06, BEARING_LERP=0.03) s `jumpTo` každý frame
+- `untrack()` required when reading `rideAnimation()` in ShadowControls createEffect — otherwise infinite SolidJS loop
+- Shadow time sync during animation calls `updateHillshadeLightingLocal()` directly, not via `refreshHillshade()` rAF gate
+- Camera smoothing: lerp (CAM_LERP=0.06, BEARING_LERP=0.03) with `jumpTo` every frame
 
-### Testování
+### Testing
 
-- Test GH kontejner na portu 8988 (produkční GH na 8989)
-- Bez slope encodings s noop elevation provider — GH throws IllegalArgumentException
-- Docker volume mount filename musí přesně match GH config custom_model_files reference
-- Vitest `import.meta.url` s non-ASCII cestami → použít `fileURLToPath` + `path.resolve`
-- Syntetický graf: collineární uzly mohou být DouglasPeucker odstraněny → přidat zigzag offset (±0.0005°)
-- E2E smoke: top-level `await` pro service check před `describe` — `skipIf` na `describe` nefunguje
+- Test GH container on port 8988 (production GH on 8989)
+- Without slope encodings with noop elevation provider — GH throws IllegalArgumentException
+- Docker volume mount filename must exactly match GH config custom_model_files reference
+- Vitest `import.meta.url` with non-ASCII paths → use `fileURLToPath` + `path.resolve`
+- Synthetic graph: collinear nodes can be removed by DouglasPeucker → add zigzag offset (±0.0005°)
+- E2E smoke: top-level `await` for service check before `describe` — `skipIf` on `describe` does not work
 
-### Obecné
+### General
 
-- Road avoidance penalizuje, nikdy nepromuje — base bike priority pro secondary (~0.3-0.5) je už nižší než
+- Road avoidance penalizes, never promotes — base bike priority for secondary (~0.3-0.5) is already lower than
   residential (~0.8)
-- Slider direction pro UX: road avoidance slider je inverted (right = more avoidance)
-- Module-level mutable refs pro MapLibre marker instances (imperativní objekty, ne Solid signals)
-- SQLite ALTER TABLE migration: try/catch na "duplicate column" error — nevyžaduje recreate
-- Konfigurace má být v package.json pokud možno — minimalizovat počet config souborů v repo
-- Nepřekládat do starého JS — vždy nejmodernější ES moduly
-- Python venvy: `data/.venv-terrain` (terrain tiles), data/ je celá gitignored
+- Slider direction for UX: road avoidance slider is inverted (right = more avoidance)
+- Module-level mutable refs for MapLibre marker instances (imperative objects, not Solid signals)
+- SQLite ALTER TABLE migration: try/catch on "duplicate column" error — does not require recreate
+- Configuration should be in package.json when possible — minimize number of config files in repo
+- Never transpile to old JS — always use modern ES modules
+- Python venvs: `data/.venv-extract` (osmium), data/ is entirely gitignored
 
-## Důležité soubory
+## Important files
 
-| Soubor | Účel |
+| File | Purpose |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| `src/shared/index.ts` | Shared TypeScript interface (Stop, GeocodeResult, RouteResponse, RouteRequest) |
-| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /cycleroutes, /terrain endpointy |
+| `src/shared/index.ts` | Shared TypeScript interfaces (Stop, GeocodeResult, RouteResponse, RouteRequest) |
+| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /cycleroutes, /terrain, /shadow-profile |
 | `src/be/geocode.ts` | Photon geocoder mapping (coordinate swap!) |
-| `src/be/gps.ts` | GPS parsování (DD/DDM/DMS formáty) |
+| `src/be/gps.ts` | GPS parsing (DD/DDM/DMS formats) |
 | `src/be/db.ts` | Drizzle schema + Bun SQLite (`data/data.db`) |
+| `src/be/pois.ts` | Local SQLite POI query with bbox pre-filter + haversine post-filter |
 | `src/routing/index.ts` | GraphHopper Custom Model API, POI pipeline, road_class/surface/road_environment details |
 | `src/fe/App.tsx` | SolidJS context provider, Eden treaty client |
-| `src/fe/Stops.tsx` | Stop management + slidery (Kobalte Search/Slider/Button) |
-| `src/fe/Map.tsx` | MapLibre GL mapa — stop markery, polyline, context menu, hillshade, ride animation camera, inspect mode, forest tracks |
-| `src/fe/ElevationChart.tsx` | Canvas 2D elevation profil s barvením podle povrchu + road_class, ride animation play/pause/seek |
+| `src/fe/Stops.tsx` | Stop management + sliders (Kobalte Search/Slider/Button) |
+| `src/fe/Map.tsx` | MapLibre GL map — stop markers, polyline, context menu, hillshade, ride animation camera, inspect mode, forest tracks |
+| `src/fe/ElevationChart.tsx` | Canvas 2D elevation profile with surface color fill + road_class stroke, ride animation controls |
 | `src/fe/chart-constants.ts` | SURFACE_COLORS, ROAD_CLASS_COLORS, ROAD_CLASS_DASH, binarySearchSegment, hexToRgba |
-| `src/fe/ShadowControls.tsx` | Hillshade/terrain/time UI, sync s rideAnimationStore |
-| `src/fe/rideAnimationStore.ts` | Shared state pro ride animation (playing, speed, cameraTarget) |
+| `src/fe/ShadowControls.tsx` | Hillshade/terrain/time UI, sync with rideAnimationStore |
+| `src/fe/rideAnimationStore.ts` | Shared state for ride animation (playing, speed, cameraTarget) |
 | `src/fe/hoverStore.ts` | Hover sync chart↔map |
-| `docker-compose.yml` | GH + Photon + tileserver služby |
-| `scripts/generate-terrain-tiles-dmr5g.py` | Generování terrain-rgb mbtiles z ČÚZK DMR 5G                                                                           |
+| `docker-compose.yml` | GH + Photon + tileserver services |
+| `scripts/generate-terrain-tiles-dmr5g.py` | Generate terrain-rgb mbtiles from ČÚZK DMR 5G |
+| `scripts/import-pois.py` | Extract amenity nodes from OSM PBF into SQLite POI database |
+| `scripts/extract_bicycle_routes.py` | Extract cycle route relations from OSM PBF into GeoJSON |
