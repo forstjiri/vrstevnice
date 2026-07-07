@@ -6,26 +6,31 @@
 # Idempotentní — bezpečné spustit opakovaně (přeskočí hotové kroky).
 #
 # Použití:
-#   bash scripts/deploy.sh                    # plný deploy
-#   bash scripts/deploy.sh --code-only        # jen kód + build + restart
+#   bash scripts/deploy.sh                         # plný deploy, Photon DB se zeptá
+#   bash scripts/deploy.sh --photon                # plný deploy + Photon databáze
+#   bash scripts/deploy.sh --code-only             # jen kód + build + restart
 #   REMOTE=root@10.0.0.30 bash scripts/deploy.sh
 #
 # Proměnné (přes env):
-#   REMOTE        SSH cíl            (defalult: root@10.0.0.29)
+#   REMOTE        SSH cíl            (defalult: root@10.0.0.11)
 #   REMOTE_DIR    Cíl na serveru     (default: /opt/vrstevnice)
 #   GH_HEAP       GraphHopper -Xmx   (default: 1500m)
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
 # ── Config ──
-REMOTE="${REMOTE:-root@10.0.0.29}"
+REMOTE="${REMOTE:-root@10.0.0.11}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/vrstevnice}"
 GH_HEAP="${GH_HEAP:-1500m}"
 BE_PORT="${BE_PORT:-3002}"
 COMPOSE_PROJECT="vrstevnice"
 
 CODE_ONLY=false
-[[ "${1:-}" == "--code-only" ]] && CODE_ONLY=true
+TRANSFER_PHOTON=false
+for arg in "$@"; do
+  [[ "$arg" == "--code-only" ]] && CODE_ONLY=true
+  [[ "$arg" == "--photon" ]] && TRANSFER_PHOTON=true
+done
 
 # ── Detect project root ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,7 +88,10 @@ echo ""
 printf "\033[1;37mCíl:\033[0m  %s:%s  (%s)\n" "$REMOTE" "$BE_PORT" "$REMOTE_DIR"
 printf "\033[1;37mRAM:\033[0m  %sGB\n" "$RAM_GB"
 printf "\033[1;37mGH:  \033[0m  -Xmx%s\n" "$GH_HEAP"
-printf "\033[1;37mRežim:\033[0m %s\n" "$([[ $CODE_ONLY == true ]] && echo 'jen kód+restart' || echo 'plný deploy')"
+MODE_DESC="plný deploy"
+[[ "$CODE_ONLY" == true ]] && MODE_DESC="jen kód+restart"
+[[ "$TRANSFER_PHOTON" == true ]] && MODE_DESC+=" + Photon DB"
+printf "\033[1;37mRežim:\033[0m %s\n" "$MODE_DESC"
 
 if [[ "$CODE_ONLY" == false ]]; then
   printf "\n\033[1;32m✓ Photon + SQLite POI — 100%% self-hosted, žádné externí API\033[0m\n"
@@ -210,11 +218,20 @@ if [[ "$CODE_ONLY" == false ]]; then
   if [[ "$PHOTON_DB_EXISTS" == "yes" ]]; then
     ok "photon-data volume už populované"
   else
-    warn "Přenáším Photon CZ databázi..."
-    runc "docker volume create $PHOTON_VOL >/dev/null 2>&1"
-    docker run --rm -v vrstevnice_photon-data:/d alpine tar c -C /d . 2>/dev/null \
-      | runc "docker run --rm -i -v ${PHOTON_VOL}:/d alpine tar x -C /d 2>/dev/null"
-    ok "photon-data přeneseno"
+    if [[ "$TRANSFER_PHOTON" == false ]]; then
+      echo ""
+      read -r -p "  Přenést Photon databázi (~1.7GB)? [y/N] " transfer_choice
+      [[ "$transfer_choice" =~ ^[yY]$ ]] && TRANSFER_PHOTON=true
+    fi
+    if [[ "$TRANSFER_PHOTON" == true ]]; then
+      warn "Přenáším Photon CZ databázi..."
+      runc "docker volume create $PHOTON_VOL >/dev/null 2>&1"
+      docker run --rm -v vrstevnice_photon-data:/d alpine tar c -C /d . 2>/dev/null \
+        | runc "docker run --rm -i -v ${PHOTON_VOL}:/d alpine tar x -C /d 2>/dev/null"
+      ok "photon-data přeneseno"
+    else
+      ok "Přeskočeno — Photon DB se přenese při prvním spuštění (trvá ~5 min)"
+    fi
   fi
 fi
 

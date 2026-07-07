@@ -2,10 +2,10 @@ import {createEffect, onCleanup, onMount, Show} from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
 import {computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime as parseLocalDateTimeShared, formatLocalDateTime as formatLocalDateTimeShared} from '@vrstevnice/shared'
 import { useApp } from './App'
+import { slopeSpeedKmh } from '../routing/index'
 import { setHoveredPoint } from './hoverStore'
 import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
 import {
-  binarySearchSegment,
   DEFAULT_ROAD_CLASS_COLOR,
   DEFAULT_SURFACE_COLOR,
   hexToRgba,
@@ -13,6 +13,8 @@ import {
   ROAD_CLASS_COLORS,
   ROAD_CLASS_DASH,
   ROAD_CLASS_LABELS,
+  sampleSegmentByDistance,
+  sampleValueByDistance,
   SURFACE_COLORS,
   SURFACE_LABELS,
   TOOLTIP_OFFSET
@@ -26,7 +28,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route, setRoute, shadowRouteEnabled, shadowDateTime } = useApp()
+  const { route, shadowRouteEnabled, shadowDateTime } = useApp()
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null
@@ -45,9 +47,9 @@ export default function ElevationChart() {
   let cachedRoadClassColors: string[] = []
   let cachedRoadClassDash: (number[] | undefined)[] = []
 	// Shadow overlay: cached sun exposure per profile point
-	let cachedSunExposure: number[] = []	
-	let lastShadowFetchKey = ''
-	let shadowFetchSeq = 0
+		let cachedSunExposure: number[] = []	
+	// Slope-based cumulative travel times (ms from start)
+		let cachedSlopeTimes: number[] = []
 
   function setupCanvas() {
     if (!container || !canvas) return
@@ -349,6 +351,23 @@ export default function ElevationChart() {
       const line1 = distKm + ' km'
       const line2 = elevM + ' m n.m.'
 
+      // Slope-based arrival/elapsed time
+      const timeAtPoint = hoverIdx !== undefined && cachedSlopeTimes.length > hoverIdx
+        ? cachedSlopeTimes[hoverIdx] : undefined
+      const dt = shadowDateTime()
+      let timeLine = ''
+      if (timeAtPoint !== undefined && timeAtPoint > 0) {
+        const base = parseLocalDateTimeShared(dt)
+        if (base) {
+          const arrival = new Date(base.getTime() + timeAtPoint)
+          timeLine = arrival.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })
+        } else {
+          const totalMin = Math.round(timeAtPoint / 60000)
+          timeLine = totalMin < 60 ? `≈ ${totalMin} min` : `≈ ${Math.floor(totalMin / 60)} h ${totalMin % 60} min`
+        }
+      }
+      const hasTime = timeLine !== ''
+
       // Look up surface and road class at hovered profile index
       const surfLabel = hoverIdx !== undefined ? cachedSurfaceLabels[hoverIdx] : ''
       const rcLabel = hoverIdx !== undefined ? cachedRoadClassLabels[hoverIdx] : ''
@@ -359,12 +378,16 @@ export default function ElevationChart() {
       const hasMeta = surfLabel || rcLabel || shadowLabel
 
       ctx!.font = '11px ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
+      const metaLine = [surfLabel, rcLabel, shadowLabel].filter(Boolean).join(' · ')
       const tw = Math.max(
         ctx!.measureText(line1).width,
         ctx!.measureText(line2).width,
-        hasMeta ? ctx!.measureText([surfLabel, rcLabel, shadowLabel].filter(Boolean).join(' · ')).width + 8 : 0,
+        hasTime ? ctx!.measureText(timeLine).width : 0,
+        hasMeta ? ctx!.measureText(metaLine).width + 8 : 0,
       ) + 12
-      const th = hasMeta ? 44 : 32
+      // Lines: dist + elev + time? + meta? → 2/3/4 rows (each 13px)
+      const lineCount = 2 + (hasTime ? 1 : 0) + (hasMeta ? 1 : 0)
+      const th = lineCount * 13 + 6
       let tx = hx + TOOLTIP_OFFSET
       let ty = hy - th - TOOLTIP_OFFSET
       // Keep tooltip within chart bounds
@@ -383,10 +406,16 @@ export default function ElevationChart() {
       ctx!.fillStyle = '#9ca3af'
       ctx!.fillText(line2, tx + 6, ty + 18)
 
+      let rowY = ty + 31
+      if (hasTime) {
+        ctx!.fillStyle = '#f59e0b'
+        ctx!.fillText(timeLine, tx + 6, rowY)
+        rowY += 13
+      }
+
       if (hasMeta) {
-        const metaLine = [surfLabel, rcLabel, shadowLabel].filter(Boolean).join(' · ')
         ctx!.fillStyle = '#d1d5db'
-        ctx!.fillText(metaLine, tx + 6, ty + 31)
+        ctx!.fillText(metaLine, tx + 6, rowY)
       }
     }
   }
@@ -411,21 +440,24 @@ export default function ElevationChart() {
     return { point: profile[idx], index: idx }
   }
 
+  /** Map a canvas-relative clientX to cumulative route distance in meters. */
+  function distFromClientX(clientX: number): number {
+    const rect = canvas.getBoundingClientRect()
+    const x = clientX - rect.left
+    const plotW = displayWidth - PADDING.left - PADDING.right
+    const ratio = Math.max(0, Math.min(1, (x - PADDING.left) / plotW))
+    const profile = route()?.elevationProfile
+    const total = profile && profile.length ? profile[profile.length - 1].distance : 0
+    return ratio * total
+  }
+
   function onMouseMove(e: MouseEvent) {
     // Don't interfere with animation
     if (rideAnimation().playing) return
     const r = route()
     if (!r?.elevationProfile?.length) return
 
-    const rect = canvas.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const plotX = PADDING.left
-    const plotW = displayWidth - PADDING.left - PADDING.right
-
-    // Map mouseX to distance
-    const ratio = Math.max(0, Math.min(1, (mouseX - plotX) / plotW))
-    const dist = ratio * r.elevationProfile[r.elevationProfile.length - 1].distance
-    const result = findClosestPoint(dist)
+    const result = findClosestPoint(distFromClientX(e.clientX))
 
     if (result) {
       setHoveredPoint({ distance: result.point.distance, elevation: result.point.elevation })
@@ -530,10 +562,17 @@ export default function ElevationChart() {
       const simulatedDeltaMs = deltaMs * rideAnimation().speed
       const newElapsedMs = rideAnimation().elapsedMs + simulatedDeltaMs
 
-      // Convert simulated time → distance (using average speed from route)
-      // route.duration is in ms, route.distance in meters
-      const avgSpeedMs = r.duration > 0 ? r.distance / r.duration : 5.56 // fallback ~20 km/h
-      const newDistance = rideAnimation().currentDistance + simulatedDeltaMs * avgSpeedMs
+      // Slope-based variable speed: find slope at current position in elevation profile
+      const profile = r.elevationProfile
+      const curDist = rideAnimation().currentDistance
+      let idx = profile.findIndex(p => p.distance >= curDist)
+      if (idx < 0) idx = profile.length - 1
+      const slopePct = idx > 0
+        ? ((profile[idx].elevation - profile[idx - 1].elevation)
+          / (profile[idx].distance - profile[idx - 1].distance)) * 100
+        : 0
+      const speedMs = slopeSpeedKmh(slopePct) * 1000 / 3600 // km/h → m/s
+      const newDistance = curDist + (simulatedDeltaMs / 1000) * speedMs
 
       const totalDist = r.elevationProfile[r.elevationProfile.length - 1].distance
 
@@ -612,14 +651,7 @@ export default function ElevationChart() {
     const r = route()
     if (!r?.elevationProfile?.length) return
 
-    const rect = canvas.getBoundingClientRect()
-    const clickX = e.clientX - rect.left
-    const plotX = PADDING.left
-    const plotW = displayWidth - PADDING.left - PADDING.right
-
-    // Map clickX to distance
-    const ratio = Math.max(0, Math.min(1, (clickX - plotX) / plotW))
-    const dist = ratio * r.elevationProfile[r.elevationProfile.length - 1].distance
+    const dist = distFromClientX(e.clientX)
 
     // Stop animation if playing
     if (rideAnimation().playing) {
@@ -655,8 +687,15 @@ export default function ElevationChart() {
         ? animBaseDate
         : parseAnimDateTime(rideAnimation().baseDateTime ?? '')
       if (base) {
-        const avgSpeedMs = r.duration > 0 ? r.distance / r.duration : 5.56
-        const timeOffsetMs = (dist / avgSpeedMs)
+        // Use slope-based cumulative time for accurate datetime at position
+        let timeOffsetMs: number
+        if (result && cachedSlopeTimes.length > result.index) {
+          timeOffsetMs = cachedSlopeTimes[result.index]
+        } else {
+          // Fallback: uniform speed
+          const avgSpeedMs = r.duration > 0 ? r.distance / r.duration : 5.56
+          timeOffsetMs = dist / avgSpeedMs
+        }
         const currentDate = new Date(base.getTime() + timeOffsetMs)
         const dtStr = formatAnimDateTime(currentDate)
         updateRideAnimation({ currentDateTime: dtStr })
@@ -694,125 +733,45 @@ export default function ElevationChart() {
     const r = route()
     if (container && canvas) init()
 
-    // Pre-compute geometry cumulative distances and surface color assignments
+    // Pre-compute geometry cumulative distances and per-point lookups
     if (r?.geometry && r?.elevationProfile) {
       cachedGeomDists = computeGeometryDistances(r.geometry)
 
-      // Build lookup arrays for binary search: segment start distances keyed by sort order
-      if (r.surfaceSegments && r.surfaceSegments.length > 0) {
-        const segStarts = r.surfaceSegments.map(s => cachedGeomDists[s.from] ?? -Infinity)
-        const segEnds = r.surfaceSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
-        const assignments: string[] = []
-        const surfLabels: string[] = []
-        for (let i = 0; i < r.elevationProfile.length; i++) {
-          const dist = r.elevationProfile[i].distance
-          const idx = binarySearchSegment(segStarts, segEnds, dist)
-          if (idx >= 0) {
-            assignments.push(SURFACE_COLORS[r.surfaceSegments[idx].surface] ?? DEFAULT_SURFACE_COLOR)
-            surfLabels.push(SURFACE_LABELS[r.surfaceSegments[idx].surface] ?? r.surfaceSegments[idx].surface)
-          } else {
-            assignments.push(DEFAULT_SURFACE_COLOR)
-            surfLabels.push('')
-          }
-        }
-        cachedColorAssignments = assignments
-        cachedSurfaceLabels = surfLabels
-      } else {
-        cachedColorAssignments = []
-        cachedSurfaceLabels = []
-      }
+      const profile = r.elevationProfile
+      const segs = r.surfaceSegments ?? []
+      const rcs = r.roadClassSegments ?? []
 
-      if (r.roadClassSegments && r.roadClassSegments.length > 0) {
-        const rcSegStarts = r.roadClassSegments.map(s => cachedGeomDists[s.from] ?? -Infinity)
-        const rcSegEnds = r.roadClassSegments.map(s => cachedGeomDists[s.to] ?? Infinity)
-        const rcLabels: string[] = []
-        const rcColors: string[] = []
-        const rcDash: (number[] | undefined)[] = []
-        for (let i = 0; i < r.elevationProfile.length; i++) {
-          const dist = r.elevationProfile[i].distance
-          const idx = binarySearchSegment(rcSegStarts, rcSegEnds, dist)
-          if (idx >= 0) {
-            const cls = r.roadClassSegments[idx].roadClass
-            rcLabels.push(ROAD_CLASS_LABELS[cls] ?? cls)
-            rcColors.push(ROAD_CLASS_COLORS[cls] ?? DEFAULT_ROAD_CLASS_COLOR)
-            rcDash.push(ROAD_CLASS_DASH[cls] ?? undefined)
-          } else {
-            rcLabels.push('')
-            rcColors.push(DEFAULT_ROAD_CLASS_COLOR)
-            rcDash.push(undefined)
-          }
-        }
-        cachedRoadClassLabels = rcLabels
-        cachedRoadClassColors = rcColors
-        cachedRoadClassDash = rcDash
-      } else {
-        cachedRoadClassLabels = []
-        cachedRoadClassColors = []
-        cachedRoadClassDash = []
-      }
+      cachedColorAssignments = sampleSegmentByDistance(profile, cachedGeomDists, segs,
+        s => SURFACE_COLORS[s.surface] ?? DEFAULT_SURFACE_COLOR, DEFAULT_SURFACE_COLOR)
+      cachedSurfaceLabels = sampleSegmentByDistance(profile, cachedGeomDists, segs,
+        s => SURFACE_LABELS[s.surface] ?? s.surface, '')
 
-			// Shadow profile: interpolate r.shadowProfile to profile points
-			if (r.shadowProfile && r.shadowProfile.length > 0) {
-				const shadowDists = r.shadowProfile.map(s => s.distance)
-				const shadowEnds = [...shadowDists.slice(1), Infinity]
-				const sunExposure: number[] = []
-				for (let i = 0; i < r.elevationProfile.length; i++) {
-					const dist = r.elevationProfile[i].distance
-					const idx = binarySearchSegment(shadowDists, shadowEnds, dist)
-					sunExposure.push(idx >= 0 ? r.shadowProfile[idx].sunExposure : 1)
-				}
-				cachedSunExposure = sunExposure
-			} else {
-				cachedSunExposure = []
-			}
+      cachedRoadClassLabels = sampleSegmentByDistance(profile, cachedGeomDists, rcs,
+        s => ROAD_CLASS_LABELS[s.roadClass] ?? s.roadClass, '')
+      cachedRoadClassColors = sampleSegmentByDistance(profile, cachedGeomDists, rcs,
+        s => ROAD_CLASS_COLORS[s.roadClass] ?? DEFAULT_ROAD_CLASS_COLOR, DEFAULT_ROAD_CLASS_COLOR)
+      cachedRoadClassDash = sampleSegmentByDistance(profile, cachedGeomDists, rcs,
+        s => ROAD_CLASS_DASH[s.roadClass] ?? undefined, undefined)
+
+      // Shadow profile: interpolate r.shadowProfile to profile points
+      const sp = r.shadowProfile ?? []
+      cachedSunExposure = sampleValueByDistance(profile, sp,
+        sp.map(s => s.sunExposure), 1)
+
+      // Slope-based cumulative travel times
+      cachedSlopeTimes = r.slopeBasedTimes ?? []
     } else {
       cachedGeomDists = []
       cachedColorAssignments = []
       cachedSurfaceLabels = []
       cachedRoadClassLabels = []
       cachedRoadClassColors = []
-			cachedRoadClassDash = []
-			cachedSunExposure = []
+      cachedRoadClassDash = []
+      cachedSunExposure = []
+      cachedSlopeTimes = []
     }
 
     requestAnimationFrame(() => draw())
-  })
-
-  createEffect(() => {
-    const r = route()
-    const enabled = shadowRouteEnabled()
-    const dt = shadowDateTime()
-    const playing = rideAnimation().playing
-
-    if (!r?.geometry.length || !enabled || !dt || playing) return
-
-    const requestKey = `${r.distance}:${r.geometry.length}:${dt}`
-    if (requestKey === lastShadowFetchKey) return
-
-    const currentSeq = ++shadowFetchSeq
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await fetch('/api/shadow-profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            geometry: r.geometry,
-            datetime: dt,
-            durationMs: r.duration,
-          }),
-        })
-        if (!res.ok) return
-        const data = await res.json() as { shadowProfile?: typeof r.shadowProfile }
-        if (currentSeq !== shadowFetchSeq) return
-        lastShadowFetchKey = requestKey
-        setRoute((prev) => {
-          if (!prev || prev.distance !== r.distance || prev.geometry.length !== r.geometry.length) return prev
-          return { ...prev, shadowProfile: data.shadowProfile ?? [] }
-        })
-      } catch (_) {}
-    }, 180)
-
-    onCleanup(() => window.clearTimeout(timer))
   })
 
   onCleanup(() => {

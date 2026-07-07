@@ -69,7 +69,7 @@ export interface GHRouteResult {
 // Config
 // ---------------------------------------------------------------------------
 
-const GRAPHHOPPER_URL = process.env.GRAPHHOPPER_URL || 'http://localhost:8989'
+const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPPER_URL : undefined) || 'http://localhost:8989'
 
 // ---------------------------------------------------------------------------
 // Custom model builder
@@ -216,8 +216,12 @@ export async function fetchRouteFromGH(
     throw new Error('No route found by GraphHopper')
   }
 
-  const surfaceSegments = parseSurfaceSegments(path.details)
-  const roadClassSegments = parseRoadClassSegments(path.details)
+  const surfaceSegments = parseDetailTriples(path.details, 'surface').map(
+    ([from, to, surface]) => ({ from, to, surface }),
+  )
+  const roadClassSegments = parseDetailTriples(path.details, 'road_class').map(
+    ([from, to, roadClass]) => ({ from, to, roadClass }),
+  )
   const roadEnvSegments = parseDetailTriples(path.details, 'road_environment').map(
     ([from, to, env]) => ({ from, to, roadClass: env }),
   )
@@ -235,9 +239,13 @@ export async function fetchRouteFromGH(
 }
 
 // ---------------------------------------------------------------------------
-// Detail segment parsers
+// Detail segment parser
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse GraphHopper `details[key]` triples into [from, to, value] tuples.
+ * Each triple represents a segment [from, to] (geometry indices) with a string value.
+ */
 function parseDetailTriples(
   details: Record<string, unknown[]> | undefined,
   key: string,
@@ -254,27 +262,13 @@ function parseDetailTriples(
   return result
 }
 
-/**
- * Parse GraphHopper `details.surface` triples into structured SurfaceSegment[].
- */
-export function parseSurfaceSegments(
-  details: Record<string, unknown[]> | undefined,
-): SurfaceSegment[] {
-  return parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({
-    from, to, surface,
-  }))
-}
+/** Parse GraphHopper `details.surface` triples into SurfaceSegment[]. */
+export const parseSurfaceSegments = (details: Record<string, unknown[]> | undefined): SurfaceSegment[] =>
+  parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({ from, to, surface }))
 
-/**
- * Parse GraphHopper `details.road_class` triples into structured RoadClassSegment[].
- */
-export function parseRoadClassSegments(
-  details: Record<string, unknown[]> | undefined,
-): RoadClassSegment[] {
-  return parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({
-    from, to, roadClass,
-  }))
-}
+/** Parse GraphHopper `details.road_class` triples into RoadClassSegment[]. */
+export const parseRoadClassSegments = (details: Record<string, unknown[]> | undefined): RoadClassSegment[] =>
+  parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({ from, to, roadClass }))
 
 // ---------------------------------------------------------------------------
 // Coordinate converter
@@ -316,6 +310,7 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     roadEnvSegments: ghResult.roadEnvSegments ?? [],
     poiLocations: [],
     allPOILocations: [],
+    slopeBasedTimes: computeSlopeCumulativeTimes(smoothedProfile, ghResult.duration),
   }
 }
 
@@ -419,6 +414,76 @@ export function computeElevationGainLoss(
   }
 
   return { gain: Math.round(gain), loss: Math.round(loss) }
+}
+
+// ---------------------------------------------------------------------------
+// Slope-based cumulative travel time
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert slope percentage to estimated cycling speed (km/h).
+ *
+ * Uses a simple power-law model:
+ * - Uphill: speed decreases exponentially with steepness
+ * - Downhill: speed increases moderately, capped at MAX_SPEED_KMH
+ * - Flat: BASE_SPEED_KMH
+ *
+ * Clamped to [MIN_SPEED_KMH, MAX_SPEED_KMH].
+ */
+export function slopeSpeedKmh(slopePct: number): number {
+  const climb = Math.max(0, slopePct)
+  const descent = Math.max(0, -slopePct)
+  const speed =
+    20
+    * Math.max(0, 1 - 0.04 * climb) ** 1.5
+    * (1 + 0.02 * descent) ** 1.2
+  return Math.max(5, Math.min(45, speed))
+}
+
+/**
+ * Compute slope-based cumulative travel times for each elevation profile point.
+ *
+ * For each segment between consecutive profile points:
+ *   1. Calculate slope percentage from elevation change / distance
+ *   2. Estimate speed via slopeSpeedKmh()
+ *   3. Compute raw segment travel time
+ *
+ * Raw times are then scaled so that total = totalDurationMs (matching GH duration).
+ * This preserves per-segment speed variation while keeping total time consistent
+ * with GraphHopper's slope-aware routing engine.
+ *
+ * @param profile Elevation profile points (distance in meters, elevation in meters)
+ * @param totalDurationMs GH route duration in milliseconds (slope-aware total)
+ * @returns Array of cumulative times in ms for each profile point; first element is 0
+ */
+export function computeSlopeCumulativeTimes(
+  profile: ElevationPoint[],
+  totalDurationMs: number,
+): number[] {
+  if (profile.length < 2 || totalDurationMs <= 0) {
+    // Degenerate case: return evenly spaced times
+    return profile.map((_, i) => (totalDurationMs * i) / Math.max(1, profile.length - 1))
+  }
+
+  // Phase 1: raw times from slope model
+  const rawTimes = [0]
+  for (let i = 1; i < profile.length; i++) {
+    const dist = profile[i].distance - profile[i - 1].distance // meters
+    const eleDelta = profile[i].elevation - profile[i - 1].elevation
+    const slopePct = dist > 0 ? (eleDelta / dist) * 100 : 0
+    const speedMs = slopeSpeedKmh(slopePct) * 1000 / 3600 // km/h → m/s
+    const segTimeMs = (dist / speedMs) * 1000 // seconds → ms
+    rawTimes.push(rawTimes[i - 1] + segTimeMs)
+  }
+
+  // Phase 2: scale to match GH duration
+  const rawTotal = rawTimes[rawTimes.length - 1]
+  if (rawTotal <= 0) {
+    return profile.map((_, i) => (totalDurationMs * i) / (profile.length - 1))
+  }
+  const scale = totalDurationMs / rawTotal
+
+  return rawTimes.map(t => t * scale)
 }
 
 // ---------------------------------------------------------------------------

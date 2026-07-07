@@ -2,6 +2,8 @@
  * Elevation chart display constants and utility functions.
  */
 
+import type { ElevationPoint } from '@vrstevnice/shared'
+
 export const PADDING = { top: 8, right: 12, bottom: 22, left: 42 }
 export const TOOLTIP_OFFSET = 12
 
@@ -24,6 +26,46 @@ export function binarySearchSegment(
     return mid
   }
   return -1
+}
+
+/**
+ * Sample a value per elevation-profile point by looking up the containing
+ * segment (indexed into `geomDists`) and applying `extract` to it. Points
+ * outside any segment get `fallback`. Used for surface/road-class coloring.
+ */
+export function sampleSegmentByDistance<S extends { from: number; to: number }, T>(
+  profile: ElevationPoint[],
+  geomDists: number[],
+  segments: S[],
+  extract: (seg: S) => T,
+  fallback: T,
+): T[] {
+  if (segments.length === 0) return profile.map(() => fallback)
+  const starts = segments.map(s => geomDists[s.from] ?? -Infinity)
+  const ends = segments.map(s => geomDists[s.to] ?? Infinity)
+  return profile.map(p => {
+    const idx = binarySearchSegment(starts, ends, p.distance)
+    return idx >= 0 ? extract(segments[idx]) : fallback
+  })
+}
+
+/**
+ * Interpolate a value at each elevation-profile point from a list of
+ * (distance, value) samples via segment lookup. Used for shadow/sun exposure.
+ */
+export function sampleValueByDistance<T>(
+  profile: ElevationPoint[],
+  samples: { distance: number }[],
+  values: T[],
+  fallback: T,
+): T[] {
+  if (samples.length === 0) return profile.map(() => fallback)
+  const starts = samples.map(s => s.distance)
+  const ends = [...starts.slice(1), Infinity]
+  return profile.map(p => {
+    const idx = binarySearchSegment(starts, ends, p.distance)
+    return idx >= 0 ? values[idx] : fallback
+  })
 }
 
 /**

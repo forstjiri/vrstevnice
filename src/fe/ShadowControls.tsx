@@ -32,6 +32,19 @@ export default function ShadowControls(props: ShadowControlsProps) {
   const now = new Date()
   const [sunDate, setSunDate] = createSignal(formatLocalDate(now))
   const [sunMinutes, setSunMinutes] = createSignal<number[]>([now.getHours() * 60 + now.getMinutes()])
+
+  /**
+   * Re-fetch the route so BE recomputes the time-progressive shadowProfile.
+   * Deferred via setTimeout(0) so derived signals (shadowRouteEnabled,
+   * shadowDateTime) settle before calculateRoute reads them.
+   */
+  function maybeRegenerate() {
+    if (!route() || loading()) return
+    setTimeout(() => {
+      if (!route() || loading() || !shadowRouteEnabled()) return
+      void regenerateRoute()()
+    }, 0)
+  }
   const [collapsed, setCollapsed] = createSignal(false)
 
   const animatedSunDateTime = createMemo(() => {
@@ -123,7 +136,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
 
             <Show when={terrainOn()}>
               <div class="shadow-control-row">
-                <Checkbox checked={hillshadeOn()} onChange={setHillshadeOn} class="shadow-checkbox">
+                <Checkbox checked={hillshadeOn()} onChange={(v) => { setHillshadeOn(v); maybeRegenerate() }} class="shadow-checkbox">
                   <Checkbox.Input class="shadow-checkbox-input" />
                   <Checkbox.Control class="shadow-checkbox-control" />
                   <Checkbox.Label class="shadow-checkbox-label">Stínování svahů</Checkbox.Label>
@@ -132,7 +145,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
 
               <Show when={hillshadeOn()}>
                 <div class="shadow-control-row">
-                  <Checkbox checked={shadowRouteOn()} onChange={setShadowRouteOn} class="shadow-checkbox">
+                  <Checkbox checked={shadowRouteOn()} onChange={(v) => { setShadowRouteOn(v); maybeRegenerate() }} class="shadow-checkbox">
                     <Checkbox.Input class="shadow-checkbox-input" />
                     <Checkbox.Control class="shadow-checkbox-control" />
                     <Checkbox.Label class="shadow-checkbox-label">Při výpočtu trasy řešit stín 🐢</Checkbox.Label>
@@ -160,7 +173,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
                 class="shadow-datetime-input"
                 type="date"
                 value={effectiveSunDate()}
-                onInput={(e) => setSunDate(e.currentTarget.value)}
+                onInput={(e) => { setSunDate(e.currentTarget.value); maybeRegenerate() }}
               />
             </div>
 
@@ -168,10 +181,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
               <Slider
                 value={effectiveSunMinutes()}
                 onChange={setSunMinutes}
-                onChangeEnd={() => {
-                  if (!route() || loading() || !shadowRouteEnabled()) return
-                  void regenerateRoute()()
-                }}
+                onChangeEnd={maybeRegenerate}
                 minValue={0}
                 maxValue={1439}
                 step={15}

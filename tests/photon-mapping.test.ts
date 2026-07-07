@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapPhotonFeature } from '../src/be/geocode'
+import { mapPhotonFeature } from '@vrstevnice/shared'
 
 describe('mapPhotonFeature', () => {
   it('swaps GeoJSON [lon, lat] → Leaflet [lat, lng]', () => {

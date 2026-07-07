@@ -75,11 +75,10 @@ data/              mbtiles, GeoJSON, DEM data, SQLite DB (gitignored)
 | Method | Path | Description |
 |--------|-------------------------|------------------------------------------------------|
 | GET | `/api/geocode` | Place search (Photon) + reverse GPS geocoding |
-| POST | `/api/route` | Route calculation (GraphHopper + optional POI pipeline) |
+| POST | `/api/route` | Route calculation (GraphHopper + optional POI pipeline + optional shadow profile) |
 | GET | `/api/history` | Route history from SQLite |
 | GET | `/api/cycleroutes` | GeoJSON of cycle routes |
 | GET | `/api/terrain/:z/:x/:y` | Terrain tile proxy with 404 fallback (transparent PNG) |
-| POST | `/api/shadow-profile` | Compute shadow profile for route geometry + datetime |
 
 Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
@@ -245,7 +244,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | File | Purpose |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | `src/shared/index.ts` | Shared TypeScript interfaces (Stop, GeocodeResult, RouteResponse, RouteRequest) |
-| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /cycleroutes, /terrain, /shadow-profile |
+| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /cycleroutes, /terrain |
 | `src/be/geocode.ts` | Photon geocoder mapping (coordinate swap!) |
 | `src/be/gps.ts` | GPS parsing (DD/DDM/DMS formats) |
 | `src/be/db.ts` | Drizzle schema + Bun SQLite (`data/data.db`) |

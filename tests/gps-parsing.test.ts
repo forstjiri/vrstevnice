@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectAndParseGPS } from '../src/be/gps'
+import { detectAndParseGPS } from '@vrstevnice/shared'
 
 describe('detectAndParseGPS', () => {
   // ── Decimal Degrees (DD) ──

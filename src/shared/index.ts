@@ -72,6 +72,9 @@ export interface RouteResponse {
   roadEnvSegments: RoadClassSegment[]
 	/** Shadow profile computed from DSM ray-tracing (optional, requires elevation service) */
 	shadowProfile?: ShadowPoint[]
+	/** Slope-scaled cumulative travel times for each elevation profile point (ms).
+	 *  Total matches GH duration; per-segment varies by slope. */
+	slopeBasedTimes?: number[]
   /** POI locations (pubs, bars, restaurants) along the route when lemonadeCoefficient > 0 */
   poiLocations: POILocation[]
   /** All discovered POIs (including non-selected) for map display */

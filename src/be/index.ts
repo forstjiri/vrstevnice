@@ -3,6 +3,7 @@ import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
 import { rateLimit } from 'elysia-rate-limit'
 import type { GeocodeResult } from '@vrstevnice/shared'
+import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared'
 import {
 	buildCustomModel,
 	convertGHToRouteResponse,
@@ -11,8 +12,6 @@ import {
 	insertPOIWaypoints
 } from '@vrstevnice/routing'
 import { db, routes } from './db'
-import { mapPhotonFeature } from './geocode'
-import { detectAndParseGPS } from './gps'
 import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain'
 import { queryLocalPOIs } from './pois'
 import { resolve } from 'node:path'
@@ -22,6 +21,9 @@ import { Buffer } from 'node:buffer'
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1'
+
+type Logger = (...args: any[]) => void
+type PinoStore = { pino: { debug: Logger; info: Logger; warn: Logger; error: Logger } }
 
 // Photon geocode — local instance only (no external fallback).
 const PHOTON_URL = 'http://localhost:2322'
@@ -252,14 +254,7 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .get('/geocode', async ({ query, store }) => {
-		const {pino} = store as {
-			pino: {
-				debug: (...args: any[]) => void;
-				info: (...args: any[]) => void;
-				warn: (...args: any[]) => void;
-				error: (...args: any[]) => void
-			}
-		}
+		const { pino } = store as PinoStore
     pino.debug({ q: query.q }, 'Geocode request')
 
     // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
@@ -333,14 +328,7 @@ const app = new Elysia({ prefix: '/api' })
   })
 
   .post('/route', async ({ body, store }) => {
-		const {pino} = store as {
-			pino: {
-				debug: (...args: any[]) => void;
-				info: (...args: any[]) => void;
-				warn: (...args: any[]) => void;
-				error: (...args: any[]) => void
-			}
-		}
+		const { pino } = store as PinoStore
 		const {
 			stops,
 			elevationCoefficient,
@@ -451,7 +439,9 @@ const app = new Elysia({ prefix: '/api' })
 
     if (body.shadowDateTime && hasTerrainData()) {
       try {
-        finalRouteData.shadowProfile = computeShadowProfile(finalRouteData.geometry, body.shadowDateTime)
+        finalRouteData.shadowProfile = computeShadowProfile(finalRouteData.geometry, body.shadowDateTime, {
+          durationMs: finalRouteData.duration * 1000,
+        })
       } catch (shadowErr) {
         pino.warn({ error: (shadowErr as Error).message }, 'Shadow profile computation failed')
       }
@@ -513,34 +503,7 @@ const app = new Elysia({ prefix: '/api' })
         shadow: t.Boolean(),
         sunExposure: t.Number(),
       }))),
-    }),
-  })
-
-  .post('/shadow-profile', async ({ body }) => {
-    if (!hasTerrainData()) return { shadowProfile: [] }
-    return {
-      shadowProfile: computeShadowProfile(body.geometry as [number, number][], body.datetime, {
-        sampleIntervalM: body.sampleIntervalM,
-        stepM: body.stepM,
-        maxRayM: body.maxRayM,
-        durationMs: body.durationMs,
-      }),
-    }
-  }, {
-    body: t.Object({
-      geometry: t.Array(t.Tuple([t.Number(), t.Number()])),
-      datetime: t.String(),
-      sampleIntervalM: t.Optional(t.Number({ minimum: 1 })),
-      stepM: t.Optional(t.Number({ minimum: 1 })),
-      maxRayM: t.Optional(t.Number({ minimum: 1 })),
-      durationMs: t.Optional(t.Number({ minimum: 1 })),
-    }),
-    response: t.Object({
-      shadowProfile: t.Array(t.Object({
-        distance: t.Number(),
-        shadow: t.Boolean(),
-        sunExposure: t.Number(),
-      })),
+      slopeBasedTimes: t.Optional(t.Array(t.Number())),
     }),
   })
 

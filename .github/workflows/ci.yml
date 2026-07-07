@@ -29,8 +29,7 @@ jobs:
           pnpm test -- --reporter=verbose \
             --exclude tests/e2e-smoke.test.ts \
             --exclude tests/routing/smoke.test.ts \
-            --exclude tests/routing/routing.test.ts \
-            --exclude tests/shadow-profile.test.ts
+            --exclude tests/routing/routing.test.ts
 
   typecheck:
     runs-on: ubuntu-latest
