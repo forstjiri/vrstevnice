@@ -34,6 +34,8 @@ interface AppContextValue {
   setHillshadeEnabled: Setter<boolean>
   shadowRouteEnabled: Accessor<boolean>
   setShadowRouteEnabled: Setter<boolean>
+  showPOI: Accessor<boolean>
+  setShowPOI: Setter<boolean>
   shadowDateTime: Accessor<string>
   setShadowDateTime: Setter<string>
   regenerateRoute: Accessor<() => Promise<void>>
@@ -65,6 +67,7 @@ export default function App() {
   const pad = (n: number) => String(n).padStart(2, '0')
   const [hillshadeEnabled, setHillshadeEnabled] = createSignal(false)
   const [shadowRouteEnabled, setShadowRouteEnabled] = createSignal(false)
+  const [showPOI, setShowPOI] = createSignal(false)
   const [shadowDateTime, setShadowDateTime] = createSignal(
     `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`,
   )
@@ -100,6 +103,8 @@ export default function App() {
     setHillshadeEnabled,
     shadowRouteEnabled,
     setShadowRouteEnabled,
+    showPOI,
+    setShowPOI,
     shadowDateTime,
     setShadowDateTime,
     regenerateRoute,

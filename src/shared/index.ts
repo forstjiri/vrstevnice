@@ -75,9 +75,9 @@ export interface RouteResponse {
 	/** Slope-scaled cumulative travel times for each elevation profile point (ms).
 	 *  Total matches GH duration; per-segment varies by slope. */
 	slopeBasedTimes?: number[]
-  /** POI locations (pubs, bars, restaurants) along the route when lemonadeCoefficient > 0 */
+  /** POI locations (pubs, bars, restaurants) along the route */
   poiLocations: POILocation[]
-  /** All discovered POIs (including non-selected) for map display */
+  /** All discovered POIs for map display */
   allPOILocations: POILocation[]
 }
 
@@ -86,8 +86,8 @@ export interface RouteRequest {
   elevationCoefficient: number
   roadAvoidanceCoefficient: number
   cyclewayCoefficient: number
-  /** Lemonade coefficient: 0 = off (normal routing), 1 = max pub density along route */
-  lemonadeCoefficient: number
+  /** Show POIs (pubs, bars, restaurants) along the route on the map */
+  showPOI: boolean
   /** Optional datetime used for terrain-based shadow profile computation */
   shadowDateTime?: string
 }

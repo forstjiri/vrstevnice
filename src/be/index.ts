@@ -2,14 +2,14 @@ import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import logixlysia from 'logixlysia'
 import { rateLimit } from 'elysia-rate-limit'
-import type { GeocodeResult } from '@vrstevnice/shared'
+import type { GeocodeResult, POILocation } from '@vrstevnice/shared'
 import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared'
 import {
 	buildCustomModel,
 	convertGHToRouteResponse,
-	fetchPOIsAlongRoute,
 	fetchRouteFromGH,
-	insertPOIWaypoints
+	sampleRouteGeometry,
+	deduplicatePOIs,
 } from '@vrstevnice/routing'
 import { db, routes } from './db'
 import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain'
@@ -334,7 +334,7 @@ const app = new Elysia({ prefix: '/api' })
 			elevationCoefficient,
 			roadAvoidanceCoefficient,
 			cyclewayCoefficient,
-			lemonadeCoefficient: rawLemonade = 0
+			showPOI = false,
 		} = body
 
     pino.info(
@@ -343,7 +343,7 @@ const app = new Elysia({ prefix: '/api' })
 				elevCoeff: elevationCoefficient,
 				roadAvoid: roadAvoidanceCoefficient,
 				cycleway: cyclewayCoefficient,
-				lemonade: rawLemonade
+				showPOI,
 			},
       'Route request',
     )
@@ -371,50 +371,23 @@ const app = new Elysia({ prefix: '/api' })
       'Route calculated',
     )
 
-    // Stage 2 (conditional): POI pipeline for lemonade routing
+    // Stage 2 (conditional): query POIs along route for map display
     let finalRouteData = routeData
-    if (rawLemonade > 0) {
-      const poiT0 = performance.now()
+    if (showPOI) {
       try {
-        pino.info({ lemonadeCoefficient: rawLemonade }, 'POI pipeline: starting')
-
-        const { selected, all } = await fetchPOIsAlongRoute(routeData.geometry, rawLemonade, queryLocalPOIs)
-
-        if (selected.length > 0) {
-          pino.info({ poiCount: selected.length, allPOIs: all.length }, 'POI pipeline: inserting waypoints')
-          const expandedStops = insertPOIWaypoints(stops, selected, routeData.geometry)
-
-          const reRouteT0 = performance.now()
-          const ghReRoute = await fetchRouteFromGH(expandedStops, customModel)
-          const reRouted = convertGHToRouteResponse(ghReRoute)
-          const reRouteElapsed = Math.round(performance.now() - reRouteT0)
-
-          // Attach POI locations to the re-routed response
-          reRouted.poiLocations = selected
-          reRouted.allPOILocations = all
-          finalRouteData = reRouted
-
-          pino.info(
-						{
-							poiCount: selected.length,
-							allPOIs: all.length,
-							reRouteDistance: reRouted.distance,
-							reRouteElapsedMs: reRouteElapsed
-						},
-            'POI pipeline: re-route complete',
-          )
-        } else {
-          pino.warn({ allPOIs: all.length }, 'POI pipeline: no POIs selected, returning base route')
-          // Still attach all discovered POIs for map display even if none were selected
-          finalRouteData.allPOILocations = all
+        pino.info('Querying POIs along route')
+        const routeLengthM = routeData.distance * 1000
+        const sampleInterval = Math.max(500, Math.min(2000, routeLengthM / 20))
+        const samplePoints = sampleRouteGeometry(routeData.geometry, sampleInterval, 50)
+        const allPOIs: POILocation[] = []
+        for (const [lat, lng] of samplePoints) {
+          const pois = await queryLocalPOIs(lat, lng, 2000)
+          allPOIs.push(...pois)
         }
+        finalRouteData.allPOILocations = deduplicatePOIs(allPOIs)
+        pino.info({ poiCount: finalRouteData.allPOILocations.length }, 'POI query complete')
       } catch (poiErr) {
-        const elapsed = Math.round(performance.now() - poiT0)
-				pino.error({
-					error: (poiErr as Error).message,
-					elapsedMs: elapsed
-				}, 'POI pipeline failed - returning base route')
-        // Fallback: return the original base route with empty poiLocations
+        pino.error({ error: (poiErr as Error).message }, 'POI query failed')
       }
     }
 
@@ -458,7 +431,7 @@ const app = new Elysia({ prefix: '/api' })
       elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
       cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
-      lemonadeCoefficient: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+      showPOI: t.Optional(t.Boolean()),
       shadowDateTime: t.Optional(t.String()),
     }),
     response: t.Object({

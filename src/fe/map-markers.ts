@@ -31,33 +31,6 @@ export function buildContextMenu(
   return menu
 }
 
-function buildPoiMenu(
-  name: string,
-  lat: number,
-  lng: number,
-  type: string,
-): HTMLDivElement {
-  return buildContextMenu(
-    [
-      {
-        label: 'Mapy.cz',
-        action: () => window.open(
-          `https://en.mapy.cz/zakladni?x=${lng.toFixed(7)}&y=${lat.toFixed(7)}&z=19`,
-          '_blank',
-        ),
-      },
-      {
-        label: 'Google Maps',
-        action: () => window.open(
-          `https://www.google.com/maps/@${lat.toFixed(7)},${lng.toFixed(7)},19z`,
-          '_blank',
-        ),
-      },
-    ],
-    `${name} (${type})`,
-  )
-}
-
 export function createStopElement(color: string, index: number, name: string): HTMLElement {
   const el = document.createElement('div')
   el.className = 'stop-marker'
@@ -69,12 +42,32 @@ export function createStopElement(color: string, index: number, name: string): H
   return el
 }
 
-export function createPoiElement(name: string, dimmed = false): HTMLElement {
+let tooltipEl: HTMLDivElement | null = null
+
+function showTooltip(text: string, x: number, y: number) {
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div')
+    tooltipEl.className = 'poi-tooltip'
+    document.body.appendChild(tooltipEl)
+  }
+  tooltipEl.textContent = text
+  tooltipEl.style.left = `${x}px`
+  tooltipEl.style.top = `${y - 8}px`
+  tooltipEl.style.display = 'block'
+}
+
+function hideTooltip() {
+  if (tooltipEl) tooltipEl.style.display = 'none'
+}
+
+export function createPoiElement(name: string): HTMLElement {
   const el = document.createElement('div')
-  el.className = dimmed ? 'poi-marker poi-marker-dimmed' : 'poi-marker'
+  el.className = 'poi-marker'
   el.textContent = '🍺'
-  el.title = name
-  el.style.cursor = 'pointer'
+  el.addEventListener('mouseenter', (e) => {
+    showTooltip(name, (e as MouseEvent).clientX, (e as MouseEvent).clientY)
+  })
+  el.addEventListener('mouseleave', hideTooltip)
   return el
 }
 
@@ -110,9 +103,9 @@ export function createPoiMarker(opts: {
   name: string; type: string;
   lat: number; lng: number;
   map: maplibregl.Map;
-  dimmed?: boolean;
+  onAddStop?: () => void;
 }): maplibregl.Marker {
-  const el = createPoiElement(opts.name, opts.dimmed)
+  const el = createPoiElement(opts.name)
   const marker = new maplibregl.Marker({
     element: el, anchor: 'center',
   })
@@ -123,13 +116,40 @@ export function createPoiMarker(opts: {
     e.stopPropagation()
     // Remove any existing context menu
     document.querySelectorAll('.map-contextmenu').forEach(m => m.remove())
-    const menu = buildPoiMenu(opts.name, opts.lat, opts.lng, opts.type)
+    const menu = buildContextMenu(
+      [
+        {
+          label: 'Mapy.cz',
+          action: () => window.open(
+            `https://en.mapy.cz/zakladni?x=${opts.lng.toFixed(7)}&y=${opts.lat.toFixed(7)}&z=19`,
+            '_blank',
+          ),
+        },
+        {
+          label: 'Google Maps',
+          action: () => window.open(
+            `https://www.google.com/maps/@${opts.lat.toFixed(7)},${opts.lng.toFixed(7)},19z`,
+            '_blank',
+          ),
+        },
+        ...(opts.onAddStop ? [{
+          label: 'Přidat jako průjezdní bod',
+          action: opts.onAddStop,
+        }] : []),
+      ],
+      `${opts.name} (${opts.type})`,
+    )
     const mapContainer = opts.map.getContainer()
     const rect = el.getBoundingClientRect()
     const containerRect = mapContainer.getBoundingClientRect()
     menu.style.left = `${rect.left - containerRect.left + rect.width / 2}px`
     menu.style.top = `${rect.top - containerRect.top + rect.height + 4}px`
     mapContainer.appendChild(menu)
+  })
+
+  // Close context menu on map click
+  opts.map.on('click', () => {
+    document.querySelectorAll('.map-contextmenu').forEach(m => m.remove())
   })
 
   return marker

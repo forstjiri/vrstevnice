@@ -146,7 +146,7 @@ function hillshadeExaggerationFromIntensity(intensity: number): number {
  * Build a context menu from a declarative items list.
  */
 export default function Map() {
-  const { stops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
+  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
   let container!: HTMLDivElement
   let map: maplibregl.Map | undefined
   const [mapReady, setMapReady] = createSignal(false)
@@ -763,17 +763,42 @@ export default function Map() {
     const r = route()
     if (!r?.allPOILocations?.length) return
 
-    // Build a set of selected POI coordinates for O(1) lookup
-    const selectedKeys = new Set(
-      (r.poiLocations ?? []).map((p) => `${p.lat},${p.lng}`),
-    )
-
     for (const poi of r.allPOILocations) {
-      const isSelected = selectedKeys.has(`${poi.lat},${poi.lng}`)
       const marker = createPoiMarker({
         name: poi.name, type: poi.type,
         lat: poi.lat, lng: poi.lng, map: m,
-        dimmed: !isSelected,
+        onAddStop: () => {
+          const routeGeo = route()?.geometry
+          if (!routeGeo || routeGeo.length === 0 || stops().length < 2) {
+            addStop({ lat: poi.lat, lng: poi.lng, name: poi.name })
+            return
+          }
+          // Find closest geometry index for POI
+          let poiClosest = 0
+          let poiMin = Infinity
+          for (let i = 0; i < routeGeo.length; i++) {
+            const d = haversineMeters(poi.lat, poi.lng, routeGeo[i][0], routeGeo[i][1])
+            if (d < poiMin) { poiMin = d; poiClosest = i }
+          }
+          // Find closest geometry index for each interior stop
+          const currentStops = stops()
+          let insertIdx = currentStops.length - 1
+          for (let si = 1; si < currentStops.length - 1; si++) {
+            let sClosest = 0
+            let sMin = Infinity
+            for (let i = 0; i < routeGeo.length; i++) {
+              const d = haversineMeters(currentStops[si].lat, currentStops[si].lng, routeGeo[i][0], routeGeo[i][1])
+              if (d < sMin) { sMin = d; sClosest = i }
+            }
+            if (sClosest < poiClosest) insertIdx = si + 1
+            else break
+          }
+          setStops(prev => {
+            const next = [...prev]
+            next.splice(insertIdx, 0, { lat: poi.lat, lng: poi.lng, name: poi.name })
+            return next
+          })
+        },
       })
       poiMarkers.push(marker)
     }

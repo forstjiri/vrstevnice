@@ -66,6 +66,7 @@ export default function Stops() {
     hillshadeEnabled,
     shadowRouteEnabled,
     shadowDateTime,
+    showPOI,
     setRegenerateRoute,
   } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
@@ -125,7 +126,7 @@ export default function Stops() {
   const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
   const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
   const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number[]>([DEFAULT_CYCLEWAY])
-  const [lemonadeCoeff, setLemonadeCoeff] = createSignal<number[]>([0])
+
 
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
@@ -188,7 +189,7 @@ export default function Stops() {
         elevationCoefficient: elevCoeff()[0] ?? DEFAULT_ELEVATION,
         roadAvoidanceCoefficient: 1 - (roadAvoidCoeff()[0] ?? DEFAULT_ROAD_AVOIDANCE),
         cyclewayCoefficient: cyclewayCoeff()[0] ?? DEFAULT_CYCLEWAY,
-        lemonadeCoefficient: lemonadeCoeff()[0] ?? 0,
+        showPOI: showPOI(),
         shadowDateTime: shadowRouteEnabled() ? shadowDateTime() : undefined,
       }
       const { data, error } = await treaty.api.route.post(body)
@@ -338,17 +339,7 @@ export default function Stops() {
 
         <LabeledSlider value={cyclewayCoeff()} onChange={setCyclewayCoeff} label="Cyklostezky" minValue={0} maxValue={1} step={0.05} />
 
-        <LabeledSlider value={lemonadeCoeff()} onChange={setLemonadeCoeff} label="Limonádová cesta" minValue={0} maxValue={1} step={0.05} labelExtra={
-          <>
-            <Tooltip openDelay={0}>
-              <Slider.Label class="slider-label-text">Limonádová cesta</Slider.Label>
-            </Tooltip>
-            <Tooltip openDelay={0}>
-              <Tooltip.Trigger class="experimental-badge" as="span">⚠️🐢</Tooltip.Trigger>
-              <Tooltip.Content class="tooltip">Experimentální funkce</Tooltip.Content>
-            </Tooltip>
-          </>
-        } />
+
 
         <Separator />
 

@@ -22,7 +22,7 @@ interface ShadowControlsProps extends ShadowControlCallbacks {
 }
 
 export default function ShadowControls(props: ShadowControlsProps) {
-  const { setHillshadeEnabled, setShadowRouteEnabled, setShadowDateTime, regenerateRoute, loading, route, shadowRouteEnabled } = useApp()
+  const { setHillshadeEnabled, setShadowRouteEnabled, setShadowDateTime, showPOI, setShowPOI, regenerateRoute, loading, route, shadowRouteEnabled } = useApp()
   const [terrainOn, setTerrainOn] = createSignal(false)
   const [hillshadeOn, setHillshadeOn] = createSignal(false)
   const [shadowRouteOn, setShadowRouteOn] = createSignal(false)
@@ -153,6 +153,14 @@ export default function ShadowControls(props: ShadowControlsProps) {
                 </div>
               </Show>
             </Show>
+
+            <div class="shadow-control-row">
+              <Checkbox checked={showPOI()} onChange={setShowPOI} class="shadow-checkbox">
+                <Checkbox.Input class="shadow-checkbox-input" />
+                <Checkbox.Control class="shadow-checkbox-control" />
+                <Checkbox.Label class="shadow-checkbox-label">Zobrazit občerstvení po cestě</Checkbox.Label>
+              </Checkbox>
+            </div>
 
             <div class="shadow-control-row">
               <Checkbox checked={contoursOn()} onChange={setContoursOn} class="shadow-checkbox">
