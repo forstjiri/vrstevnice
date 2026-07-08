@@ -10,10 +10,11 @@ export default defineConfig({
     testTimeout: 120_000,          // 2 min — GH container startup can be slow
     hookTimeout: 120_000,
     setupFiles: [],
+    globalSetup: ['tests/gh-global-setup.ts'],
     include: ['tests/**/*.test.ts'],
     globals: true,
     // Print test names with dots as they run (useful for slow startup)
-    reporter: 'verbose',
+    reporters: 'verbose',
   },
   resolve: {
     alias: {

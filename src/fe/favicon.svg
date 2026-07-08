@@ -1,6 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Vrstevnice gravel bike">
-  <rect width="64" height="64" rx="18" fill="#0f172a"/>
-  <circle cx="15" cy="43" r="9" fill="none" stroke="#f8fafc" stroke-width="4"/>
-  <circle cx="45" cy="43" r="9" fill="none" stroke="#f8fafc" stroke-width="4"/>
-  <path d="M22 10 15 45 12 20" fill="none" stroke="#f8fafc" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 64 64"
+   role="img"
+   aria-label="Vrstevnice gravel bike"
+   version="1.1"
+   id="svg2"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs2" />
+  <rect
+     width="64"
+     height="64"
+     rx="18"
+     fill="#0f172a"
+     id="rect1" />
+  <path
+     style="opacity:1;fill:none;stroke:#ffffff;stroke-width:4.62061;stroke-dasharray:none;stroke-opacity:1"
+     d="M 42.855555,26.544202 C 43.59155,13.537866 39.126156,-1.660007 52.557117,4.5573748 62.002328,8.9296969 51.654047,15.405355 42.855555,26.544202 Z"
+     id="path2" />
+  <path
+     style="opacity:1;fill:none;stroke:#ffffff;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+     d="m -2.3850932,44.203727 c 7.0459145,4.894967 16.1242392,-7.452572 21.5453412,3.021118 3.967784,7.665847 11.797206,-1.659739 17.80993,-2.18341 8.936437,-0.778309 11.668814,6.84013 19.847372,11.04274 2.213638,1.137494 4.025059,2.897998 5.751394,4.656198"
+     id="path9" />
+  <circle
+     style="opacity:1;fill:none;stroke:#ffffff;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+     id="path10"
+     cx="35.299377"
+     cy="56.2882"
+     r="5.6447206" />
+  <circle
+     style="fill:none;stroke:#ffffff;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+     id="path10-6"
+     cx="10.821117"
+     cy="53.008698"
+     r="5.6447206" />
+  <path
+     style="opacity:1;fill:none;stroke:#ffffff;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+     d="M -4.0546583,3.8161491 C 12.490666,7.2298382 5.2118003,32.514062 24.24337,32.888578 c 16.598918,0.326645 34.453771,2.190277 44.129301,17.7549"
+     id="path11" />
+  <path
+     style="opacity:1;fill:none;stroke:#ffffff;stroke-width:2;stroke-dasharray:none;stroke-opacity:1"
+     d="m -1.3515528,27.110559 c 8.7918656,4.168871 17.9049758,13.996044 28.5616138,10.916895 14.876342,-4.298399 23.096584,7.199439 34.891568,12.819944 1.908131,0.909256 3.855872,1.777053 5.555514,3.055702"
+     id="path12" />
 </svg>

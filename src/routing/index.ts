@@ -78,12 +78,13 @@ const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPP
 /**
  * Map the three frontend coefficients to GraphHopper `priority` rules.
  *
- * - roadAvoidanceCoefficient 0→1: penalize MOTORWAY+TRUNK (0.01→1.0),
- *   PRIMARY (0.05→1.0), SECONDARY (0.2→1.0)
+ * - roadAvoidanceCoefficient 0→1: penalize MOTORWAY+TRUNK (0.1→1.0),
+ *   PRIMARY (0.2→1.0), SECONDARY (0.2→1.0), TERTIARY (0.5→1.0)
  * - elevationCoefficient 0→1: 0 = hills ok (no penalty), 1 = avoid hills (heavy penalty).
- *   Slope bands: average_slope > 3% (0.5→1.0), max_slope > 6% (0.3→1.0),
- *   max_slope > 10% (0.1→1.0). GH encoded values are in percentage units (3 = 3%).
- * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→5.0), lower
+ *   Slope bands: average_slope > 3% (0.6→1.0), average_slope > 6% (0.4→1.0),
+ *   max_slope > 6% (0.5→1.0), max_slope > 10% (0.3→1.0).
+ *   GH encoded values are in percentage units (3 = 3%).
+ * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→3.0), lower
  *   distance_influence (allow longer detours)
  * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30
  */
@@ -106,6 +107,13 @@ export function buildCustomModel(
     {
       if: 'road_class == SECONDARY',
       multiply_by: String(lerp(0.2, 1.0, roadAvoidanceCoefficient)),
+    },
+    {
+      // Tertiary penalized more gently (floor 0.5) — these are often viable cycling
+      // roads, but without this rule max road avoidance + max cycleway preference
+      // still routes through tertiary instead of a nearby cycleway detour.
+      if: 'road_class == TERTIARY',
+      multiply_by: String(lerp(0.5, 1.0, roadAvoidanceCoefficient)),
     },
   ]
 

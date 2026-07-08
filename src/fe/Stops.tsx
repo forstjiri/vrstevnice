@@ -12,9 +12,9 @@ import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
 import type { GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
-const DEFAULT_ROAD_AVOIDANCE = 1;
-const DEFAULT_CYCLEWAY = 1;
-const DEFAULT_ELEVATION = .7;
+const DEFAULT_ROAD_AVOIDANCE = .9;
+const DEFAULT_CYCLEWAY = .9;
+const DEFAULT_ELEVATION = .4;
 
 interface LabeledSliderProps {
   value: number[]

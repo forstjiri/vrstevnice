@@ -12,8 +12,8 @@
  * so expensive that Path B (much longer but no secondary penalty) is preferred.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { startGH, stopGH, isGHRunning, GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle'
+import { describe, it, expect } from 'vitest'
+import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle'
 import { nodePoint, TEST_NODES } from '../fixtures/nodes'
 import { assertRoutePassesThrough, findNodeHits } from '../helpers/assert-route'
 import { buildCustomModel, type GHCustomModel } from '@vrstevnice/routing'
@@ -45,24 +45,12 @@ interface RouteTestCase {
   endNode: string
   elevationCoeff: number
   roadAvoidanceCoeff: number
+  /** Cycleway preference coefficient 0→1. Defaults to 0 (no cycleway preference). */
+  cyclewayCoeff?: number
   expectedNodes: string[]
   skipCalibration?: boolean
   distanceInfluenceOverride?: number
 }
-
-// ---------------------------------------------------------------------------
-// Container lifecycle
-// ---------------------------------------------------------------------------
-
-beforeAll(async () => {
-  if (!isGHRunning()) {
-    await startGH(90_000)
-  }
-}, 120_000)
-
-afterAll(() => {
-  stopGH()
-})
 
 // ---------------------------------------------------------------------------
 // Helper: strip slope rules
@@ -171,6 +159,34 @@ const testCases: RouteTestCase[] = [
     expectedNodes: ['Start', 'ResidentialSouth', 'ResidentialMid', 'ResidentialNorth', 'End'],
     skipCalibration: true,
   },
+
+  // --- TERTIARY vs CYCLEWAY differentiation (Start2 → End2) ---
+  // These cases prove that TERTIARY road_class must be penalized by road avoidance.
+  // Without the TERTIARY rule, a short tertiary path wins over a longer cycleway path
+  // even when cycleway preference is at max. With the rule, the cycleway path wins.
+
+  {
+    // ★ SANITY: no penalties → shortest path (tertiary direct)
+    name: 'no penalties → tertiary direct (shortest, Start2→End2)',
+    startNode: 'Start2',
+    endNode: 'End2',
+    elevationCoeff: 0.5,
+    roadAvoidanceCoeff: 1.0,
+    cyclewayCoeff: 0,
+    expectedNodes: ['Start2', 'TertiaryJunction1', 'TertiaryJunction2', 'End2'],
+  },
+  {
+    // ★ REGRESSION: max road avoidance + max cycleway → cycleway detour wins.
+    //   Without the TERTIARY rule in road avoidance, the shorter tertiary path wins
+    //   even when cycleway preference is at max.
+    name: 'max road avoidance + max cycleway → cycleway detour (tertiary penalized)',
+    startNode: 'Start2',
+    endNode: 'End2',
+    elevationCoeff: 0.5,
+    roadAvoidanceCoeff: 0.0,
+    cyclewayCoeff: 1.0,
+    expectedNodes: ['Start2', 'CyclewayEast1', 'CyclewayEast2', 'CyclewayEast3', 'End2'],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -185,7 +201,7 @@ describe('Routing: buildCustomModel() route selection', () => {
     // Build custom model unless skipCalibration and no custom model desired
     let customModel: unknown = undefined
     if (!tc.skipCalibration) {
-      const cm = buildCustomModel(tc.elevationCoeff, tc.roadAvoidanceCoeff)
+      const cm = buildCustomModel(tc.elevationCoeff, tc.roadAvoidanceCoeff, tc.cyclewayCoeff ?? 0)
       if (tc.distanceInfluenceOverride !== undefined) {
         cm.distance_influence = tc.distanceInfluenceOverride
       }
@@ -194,7 +210,7 @@ describe('Routing: buildCustomModel() route selection', () => {
     }
 
     console.log(`[routing-test] Case: "${tc.name}"`)
-    console.log(`[routing-test]   coeff: elev=${tc.elevationCoeff}, roadAvoid=${tc.roadAvoidanceCoeff}`)
+    console.log(`[routing-test]   coeff: elev=${tc.elevationCoeff}, roadAvoid=${tc.roadAvoidanceCoeff}, cycleway=${tc.cyclewayCoeff ?? 0}`)
     console.log(`[routing-test]   customModel: ${customModel ? JSON.stringify(customModel) : 'none'}`)
 
     const data = await ghRoute([startPt, endPt], customModel)

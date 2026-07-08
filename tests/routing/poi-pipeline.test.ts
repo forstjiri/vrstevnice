@@ -4,16 +4,13 @@
  *
  * All tests use mock geometries and a mock `queryFn` — no real network or GH instance.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   sampleRouteGeometry,
   deduplicatePOIs,
-  insertPOIWaypoints,
-  fetchPOIsAlongRoute,
-  type POIQueryFn,
 } from '@vrstevnice/routing'
 import { haversineMeters } from '@vrstevnice/shared'
-import type { POILocation, Stop } from '@vrstevnice/shared'
+import type { POILocation } from '@vrstevnice/shared'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,13 +34,6 @@ function makeRouteGeometry(lengthKm: number, pointCount: number): [number, numbe
     points.push([0, 14.4 + i * step])
   }
   return points
-}
-
-/**
- * Create a simple Stop object for testing.
- */
-function makeStop(lat: number, lng: number, name: string): Stop {
-  return { lat, lng, name }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,204 +191,5 @@ describe('deduplicatePOIs', () => {
 
     const strictResult = deduplicatePOIs(pois, 300)
     expect(strictResult).toHaveLength(1) // <300m apart → deduplicated
-  })
-})
-
-// ---------------------------------------------------------------------------
-// insertPOIWaypoints
-// ---------------------------------------------------------------------------
-describe('insertPOIWaypoints', () => {
-  it('inserts 1 POI between 2 stops', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'Start'),
-      makeStop(50.05, 14.5, 'End'),
-    ]
-    // Geometry: straight line from start to end
-    const geometry: [number, number][] = [
-      [50.0, 14.4],
-      [50.025, 14.45],  // midpoint
-      [50.05, 14.5],
-    ]
-    // POI at the midpoint
-    const pois: POILocation[] = [
-      { lat: 50.025, lng: 14.45, name: 'Midway Pub', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, geometry)
-
-    expect(result).toHaveLength(3)
-    expect(result[0].name).toBe('Start')
-    expect(result[1].name).toBe('Midway Pub')
-    expect(result[2].name).toBe('End')
-  })
-
-  it('inserts 2 POIs in route order between 2 stops', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'Start'),
-      makeStop(50.1, 14.6, 'End'),
-    ]
-    const geometry: [number, number][] = [
-      [50.0, 14.4],
-      [50.033, 14.467],
-      [50.067, 14.533],
-      [50.1, 14.6],
-    ]
-    // POI A is closer to start, POI B is closer to end
-    const pois: POILocation[] = [
-      { lat: 50.067, lng: 14.533, name: 'Pub B (further)', type: 'pub' }, // listed first but further
-      { lat: 50.033, lng: 14.467, name: 'Pub A (closer)', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, geometry)
-
-    expect(result).toHaveLength(4)
-    expect(result[0].name).toBe('Start')
-    // POIs should be in route order regardless of input order
-    expect(result[1].name).toBe('Pub A (closer)')
-    expect(result[2].name).toBe('Pub B (further)')
-    expect(result[3].name).toBe('End')
-  })
-
-  it('inserts POI on the correct segment with 3 stops', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'Start'),
-      makeStop(50.05, 14.5, 'Middle'),
-      makeStop(50.1, 14.6, 'End'),
-    ]
-    const geometry: [number, number][] = [
-      [50.0, 14.4],
-      [50.025, 14.45],
-      [50.05, 14.5],
-      [50.075, 14.55],
-      [50.1, 14.6],
-    ]
-    // POI on segment 1 (between Start and Middle)
-    const pois: POILocation[] = [
-      { lat: 50.025, lng: 14.45, name: 'Segment 1 Pub', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, geometry)
-
-    expect(result).toHaveLength(4)
-    expect(result[0].name).toBe('Start')
-    expect(result[1].name).toBe('Segment 1 Pub')
-    expect(result[2].name).toBe('Middle')
-    expect(result[3].name).toBe('End')
-  })
-
-  it('returns original stops unchanged when no POIs provided', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'Start'),
-      makeStop(50.05, 14.5, 'End'),
-    ]
-    const geometry: [number, number][] = [
-      [50.0, 14.4],
-      [50.025, 14.45],
-      [50.05, 14.5],
-    ]
-
-    const result = insertPOIWaypoints(stops, [], geometry)
-
-    expect(result).toHaveLength(2)
-    expect(result[0]).toEqual(stops[0])
-    expect(result[1]).toEqual(stops[1])
-  })
-
-  it('returns original stops when geometry has fewer than 2 points', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'Start'),
-      makeStop(50.05, 14.5, 'End'),
-    ]
-    const pois: POILocation[] = [
-      { lat: 50.025, lng: 14.45, name: 'Midway Pub', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, [[50.0, 14.4]])
-    expect(result).toEqual(stops)
-  })
-
-  it('returns original stops when fewer than 2 stops', () => {
-    const stops = [makeStop(50.0, 14.4, 'Only Stop')]
-    const geometry: [number, number][] = [[50.0, 14.4], [50.05, 14.5]]
-    const pois: POILocation[] = [
-      { lat: 50.025, lng: 14.45, name: 'Pub', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, geometry)
-    expect(result).toEqual(stops)
-  })
-
-  it('maintains route order for POIs across multiple segments', () => {
-    const stops = [
-      makeStop(50.0, 14.4, 'A'),
-      makeStop(50.1, 14.6, 'B'),
-      makeStop(50.2, 14.8, 'C'),
-    ]
-    const geometry: [number, number][] = [
-      [50.0, 14.4],
-      [50.05, 14.5],
-      [50.1, 14.6],
-      [50.15, 14.7],
-      [50.2, 14.8],
-    ]
-    // One POI per segment
-    const pois: POILocation[] = [
-      { lat: 50.15, lng: 14.7, name: 'POI on seg 2', type: 'pub' },
-      { lat: 50.05, lng: 14.5, name: 'POI on seg 1', type: 'pub' },
-    ]
-
-    const result = insertPOIWaypoints(stops, pois, geometry)
-
-    expect(result).toHaveLength(5)
-    expect(result[0].name).toBe('A')
-    expect(result[1].name).toBe('POI on seg 1')
-    expect(result[2].name).toBe('B')
-    expect(result[3].name).toBe('POI on seg 2')
-    expect(result[4].name).toBe('C')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Coefficient mapping (tested via fetchPOIsAlongRoute internals)
-// ---------------------------------------------------------------------------
-describe('coefficient-to-interval/radius mapping', () => {
-  it('coefficient=0 returns empty (no-op)', async () => {
-    const geometry = makeRouteGeometry(10, 100)
-    const queryFn: POIQueryFn = async () => []
-    const result = await fetchPOIsAlongRoute(geometry, 0, queryFn)
-    expect(result).toEqual({ selected: [], all: [] })
-  })
-
-  it('coefficient negative returns empty', async () => {
-    const geometry = makeRouteGeometry(10, 100)
-    const queryFn: POIQueryFn = async () => []
-    const result = await fetchPOIsAlongRoute(geometry, -0.5, queryFn)
-    expect(result).toEqual({ selected: [], all: [] })
-  })
-
-  // Verify route-length-aware sample density
-  it('coefficient=1 on short route uses max 8 samples', async () => {
-    // 20km route → desiredSamples = max(8, ceil(20/5)) = 8
-    const geometry = makeRouteGeometry(20, 200)
-
-    const queryFn = vi.fn<POIQueryFn>(async () => [])
-    const result = await fetchPOIsAlongRoute(geometry, 1.0, queryFn)
-    expect(result.selected).toEqual([])
-    expect(result.all).toEqual([])
-    // 20km route → 8 samples → 8 query calls
-    expect(queryFn.mock.calls.length).toBeLessThanOrEqual(8)
-  })
-
-  it('coefficient=0.1 on short route uses same sample count as high coefficient', async () => {
-    // Sample density is the same regardless of coefficient — coefficient only
-    // controls spatial thinning of results
-    const geometry = makeRouteGeometry(10, 100)
-
-    const queryFn = vi.fn<POIQueryFn>(async () => [])
-    const result = await fetchPOIsAlongRoute(geometry, 0.1, queryFn)
-    expect(result.selected).toEqual([])
-    expect(result.all).toEqual([])
-    // 10km route → desiredSamples = max(8, ceil(10/5)) = 8 → 8 samples → 8 query calls
-    expect(queryFn.mock.calls.length).toBe(8)
   })
 })

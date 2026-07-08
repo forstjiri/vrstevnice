@@ -42,7 +42,9 @@ graphhopper:
   import.osm.ignored_highways: ''
 
   #### Subnetworks ####
-  prepare.min_network_size: 200
+  # Set to 0 to allow multiple disconnected test scenarios in the same OSM file
+  # (e.g., Start→End for secondary/cycleway tests, Start2→End2 for tertiary tests).
+  prepare.min_network_size: 0
 
   #### Routing ####
   routing.max_visited_nodes: 50000

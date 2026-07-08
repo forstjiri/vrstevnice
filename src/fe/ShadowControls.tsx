@@ -148,7 +148,7 @@ export default function ShadowControls(props: ShadowControlsProps) {
                   <Checkbox checked={shadowRouteOn()} onChange={(v) => { setShadowRouteOn(v); maybeRegenerate() }} class="shadow-checkbox">
                     <Checkbox.Input class="shadow-checkbox-input" />
                     <Checkbox.Control class="shadow-checkbox-control" />
-                    <Checkbox.Label class="shadow-checkbox-label">Při výpočtu trasy řešit stín 🐢</Checkbox.Label>
+                    <Checkbox.Label class="shadow-checkbox-label">Vypočítat slunce na trase 🐢</Checkbox.Label>
                   </Checkbox>
                 </div>
               </Show>

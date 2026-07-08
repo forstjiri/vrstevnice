@@ -52,6 +52,46 @@
     <tag k="name" v="CyclewayBridge"/>
   </node>
 
+  <!--
+    TERTIARY vs CYCLEWAY test scenario (separate Start2/End2 at lon 14.50).
+
+    Two paths from Start2 to End2:
+    - Path C (short, ~1.1km, all tertiary — NOT penalized without TERTIARY rule):
+      Start2 → TertiaryJunction1 → TertiaryJunction2 → End2
+    - Path D (long, ~3.2km, all cycleway — maximizes cycleway bonus):
+      Start2 → CyclewayEast1 → CyclewayEast2 → CyclewayEast3 → End2
+
+    Differentiation:
+    - Without TERTIARY rule: Path C wins (shorter, tertiary at full priority).
+    - With TERTIARY rule (×0.5) + cycleway bonus (×3.0): Path D wins.
+  -->
+
+  <node id="20" lat="50.0700" lon="14.5000">
+    <tag k="name" v="Start2"/>
+  </node>
+  <node id="21" lat="50.0800" lon="14.5000">
+    <tag k="name" v="End2"/>
+  </node>
+
+  <!-- Path C: Tertiary direct — slight zigzag to avoid geometry simplification -->
+  <node id="22" lat="50.0735" lon="14.5010">
+    <tag k="name" v="TertiaryJunction1"/>
+  </node>
+  <node id="23" lat="50.0765" lon="14.5005">
+    <tag k="name" v="TertiaryJunction2"/>
+  </node>
+
+  <!-- Path D: Cycleway detour (far east) — slight zigzag -->
+  <node id="24" lat="50.0720" lon="14.5180">
+    <tag k="name" v="CyclewayEast1"/>
+  </node>
+  <node id="25" lat="50.0750" lon="14.5185">
+    <tag k="name" v="CyclewayEast2"/>
+  </node>
+  <node id="26" lat="50.0780" lon="14.5180">
+    <tag k="name" v="CyclewayEast3"/>
+  </node>
+
   <!-- ============ Ways ============ -->
 
   <!-- Path A: Start → ResidentialSouth (secondary) -->
@@ -124,6 +164,55 @@
     <nd ref="2"/>
     <tag k="highway" v="cycleway"/>
     <tag k="name" v="Cycleway Overpass"/>
+  </way>
+
+  <!-- ============ Path C: Tertiary direct (Start2 → End2) ============ -->
+
+  <way id="600">
+    <nd ref="20"/>
+    <nd ref="22"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="Tertiary Direct South"/>
+  </way>
+  <way id="601">
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="Tertiary Direct Mid"/>
+  </way>
+  <way id="602">
+    <nd ref="23"/>
+    <nd ref="21"/>
+    <tag k="highway" v="tertiary"/>
+    <tag k="name" v="Tertiary Direct North"/>
+  </way>
+
+  <!-- ============ Path D: Cycleway detour (Start2 → End2) ============ -->
+  <!-- All ways are cycleway to maximize the cycleway bonus effect. -->
+
+  <way id="700">
+    <nd ref="20"/>
+    <nd ref="24"/>
+    <tag k="highway" v="cycleway"/>
+    <tag k="name" v="Cycleway Approach"/>
+  </way>
+  <way id="701">
+    <nd ref="24"/>
+    <nd ref="25"/>
+    <tag k="highway" v="cycleway"/>
+    <tag k="name" v="East Cycleway South"/>
+  </way>
+  <way id="702">
+    <nd ref="25"/>
+    <nd ref="26"/>
+    <tag k="highway" v="cycleway"/>
+    <tag k="name" v="East Cycleway North"/>
+  </way>
+  <way id="703">
+    <nd ref="26"/>
+    <nd ref="21"/>
+    <tag k="highway" v="cycleway"/>
+    <tag k="name" v="Cycleway Return"/>
   </way>
 
 </osm>

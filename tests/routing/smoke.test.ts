@@ -9,27 +9,9 @@
  * Infrastructure: tests/helpers/gh-lifecycle.ts (container lifecycle)
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { startGH, stopGH, isGHRunning, GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle'
+import { describe, it, expect } from 'vitest'
+import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle'
 import { nodePoint, TEST_NODES } from '../fixtures/nodes'
-
-// ---------------------------------------------------------------------------
-// Container lifecycle
-// ---------------------------------------------------------------------------
-// Start GH only if not already running (routing.test.ts may start it first).
-// This avoids race conditions when both test suites run concurrently.
-// ---------------------------------------------------------------------------
-
-beforeAll(async () => {
-  if (!isGHRunning()) {
-    await startGH(90_000)
-  }
-}, 120_000)
-
-afterAll(() => {
-  // Only stop if we started it — but since we can't distinguish,
-  // let the routing test handle cleanup.
-})
 
 // ---------------------------------------------------------------------------
 // Helper

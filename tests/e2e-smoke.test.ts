@@ -32,15 +32,8 @@ async function checkServices(): Promise<{ ok: boolean; reason: string }> {
 // Evaluate at module load — Vitest supports top-level await in test files
 const { ok: servicesOk, reason: skipReason } = await checkServices()
 
-const skipMsg = () => `SKIP (${skipReason})`
-
 describe('E2E smoke', () => {
-  it.skipIf(!servicesOk)(skipMsg(), async () => {
-    // Sanity: if we got here, services are up
-    expect(servicesOk).toBe(true)
-  })
-
-  it.skipIf(!servicesOk)(skipMsg(), 'FE serves HTML with Vite SPA root', async () => {
+  it.skipIf(!servicesOk)('FE serves HTML with Vite SPA root', async () => {
     const res = await fetch(FE_URL)
     expect(res.ok).toBe(true)
     const html = await res.text()
@@ -48,7 +41,7 @@ describe('E2E smoke', () => {
     expect(html).toContain('id="app"')  // SolidJS root div
   })
 
-  it.skipIf(!servicesOk)(skipMsg(), 'BE: /api/geocode forward search for "Praha"', async () => {
+  it.skipIf(!servicesOk)('BE: /api/geocode forward search for "Praha"', async () => {
     const res = await fetch(`${BE_URL}/api/geocode?q=Praha`)
     expect(res.ok).toBe(true)
     const data = await res.json()
@@ -59,21 +52,21 @@ describe('E2E smoke', () => {
     expect(data[0]).toHaveProperty('name')
   })
 
-  it.skipIf(!servicesOk)(skipMsg(), 'BE: /api/geocode reverse geocoding (coordinates)', async () => {
+  it.skipIf(!servicesOk)('BE: /api/geocode reverse geocoding (coordinates)', async () => {
     const res = await fetch(`${BE_URL}/api/geocode?q=50.08,14.42`)
     expect(res.ok).toBe(true)
     const data = await res.json()
     expect(Array.isArray(data)).toBe(true)
   })
 
-  it.skipIf(!servicesOk)(skipMsg(), 'BE: /api/history returns array', async () => {
+  it.skipIf(!servicesOk)('BE: /api/history returns array', async () => {
     const res = await fetch(`${BE_URL}/api/history`)
     expect(res.ok).toBe(true)
     const data = await res.json()
     expect(Array.isArray(data)).toBe(true)
   })
 
-  it.skipIf(!servicesOk)(skipMsg(), 'BE: POST /api/route rejects invalid input', async () => {
+  it.skipIf(!servicesOk)('BE: POST /api/route rejects invalid input', async () => {
     // Missing required fields — Elysia should return 4xx
     const res = await fetch(`${BE_URL}/api/route`, {
       method: 'POST',
@@ -85,7 +78,7 @@ describe('E2E smoke', () => {
     expect(res.status).toBeLessThan(500)
   })
 
-  it.skipIf(!servicesOk)(skipMsg(), 'BE: POST /api/route computes a real route with all fields', async () => {
+  it.skipIf(!servicesOk)('BE: POST /api/route computes a real route with all fields', async () => {
     const res = await fetch(`${BE_URL}/api/route`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -127,5 +120,5 @@ describe('E2E smoke', () => {
     expect(Array.isArray(data.surfaceSegments)).toBe(true)
     expect(Array.isArray(data.roadClassSegments)).toBe(true)
     expect(Array.isArray(data.roadEnvSegments)).toBe(true)
-  }, 30_000)
+  })
 })
