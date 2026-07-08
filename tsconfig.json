@@ -9,7 +9,8 @@
       "@vrstevnice/shared": ["src/shared/index.ts"],
       "@vrstevnice/routing": ["src/routing/index.ts"],
       "@vrstevnice/be": ["src/be/index.ts"],
-      "@vrstevnice/fe": ["src/fe/App.tsx"]
+      "@vrstevnice/fe": ["src/fe/App.tsx"],
+      "@vrstevnice/fe/*": ["src/fe/*"]
     },
     "strict": true,
     "esModuleInterop": true,
@@ -23,5 +24,5 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

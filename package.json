@@ -9,6 +9,8 @@
     "dev:fe": "pnpm --filter @vrstevnice/fe dev",
     "prod:fe": "pnpm --filter @vrstevnice/fe build",
     "test": "vitest run --config tests/vitest.config.ts",
+    "test-graph:generate": "bash -c 'python3 scripts/generate-test-graph.py'",
+    "test-graph:render": "bash -c 'VENV=.venv-test-graph; [ -d $VENV ] || uv venv $VENV; $VENV/bin/python -c \"import svgwrite\" >/dev/null 2>&1 || uv pip install --python $VENV/bin/python svgwrite -q; $VENV/bin/python scripts/render-test-graph.py'",
     "extract-routes": "bash -c 'VENV=.venv-extract; [ -d $VENV ] || (uv venv $VENV && $VENV/bin/python -m pip install osmium -q); $VENV/bin/python scripts/extract_bicycle_routes.py data/czech-republic-latest.osm.pbf data/cycleroutes.geojson'",
     "import-pois": "bash -c 'VENV=.venv-extract; [ -d $VENV ] || (uv venv $VENV && $VENV/bin/python -m pip install osmium -q); $VENV/bin/python scripts/import-pois.py data/czech-republic-latest.osm.pbf data/cz-pois.sqlite'"
   },

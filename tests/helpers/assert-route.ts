@@ -48,7 +48,7 @@ export function haversineMeters(
  */
 export function findNodeHits(
   routeCoords: number[][],
-  nodeCoords: [number, number][],
+  nodeCoords: [string, number, number][],
   toleranceM: number = 50,
 ): Map<string, number> {
   const hits = new Map<string, number>()
@@ -91,7 +91,7 @@ export function assertRoutePassesThrough(
   })
 
   // Find hits
-  const hits = findNodeHits(routeCoords, nodeCoords.map(([n, lon, lat]) => [n, lon, lat] as [string, number, number]), toleranceM)
+  const hits = findNodeHits(routeCoords, nodeCoords, toleranceM)
 
   // Check all nodes were found
   const missingNodes = expectedNodes.filter(n => !hits.has(n))

@@ -15,14 +15,12 @@ export default defineConfig({
     globals: true,
     // Print test names with dots as they run (useful for slow startup)
     reporters: 'verbose',
-  },
-  resolve: {
-    alias: {
-      // Allow imports from src/* in tests without relative path hacks
-      '@vrstevnice/routing': path.resolve(projectRoot, 'src/routing/index.ts'),
-      '@vrstevnice/shared': path.resolve(projectRoot, 'src/shared/index.ts'),
-      '@vrstevnice/be': path.resolve(projectRoot, 'src/be/index.ts'),
-      '@vrstevnice/fe/chart-constants': path.resolve(projectRoot, 'src/fe/chart-constants.ts'),
-    },
+    alias: [
+      { find: /^@vrstevnice\/routing$/, replacement: path.resolve(projectRoot, 'src/routing/index.ts') },
+      { find: /^@vrstevnice\/shared$/, replacement: path.resolve(projectRoot, 'src/shared/index.ts') },
+      { find: /^@vrstevnice\/be$/, replacement: path.resolve(projectRoot, 'src/be/index.ts') },
+      { find: /^@vrstevnice\/fe\/chart-constants$/, replacement: path.resolve(projectRoot, 'src/fe/chart-constants.ts') },
+      { find: /^@vrstevnice\/fe\/gpx$/, replacement: path.resolve(projectRoot, 'src/fe/gpx.ts') },
+    ],
   },
 })

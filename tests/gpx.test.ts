@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { generateGPX } from '../src/fe/gpx'
-import type { RouteResponse } from '../src/shared'
+import { generateGPX } from '@vrstevnice/fe/gpx'
+import type { RouteResponse } from '@vrstevnice/shared'
 
 function makeRoute(overrides: Partial<RouteResponse> = {}): RouteResponse {
   return {
@@ -19,6 +19,11 @@ function makeRoute(overrides: Partial<RouteResponse> = {}): RouteResponse {
       { distance: 1000, elevation: 205 },
       { distance: 1500, elevation: 195 },
     ],
+    surfaceSegments: [],
+    roadClassSegments: [],
+    roadEnvSegments: [],
+    poiLocations: [],
+    allPOILocations: [],
     ...overrides,
   }
 }
