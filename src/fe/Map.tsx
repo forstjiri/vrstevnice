@@ -1,4 +1,5 @@
-import { onMount, onCleanup, createEffect, createSignal } from 'solid-js'
+import { onMount, onCleanup, createEffect, createSignal, Show } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import * as maplibregl from 'maplibre-gl'
 import mlcontour from 'maplibre-contour'
 import SunCalc from 'suncalc'
@@ -13,6 +14,14 @@ import { hoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } from './rideAnimationStore'
 import { createStopMarker, createPoiMarker, stopColor, buildContextMenu } from './map-markers'
 import ShadowControls from './ShadowControls'
+import { Badge } from '@kobalte/core/badge'
+import { ToggleButton } from '@kobalte/core/toggle-button'
+import {
+  mapControls,
+  setMapControls,
+  effectiveSunDate,
+  wireMapControls,
+} from './mapControlsStore'
 
 // Tileserver URL: localhost in dev, same-host in prod (port 2323 exposed by Docker)
 const TILESERVER_URL = import.meta.env.DEV
@@ -146,7 +155,7 @@ function hillshadeExaggerationFromIntensity(intensity: number): number {
  * Build a context menu from a declarative items list.
  */
 export default function Map() {
-  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter } = useApp()
+  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter, setHillshadeEnabled, setShadowRouteEnabled, setShadowDateTime, loading, shadowRouteEnabled, regenerateRoute } = useApp()
   let container!: HTMLDivElement
   let map: maplibregl.Map | undefined
   const [mapReady, setMapReady] = createSignal(false)
@@ -171,6 +180,7 @@ export default function Map() {
   const MIN_TERRAIN_ZOOM = 10
   let destroyed = false
   let updateHillshadeLightingLocal: (() => void) | null = null
+  const [topRightSlot, setTopRightSlot] = createSignal<HTMLDivElement | null>(null)
 
   function syncDynamicLayers(m: maplibregl.Map) {
     try {
@@ -254,6 +264,14 @@ export default function Map() {
 
     // TypeScript: map is guaranteed defined after successful construction
     const m = map!
+
+    const topRightCorner = m.getContainer().querySelector('.maplibregl-ctrl-top-right')
+    if (topRightCorner instanceof HTMLDivElement) {
+      const slot = document.createElement('div')
+      slot.className = 'map-top-right-slot'
+      topRightCorner.prepend(slot)
+      setTopRightSlot(slot)
+    }
 
     m.addControl(new maplibregl.NavigationControl())
 
@@ -953,96 +971,121 @@ export default function Map() {
     }
   })
 
-  onCleanup(() => map?.remove())
+  onCleanup(() => {
+    topRightSlot()?.remove()
+    setTopRightSlot(null)
+    map?.remove()
+  })
 
-  const shadowCallbacks = {
-    setTerrain: (enabled: boolean) => {
-      if (!map) return
-      try {
-        terrainEnabled = enabled
-        syncDynamicLayers(map)
-      } catch (_) {}
-    },
-    setTerrainExaggeration: (v: number) => {
-      if (!map) return
-      terrainExaggeration = v
-      try {
-        syncDynamicLayers(map)
-      } catch (_) {}
-    },
-    setHillshade: (enabled: boolean) => {
-      hillshadeEnabled = enabled
-      try {
-        if (map) syncDynamicLayers(map)
-        if (enabled) {
-          refreshHillshade()
-        }
-      } catch (_) {}
-    },
-    setHillshadeExaggeration: (v: number) => {
-      hillshadeBaseIntensity = v
-      try {
-        refreshHillshade()
-      } catch (_) {}
-    },
-    setSunDateTime: (value: string) => {
-      sunDateTime = value
-      try {
-        refreshHillshade()
-      } catch (_) {}
-    },
-    setContours: (enabled: boolean) => {
-      if (!map) return
-      try {
-        contoursEnabled = enabled
-        if (!enabled) contoursReady = false
-        else contoursReady = true
-        syncDynamicLayers(map)
-      } catch (_) {}
-    },
-    getMap: () => map ?? null,
+  // ── Map controls wiring (store → MapLibre mutable state) ──
+
+  function maybeRegenerate() {
+    if (!route() || loading()) return
+    setTimeout(() => {
+      if (!route() || loading() || !shadowRouteEnabled()) return
+      void regenerateRoute()()
+    }, 0)
   }
+
+  wireMapControls({
+    mapReady,
+    onTerrain: (enabled) => { terrainEnabled = enabled; if (map) syncDynamicLayers(map) },
+    onTerrainExaggeration: (v) => { terrainExaggeration = v; if (map) syncDynamicLayers(map) },
+    onHillshade: (enabled) => { hillshadeEnabled = enabled; if (map) syncDynamicLayers(map); if (enabled) refreshHillshade() },
+    onHillshadeIntensity: (v) => { hillshadeBaseIntensity = v; refreshHillshade() },
+    onSunDateTime: (v) => { sunDateTime = v; refreshHillshade() },
+    onContours: (enabled) => { contoursEnabled = enabled; contoursReady = enabled; if (map) syncDynamicLayers(map) },
+    setHillshadeEnabledCtx: setHillshadeEnabled,
+    setShadowRouteEnabledCtx: setShadowRouteEnabled,
+    setShadowDateTimeCtx: setShadowDateTime,
+  })
 
   return (
     <div class="map-wrapper">
       <div class="map-container">
         <div ref={container} class="map-host" />
         <div ref={(el) => { duskOverlay = el }} class="map-dusk-overlay" aria-hidden="true" />
-        <div class="map-overlay-top-right">
-          <div class="map-zoom-pill" title="Aktuální zoom">
-            z {mapZoom().toFixed(1)}
-          </div>
-          <button
-            class={`map-inspect-btn${inspectMode() ? ' map-inspect-btn-active' : ''}`}
-            type="button"
-            onClick={() => {
-              setInspectMode((v) => !v)
-              setInspectInfo(null)
-            }}
-            title="Zapnout/vypnout inspect mode"
-          >
-            ⌖ Inspect
-          </button>
-          {inspectMode() && inspectInfo() && (() => {
-            const info = inspectInfo()!
-            const props = info.properties
-            return (
-              <div class="map-inspect-panel">
-                <div class="map-inspect-header">
-                  <span class="map-inspect-title">{info.layerId}</span>
-                  {info.sourceLayer && <span class="map-inspect-subtitle">{info.sourceLayer}</span>}
-                  <span class="map-inspect-zoom">z{info.zoom}</span>
+        <Show when={topRightSlot()}>
+          {(slot) => (
+            <Portal mount={slot()}>
+              <div class="map-top-right-ui">
+                <div class="map-top-right-row">
+                  <Badge class="badge" textValue={`Zoom ${mapZoom().toFixed(1)}`}>
+                    z {mapZoom().toFixed(1)}
+                  </Badge>
+                  <ToggleButton
+                    class="btn-toggle"
+                    pressed={inspectMode()}
+                    onChange={(pressed) => {
+                      setInspectMode(pressed)
+                      setInspectInfo(null)
+                    }}
+                  >
+                    ⌖ Inspect
+                  </ToggleButton>
                 </div>
-                <div class="map-inspect-gps">📍 {info.lat}, {info.lng}</div>
-                {Object.keys(props).length > 0 && (
-                  <pre class="map-inspect-pre">{JSON.stringify(props, null, 2)}</pre>
-                )}
+                {inspectMode() && inspectInfo() && (() => {
+                  const info = inspectInfo()!
+                  const props = info.properties
+                  return (
+                    <div class="map-inspect-panel">
+                      <div class="map-inspect-header">
+                        <span class="map-inspect-title">{info.layerId}</span>
+                        {info.sourceLayer && <span class="map-inspect-subtitle">{info.sourceLayer}</span>}
+                        <span class="map-inspect-zoom">z{info.zoom}</span>
+                      </div>
+                      <div class="map-inspect-gps">📍 {info.lat}, {info.lng}</div>
+                      {Object.keys(props).length > 0 && (
+                        <pre class="map-inspect-pre">{JSON.stringify(props, null, 2)}</pre>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Quick toggle icons */}
+                <Show when={!webglFailed()}>
+                  <div class="map-toolbar-toggles">
+                    <ToggleButton
+                      class="btn-toggle btn-toggle-icon"
+                      pressed={mapControls.terrainOn}
+                      onChange={(p) => setMapControls('terrainOn', p)}
+                    >
+                      🏔️
+                    </ToggleButton>
+                    <ToggleButton
+                      class="btn-toggle btn-toggle-icon"
+                      pressed={mapControls.contoursOn}
+                      onChange={(p) => setMapControls('contoursOn', p)}
+                    >
+                      📐
+                    </ToggleButton>
+                    <ToggleButton
+                      class="btn-toggle btn-toggle-icon"
+                      pressed={mapControls.hillshadeOn}
+                      onChange={(p) => { setMapControls('hillshadeOn', p); maybeRegenerate() }}
+                    >
+                      🌗
+                    </ToggleButton>
+                  </div>
+                </Show>
+
+                {/* Date — only when hillshade is on */}
+                <Show when={mapControls.hillshadeOn && !webglFailed()}>
+                  <input
+                    class="map-date-input"
+                    type="date"
+                    value={effectiveSunDate()}
+                    onInput={(e) => { setMapControls('sunDate', e.currentTarget.value); maybeRegenerate() }}
+                  />
+                </Show>
               </div>
-            )
-          })()}
-        </div>
+            </Portal>
+          )}
+        </Show>
         <div class="map-overlay-shadow-controls">
-          <ShadowControls {...shadowCallbacks} mapReady={mapReady} webglFailed={webglFailed} />
+          <Show when={(mapControls.terrainOn || mapControls.hillshadeOn) && !webglFailed()}>
+            <ShadowControls webglFailed={webglFailed} />
+          </Show>
         </div>
       </div>
       <ElevationChart />

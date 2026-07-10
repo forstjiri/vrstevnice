@@ -1,6 +1,7 @@
 import { render } from 'solid-js/web'
 import App from './App'
 import './app.css'
+import './components.css'
 
 const SUPPRESSED = [
   'ArrayBuffer at index 0 is already detached',

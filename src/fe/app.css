@@ -209,115 +209,6 @@ body {
   gap: 2px;
 }
 
-/* ── Buttons (Kobalte Button) ──────────── */
-
-.btn {
-  border: none;
-  border-radius: var(--radius);
-  font-family: var(--font);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 10px 16px;
-  width: 100%;
-  transition: background 150ms, opacity 150ms;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--color-primary);
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
-
-.btn-ghost {
-  background: transparent;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-}
-
-.btn-ghost:hover:not(:disabled) { background: var(--color-bg); }
-
-/* ── Slider (Kobalte Slider) ───────────── */
-
-.slider-label {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--color-text);
-}
-
-.slider-label-experimental {
-  align-items: center;
-}
-
-.slider-label-text {
-  cursor: default;
-}
-
-.experimental-badge {
-  cursor: help;
-  font-size: 14px;
-  margin-left: 4px;
-}
-
-.slider-track {
-  background: var(--color-border);
-  position: relative;
-  border-radius: 9999px;
-  height: 6px;
-  width: 100%;
-}
-
-.slider-range {
-  position: absolute;
-  background: var(--color-primary);
-  border-radius: 9999px;
-  height: 100%;
-}
-
-.slider-thumb {
-  display: block;
-  width: 16px;
-  height: 16px;
-  background: var(--color-primary);
-  border-radius: 50%;
-  top: -5px;
-  outline: none;
-}
-
-.slider-thumb:hover,
-.slider-thumb:focus-visible {
-  box-shadow: 0 0 0 4px var(--color-primary-muted);
-}
-
-.slider-input {
-  background: transparent;
-}
-
-/* ── Progress (Kobalte Progress) ───────── */
-
-.progress-root {
-  width: 100%;
-  height: 4px;
-  background: var(--color-border);
-  border-radius: 9999px;
-  overflow: hidden;
-}
-
-.progress-track {
-  background: var(--color-primary);
-  border-radius: 9999px;
-  height: 100%;
-  transition: width 300ms ease;
-}
-
 /* ── Route stats (panel footer) ────────── */
 
 .route-stats {
@@ -532,43 +423,6 @@ body {
   cursor: pointer;
 }
 
-/* ── Small icon buttons ────────────────── */
-
-.btn-sm,
-.btn-ghost-sm,
-.btn-danger-sm {
-  background: none;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  padding: 2px 6px;
-  cursor: pointer;
-  color: var(--color-text-subtle);
-  transition: background 100ms, color 100ms;
-  font-family: var(--font);
-  --btn-hover-bg: var(--color-border-subtle);
-}
-
-.btn-sm:hover,
-.btn-ghost-sm:hover { background: var(--btn-hover-bg); color: var(--color-text); }
-.btn-danger-sm { --btn-hover-bg: #fef2f2; }
-.btn-danger-sm:hover { background: var(--btn-hover-bg); color: var(--color-danger); }
-
-/* ── Tooltip (Kobalte Tooltip) ─────────── */
-
-.tooltip {
-  background: var(--color-text);
-  color: var(--color-surface);
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-/* ── Separator (Kobalte Separator) ─────── */
-
-.separator { border: none; border-top: 1px solid var(--color-border); }
-
 /* ── Map context menu (custom) ── */
 
 .map-contextmenu {
@@ -630,53 +484,47 @@ body {
   overflow-y: auto;
 }
 
-.map-overlay-top-right {
-  position: absolute;
-  top: 10px;
-  right: 90px;
-  z-index: 10;
+.map-top-right-slot {
+  margin: 10px 10px 0 0;
+  pointer-events: auto;
+}
+
+.map-top-right-ui {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
-  pointer-events: none;
 }
 
-.map-zoom-pill,
-.map-inspect-btn,
-.map-inspect-panel {
-  pointer-events: auto;
+.map-top-right-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.map-zoom-pill {
-  min-width: 56px;
-  padding: 6px 10px;
+.map-toolbar-toggles {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.map-date-input {
+  padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.82);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1;
-  text-align: center;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.16);
-}
-
-.map-inspect-btn {
-  border: 1px solid rgba(37, 99, 235, 0.45);
+  border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.92);
-  color: var(--color-text);
-  border-radius: 999px;
-  padding: 6px 10px;
   font-size: 12px;
-  cursor: pointer;
+  font-family: var(--font);
+  color: var(--color-text);
+  backdrop-filter: blur(4px);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
 }
 
-.map-inspect-btn-active {
-  background: #dbeafe;
-  border-color: var(--color-primary);
-  color: #1d4ed8;
+.panel-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .map-inspect-panel {
@@ -790,56 +638,6 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.shadow-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.shadow-checkbox-input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.shadow-checkbox-control {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--color-border);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 100ms, border-color 100ms;
-}
-
-.shadow-checkbox[data-checked] .shadow-checkbox-control {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.shadow-checkbox[data-checked] .shadow-checkbox-control::after {
-  content: '';
-  display: block;
-  width: 4px;
-  height: 8px;
-  border: solid #fff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg) translate(-1px, -1px);
-}
-
-.shadow-checkbox-input:focus-visible + .shadow-checkbox-control {
-  box-shadow: 0 0 0 3px var(--color-primary-muted);
-}
-
-.shadow-checkbox-label {
-  font-size: 13px;
-  cursor: pointer;
-  user-select: none;
 }
 
 .shadow-webgl-warning {

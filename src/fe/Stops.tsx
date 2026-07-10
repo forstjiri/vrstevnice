@@ -6,8 +6,10 @@ import { Slider } from '@kobalte/core/slider'
 import { Separator } from '@kobalte/core/separator'
 import { Progress } from '@kobalte/core/progress'
 import { Tooltip } from '@kobalte/core/tooltip'
+import { ToggleButton } from '@kobalte/core/toggle-button'
 import { useApp } from './App'
 import { downloadGPX } from './gpx'
+import { mapControls, setMapControls } from './mapControlsStore'
 import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
 import type { GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
@@ -67,6 +69,8 @@ export default function Stops() {
     shadowRouteEnabled,
     shadowDateTime,
     showPOI,
+    setShowPOI,
+    regenerateRoute,
     setRegenerateRoute,
   } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
@@ -332,6 +336,30 @@ export default function Stops() {
             <Progress.Track class="progress-track" />
           </Progress>
         </Show>
+
+        <div class="panel-toggles">
+          <ToggleButton
+            class="btn-toggle btn-toggle-label"
+            pressed={showPOI()}
+            onChange={setShowPOI}
+          >
+            🍻 Občerstvení na cestě
+          </ToggleButton>
+          <ToggleButton
+            class="btn-toggle btn-toggle-label"
+            pressed={mapControls.shadowRouteOn}
+            onChange={(p) => {
+              setMapControls('shadowRouteOn', p)
+              if (!route() || loading()) return
+              setTimeout(() => {
+                if (!route() || loading() || !shadowRouteEnabled()) return
+                void regenerateRoute()()
+              }, 0)
+            }}
+          >
+            ☀️ Slunce na trase
+          </ToggleButton>
+        </div>
 
         <LabeledSlider value={elevCoeff()} onChange={setElevCoeff} label="Vyhnout se kopcům" minValue={0} maxValue={1} step={0.05} />
 
