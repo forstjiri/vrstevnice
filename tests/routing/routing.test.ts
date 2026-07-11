@@ -2,7 +2,7 @@
  * Parametrized routing tests proving buildCustomModel() changes GH route selection.
  *
  * Three paths from Start to End in the synthetic spiderweb (test-graph.osm):
- *   Path A (short, ~4.5 km): trunk→primary→secondary→tertiary — PENALIZED by roadAvoid
+ *   Path A (short, ~4.5 km): all tertiary — PENALIZED by roadAvoid
  *   Path B (medium, ~5.0 km): all unclassified — NOT in any custom model rule (no penalty)
  *   Path C (long,  ~9.0 km): all cycleway — BOOSTED by cyclewayCoeff
  *
