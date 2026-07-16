@@ -400,6 +400,13 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .elevation-chart-container {
+    min-height: 250px;
+  }
 }
 
 /* ── Ride animation controls ────────── */

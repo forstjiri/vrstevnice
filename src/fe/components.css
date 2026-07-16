@@ -109,6 +109,28 @@
   background: transparent;
 }
 
+@media (pointer: coarse) {
+  .slider-track {
+    height: 8px;
+  }
+
+  .slider-thumb {
+    width: 28px;
+    height: 28px;
+    top: -10px;
+  }
+
+  .slider-thumb:hover,
+  .slider-thumb:focus-visible {
+    box-shadow: 0 0 0 6px var(--color-primary-muted);
+  }
+
+  .slider-label {
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+}
+
 /* ── Progress (Kobalte Progress) ───────── */
 
 .progress-root {

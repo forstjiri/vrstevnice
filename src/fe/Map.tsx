@@ -21,10 +21,10 @@ import {
   shadowRouteActive,
 } from './mapControlsStore'
 
-// Tileserver URL: localhost in dev, same-host in prod (port 2323 exposed by Docker)
+// Tileserver URL: localhost in dev, proxied through same-origin in prod
 const TILESERVER_URL = import.meta.env.DEV
   ? 'http://localhost:2323'
-  : `${window.location.protocol}//${window.location.hostname}:2323`
+  : ''
 
 // ── Contour line setup (module-level, before any Map instance) ──
 // Relative URL — works in dev (Vite proxy origin) and prod (same-origin via BE)

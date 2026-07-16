@@ -721,6 +721,11 @@ export default function ElevationChart() {
     canvas.addEventListener('mousemove', onMouseMove)
     canvas.addEventListener('mouseleave', onMouseLeave)
     canvas.addEventListener('click', onChartClick)
+    canvas.addEventListener('touchmove', (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      onMouseMove({ clientX: e.touches[0].clientX } as MouseEvent)
+    }, { passive: true })
+    canvas.addEventListener('touchend', onMouseLeave)
     initialized = true
   }
 
@@ -783,6 +788,8 @@ export default function ElevationChart() {
       canvas.removeEventListener('mousemove', onMouseMove)
       canvas.removeEventListener('mouseleave', onMouseLeave)
       canvas.removeEventListener('click', onChartClick)
+      canvas.removeEventListener('touchmove', onMouseMove as any)
+      canvas.removeEventListener('touchend', onMouseLeave)
     }
   })
 
