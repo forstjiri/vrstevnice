@@ -1,15 +1,15 @@
-import { createSignal, For, Show, onMount, type JSX } from 'solid-js'
+import { createSignal, For, Show, onMount } from 'solid-js'
 import * as maplibregl from 'maplibre-gl'
 import { Search } from '@kobalte/core/search'
 import { Button } from '@kobalte/core/button'
-import { Slider } from '@kobalte/core/slider'
 import { Separator } from '@kobalte/core/separator'
 import { Progress } from '@kobalte/core/progress'
 import { Tooltip } from '@kobalte/core/tooltip'
 import { ToggleButton } from '@kobalte/core/toggle-button'
 import { useApp } from './App'
 import { downloadGPX } from './gpx'
-import { mapControls, setMapControls } from './mapControlsStore'
+import LabeledSlider from './LabeledSlider'
+import { mapControls, mapControlActions, shadowRouteActive, effectiveSunDateTime } from './mapControlsStore'
 import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
 import type { GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
@@ -17,41 +17,6 @@ import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 const DEFAULT_ROAD_AVOIDANCE = .9;
 const DEFAULT_CYCLEWAY = .9;
 const DEFAULT_ELEVATION = .4;
-
-interface LabeledSliderProps {
-  value: number[]
-  onChange: (v: number[]) => void
-  label: string
-  minValue: number
-  maxValue: number
-  step: number
-  labelExtra?: JSX.Element
-}
-
-function LabeledSlider(props: LabeledSliderProps) {
-  return (
-    <Slider
-      value={props.value}
-      onChange={props.onChange}
-      minValue={props.minValue}
-      maxValue={props.maxValue}
-      step={props.step}
-    >
-      <div class={`slider-label${props.labelExtra ? ' slider-label-experimental' : ''}`}>
-        <Show when={props.labelExtra} fallback={<Slider.Label>{props.label}</Slider.Label>}>
-          {props.labelExtra}
-        </Show>
-        <Slider.ValueLabel />
-      </div>
-      <Slider.Track class="slider-track">
-        <Slider.Fill class="slider-range" />
-        <Slider.Thumb class="slider-thumb">
-          <Slider.Input class="slider-input" />
-        </Slider.Thumb>
-      </Slider.Track>
-    </Slider>
-  )
-}
 
 export default function Stops() {
   const {
@@ -65,9 +30,6 @@ export default function Stops() {
     error,
     setError,
     mapCenter,
-    hillshadeEnabled,
-    shadowRouteEnabled,
-    shadowDateTime,
     showPOI,
     setShowPOI,
     regenerateRoute,
@@ -127,9 +89,9 @@ export default function Stops() {
       }
     } catch (_) {}
   }
-  const [elevCoeff, setElevCoeff] = createSignal<number[]>([DEFAULT_ELEVATION])
-  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number[]>([DEFAULT_ROAD_AVOIDANCE])
-  const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number[]>([DEFAULT_CYCLEWAY])
+  const [elevCoeff, setElevCoeff] = createSignal<number>(DEFAULT_ELEVATION)
+  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number>(DEFAULT_ROAD_AVOIDANCE)
+  const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number>(DEFAULT_CYCLEWAY)
 
 
   const handleSearch = async (query: string) => {
@@ -190,11 +152,11 @@ export default function Stops() {
     try {
       const body: RouteRequest = {
         stops: stops(),
-        elevationCoefficient: elevCoeff()[0] ?? DEFAULT_ELEVATION,
-        roadAvoidanceCoefficient: 1 - (roadAvoidCoeff()[0] ?? DEFAULT_ROAD_AVOIDANCE),
-        cyclewayCoefficient: cyclewayCoeff()[0] ?? DEFAULT_CYCLEWAY,
+        elevationCoefficient: elevCoeff(),
+        roadAvoidanceCoefficient: 1 - roadAvoidCoeff(),
+        cyclewayCoefficient: cyclewayCoeff(),
         showPOI: showPOI(),
-        shadowDateTime: shadowRouteEnabled() ? shadowDateTime() : undefined,
+        shadowDateTime: shadowRouteActive() ? effectiveSunDateTime() : undefined,
       }
       const { data, error } = await treaty.api.route.post(body)
       if (error) {
@@ -214,9 +176,9 @@ export default function Stops() {
   onMount(() => setRegenerateRoute(() => calculateRoute))
 
   return (
-    <aside class="panel">
+    <div class="sheet-content">
       {/* Header */}
-      <div class="panel-header">
+      <div class="sheet-header">
         <h1>Vrstevnice</h1>
 
         <Show when={error()}>
@@ -262,7 +224,7 @@ export default function Stops() {
       </div>
 
       {/* Stop list */}
-      <div class="panel-body">
+      <div class="sheet-body">
         <Show
           when={stops().length > 0}
           fallback={<p class="stops-empty">Přidejte alespoň 2 zastávky</p>}
@@ -306,7 +268,7 @@ export default function Stops() {
       </div>
 
       {/* Footer controls */}
-      <div class="panel-footer">
+      <div class="sheet-footer">
         <Show when={route()}>
           <div class="route-stats">
             <span class="route-stat">
@@ -337,7 +299,7 @@ export default function Stops() {
           </Progress>
         </Show>
 
-        <div class="panel-toggles">
+        <div class="sheet-toggles">
           <ToggleButton
             class="btn-toggle btn-toggle-label"
             pressed={showPOI()}
@@ -349,10 +311,10 @@ export default function Stops() {
             class="btn-toggle btn-toggle-label"
             pressed={mapControls.shadowRouteOn}
             onChange={(p) => {
-              setMapControls('shadowRouteOn', p)
+              mapControlActions.setShadowRouteOn(p)
               if (!route() || loading()) return
               setTimeout(() => {
-                if (!route() || loading() || !shadowRouteEnabled()) return
+                if (!route() || loading() || !shadowRouteActive()) return
                 void regenerateRoute()()
               }, 0)
             }}
@@ -393,6 +355,6 @@ export default function Stops() {
           </Button>
         </Show>
       </div>
-    </aside>
+    </div>
   )
 }

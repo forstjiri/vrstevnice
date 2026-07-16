@@ -1,24 +1,70 @@
 import { createStore } from 'solid-js/store'
-import { createMemo, createEffect, untrack } from 'solid-js'
+import { createMemo } from 'solid-js'
 import { formatLocalDate, parseLocalDateTime } from '@vrstevnice/shared'
-import { rideAnimation, updateRideAnimation } from './rideAnimationStore'
+import { rideAnimation } from './rideAnimationStore'
 
 const now = new Date()
 
-// ── Store ──
+export const DEFAULT_TERRAIN_EXAGGERATION = 2.2
+
+// ── State ──
 
 export const [mapControls, setMapControls] = createStore({
   terrainOn: false,
   hillshadeOn: false,
   contoursOn: true,
   shadowRouteOn: false,
-  hillshadeExaggeration: [1] as number[],
-  exaggeration: [1.5] as number[],
+  hillshadeIntensity: 1,
+  terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
   sunDate: formatLocalDate(now),
-  sunMinutes: [now.getHours() * 60 + now.getMinutes()] as number[],
+  sunMinutes: now.getHours() * 60 + now.getMinutes(),
 })
 
-// ── Derived: ride animation sync ──
+// ── Actions (enforce invariants) ──
+
+export const mapControlActions = {
+  setTerrainOn(value: boolean) {
+    setMapControls('terrainOn', value)
+    if (!value) {
+      setMapControls('hillshadeOn', false)
+      setMapControls('shadowRouteOn', false)
+    }
+  },
+  setHillshadeOn(value: boolean) {
+    setMapControls('hillshadeOn', value)
+    if (!value) setMapControls('shadowRouteOn', false)
+  },
+  setContoursOn(value: boolean) {
+    setMapControls('contoursOn', value)
+  },
+  setShadowRouteOn(value: boolean) {
+    setMapControls('shadowRouteOn', value)
+  },
+  setTerrainExaggeration(value: number) {
+    setMapControls('terrainExaggeration', value)
+  },
+  setHillshadeIntensity(value: number) {
+    setMapControls('hillshadeIntensity', value)
+  },
+  setSunDate(value: string) {
+    setMapControls('sunDate', value)
+  },
+  setSunMinutes(value: number) {
+    setMapControls('sunMinutes', value)
+  },
+}
+
+// ── Selectors ──
+
+/** Hillshade is active when terrain + hillshade are both on */
+export const hillshadeActive = (): boolean =>
+  mapControls.terrainOn && mapControls.hillshadeOn
+
+/** Shadow route is active when hillshade + shadow route toggle are on */
+export const shadowRouteActive = (): boolean =>
+  hillshadeActive() && mapControls.shadowRouteOn
+
+// ── Derived: ride animation time ──
 
 const animatedSunDateTime = createMemo(() => {
   if (!mapControls.hillshadeOn) return null
@@ -34,10 +80,15 @@ export const effectiveSunDate = createMemo(() => {
   return animated ? formatLocalDate(animated) : mapControls.sunDate
 })
 
-export const effectiveSunMinutes = createMemo<number[]>(() => {
+export const effectiveSunMinutes = createMemo(() => {
   const animated = animatedSunDateTime()
-  return animated ? [animated.getHours() * 60 + animated.getMinutes()] : mapControls.sunMinutes
+  return animated ? animated.getHours() * 60 + animated.getMinutes() : mapControls.sunMinutes
 })
+
+/** Composed datetime string for current effective sun position (user or animated) */
+export const effectiveSunDateTime = createMemo(() =>
+  composeLocalDateTime(effectiveSunDate(), effectiveSunMinutes()),
+)
 
 // ── Helpers ──
 
@@ -55,66 +106,4 @@ export function composeLocalDateTime(date: string, totalMinutes: number): string
   const mins = minutes % 60
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date}T${pad(hours)}:${pad(mins)}`
-}
-
-// ── Map wiring: bridge store → MapLibre mutable state ──
-
-export interface MapWiringDeps {
-  mapReady: () => boolean
-  onTerrain: (enabled: boolean) => void
-  onTerrainExaggeration: (v: number) => void
-  onHillshade: (enabled: boolean) => void
-  onHillshadeIntensity: (v: number) => void
-  onSunDateTime: (value: string) => void
-  onContours: (enabled: boolean) => void
-  setHillshadeEnabledCtx: (v: boolean) => void
-  setShadowRouteEnabledCtx: (v: boolean) => void
-  setShadowDateTimeCtx: (v: string) => void
-}
-
-export function wireMapControls(deps: MapWiringDeps) {
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    deps.onTerrain(mapControls.terrainOn)
-  })
-
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    deps.onTerrainExaggeration(mapControls.exaggeration[0])
-  })
-
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    deps.onHillshade(mapControls.hillshadeOn)
-  })
-
-  createEffect(() => {
-    deps.setHillshadeEnabledCtx(mapControls.terrainOn && mapControls.hillshadeOn)
-  })
-
-  createEffect(() => {
-    deps.setShadowRouteEnabledCtx(mapControls.terrainOn && mapControls.hillshadeOn && mapControls.shadowRouteOn)
-  })
-
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    deps.onHillshadeIntensity(mapControls.hillshadeExaggeration[0])
-  })
-
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    const dtStr = composeLocalDateTime(effectiveSunDate(), effectiveSunMinutes()[0])
-    deps.onSunDateTime(dtStr)
-    deps.setShadowDateTimeCtx(dtStr)
-    untrack(() => {
-      if (!rideAnimation().playing || !mapControls.hillshadeOn) {
-        updateRideAnimation({ currentDateTime: dtStr })
-      }
-    })
-  })
-
-  createEffect(() => {
-    if (!deps.mapReady()) return
-    deps.onContours(mapControls.contoursOn)
-  })
 }

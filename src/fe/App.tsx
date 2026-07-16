@@ -1,9 +1,16 @@
-import { createContext, useContext, createSignal, type Accessor, type Setter } from 'solid-js'
+import { createContext, useContext, createSignal, createEffect, type Accessor, type Setter } from 'solid-js'
+import { Show } from 'solid-js'
+import { Badge } from '@kobalte/core/badge'
+import { Button } from '@kobalte/core/button'
+import { ToggleButton } from '@kobalte/core/toggle-button'
 import Map from './Map'
 import Stops from './Stops'
+import ElevationChart from './ElevationChart'
+import ShadowControls from './ShadowControls'
 import { edenTreaty } from '@elysiajs/eden'
 import type { App as ElysiaApp } from '@vrstevnice/be'
 import type { Stop, RouteResponse } from '@vrstevnice/shared'
+import { mapControls } from './mapControlsStore'
 
 const API_BASE = import.meta.env.DEV
   ? 'http://localhost:3002'
@@ -30,14 +37,8 @@ interface AppContextValue {
   setError: Setter<string | null>
   mapCenter: Accessor<MapCenter | null>
   setMapCenter: Setter<MapCenter | null>
-  hillshadeEnabled: Accessor<boolean>
-  setHillshadeEnabled: Setter<boolean>
-  shadowRouteEnabled: Accessor<boolean>
-  setShadowRouteEnabled: Setter<boolean>
   showPOI: Accessor<boolean>
   setShowPOI: Setter<boolean>
-  shadowDateTime: Accessor<string>
-  setShadowDateTime: Setter<string>
   regenerateRoute: Accessor<() => Promise<void>>
   setRegenerateRoute: Setter<() => Promise<void>>
 }
@@ -63,15 +64,32 @@ export default function App() {
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
   const [mapCenter, setMapCenter] = createSignal<MapCenter | null>(null)
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const [hillshadeEnabled, setHillshadeEnabled] = createSignal(false)
-  const [shadowRouteEnabled, setShadowRouteEnabled] = createSignal(false)
   const [showPOI, setShowPOI] = createSignal(false)
-  const [shadowDateTime, setShadowDateTime] = createSignal(
-    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`,
-  )
   const [regenerateRoute, setRegenerateRoute] = createSignal<() => Promise<void>>(async () => {})
+  const [sheetOpen, setSheetOpen] = createSignal(false)
+  const [activeTab, setActiveTab] = createSignal<'planner' | 'terrain' | 'chart'>('planner')
+
+  const hasTerrainItems = () => mapControls.terrainOn || mapControls.hillshadeOn
+
+  // Fallback to planner when route disappears
+  createEffect(() => {
+    if (!route() && activeTab() === 'chart') {
+      setActiveTab('planner')
+    }
+    if (!hasTerrainItems() && activeTab() === 'terrain') {
+      setActiveTab('planner')
+    }
+  })
+
+  function selectTab(tab: 'planner' | 'terrain' | 'chart') {
+    if (activeTab() === tab) {
+      setSheetOpen((v) => !v)
+    } else {
+      setActiveTab(tab)
+      setSheetOpen(true)
+    }
+  }
+
   const addStop = (stop: Stop) => {
     setStops(prev => [...prev, stop])
   }
@@ -99,14 +117,8 @@ export default function App() {
     setError,
     mapCenter,
     setMapCenter,
-    hillshadeEnabled,
-    setHillshadeEnabled,
-    shadowRouteEnabled,
-    setShadowRouteEnabled,
     showPOI,
     setShowPOI,
-    shadowDateTime,
-    setShadowDateTime,
     regenerateRoute,
     setRegenerateRoute,
   }
@@ -115,8 +127,61 @@ export default function App() {
 
   return (
     <AppContext.Provider value={contextValue}>
-      <Stops />
       <Map />
+      <Show when={sheetOpen()}>
+        <div class="bottom-sheet-panel">
+          <Button
+            class="btn btn-icon-circle sheet-close"
+            onClick={() => setSheetOpen(false)}
+            aria-label="Zavřít panel"
+          >
+            ×
+          </Button>
+          <Show when={activeTab() === 'planner'}>
+            <Stops />
+          </Show>
+          <Show when={activeTab() === 'terrain'}>
+            <ShadowControls />
+          </Show>
+          <Show when={activeTab() === 'chart'}>
+            <ElevationChart />
+          </Show>
+        </div>
+      </Show>
+      <Show when={!sheetOpen()}>
+        <div class="bottom-sheet-tabs">
+          <ToggleButton
+            class="btn btn-toggle-tab"
+            pressed={false}
+            onClick={() => selectTab('planner')}
+          >
+            🗺️ Najdi trasu
+            <Show when={stops().length > 0}>
+              <Badge class="badge badge-tab" textValue={`${stops().length} zastávky`}>
+                {stops().length}
+              </Badge>
+            </Show>
+          </ToggleButton>
+          <Show when={hasTerrainItems()}>
+            <ToggleButton
+              class="btn btn-toggle-tab"
+              pressed={false}
+              onClick={() => selectTab('terrain')}
+            >
+              🏔️ Terén
+            </ToggleButton>
+          </Show>
+          <Show when={route()}>
+            <ToggleButton
+              class="btn btn-toggle-tab"
+              pressed={false}
+              onClick={() => selectTab('chart')}
+            >
+              📊 Graf
+            </ToggleButton>
+          </Show>
+        </div>
+      </Show>
     </AppContext.Provider>
   )
 }

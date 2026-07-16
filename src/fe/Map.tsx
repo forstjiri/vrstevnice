@@ -9,18 +9,16 @@ maplibregl.setWorkerUrl(
 )
 import { haversineMeters, computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime, formatLocalDateTime } from '@vrstevnice/shared'
 import { useApp } from './App'
-import ElevationChart from './ElevationChart'
 import { hoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } from './rideAnimationStore'
 import { createStopMarker, createPoiMarker, stopColor, buildContextMenu } from './map-markers'
-import ShadowControls from './ShadowControls'
 import { Badge } from '@kobalte/core/badge'
 import { ToggleButton } from '@kobalte/core/toggle-button'
 import {
   mapControls,
-  setMapControls,
-  effectiveSunDate,
-  wireMapControls,
+  mapControlActions,
+  effectiveSunDateTime,
+  shadowRouteActive,
 } from './mapControlsStore'
 
 // Tileserver URL: localhost in dev, same-host in prod (port 2323 exposed by Docker)
@@ -83,6 +81,18 @@ function upsertGeoJSON(
   } else {
     map.addSource(sourceId, { type: 'geojson', data: data as any })
     map.addLayer({ ...layerSpec, source: sourceId } as any)
+  }
+}
+
+function setPaintProperties(
+  map: maplibregl.Map,
+  layerId: string,
+  properties: Array<[keyof maplibregl.AllPaintProperties, unknown]>,
+) {
+  for (const [name, value] of properties) {
+    try {
+      map.setPaintProperty(layerId, name, value as never)
+    } catch (_) {}
   }
 }
 
@@ -151,11 +161,28 @@ function hillshadeExaggerationFromIntensity(intensity: number): number {
   return 0.45 + normalized * 0.35
 }
 
+function getHillshadePaint(
+  intensity: number,
+  daylightFactor: number,
+  azimuth: number,
+  altitude: number,
+) {
+  return [
+    ['hillshade-illumination-direction', azimuth],
+    ['hillshade-illumination-altitude', clamp(altitude, 5, 70)],
+    ['hillshade-illumination-anchor', 'map'],
+    ['hillshade-exaggeration', hillshadeExaggerationFromIntensity(intensity) * (0.4 + daylightFactor * 0.6)],
+    ['hillshade-shadow-color', rgba(0, 0, 0, 0.35 * daylightFactor + 0.08)],
+    ['hillshade-highlight-color', rgba(255, 255, 255, 0.22 * daylightFactor + 0.03)],
+    ['hillshade-accent-color', rgba(90, 90, 90, 0.2 * daylightFactor + 0.04)],
+  ] satisfies Array<[keyof maplibregl.AllPaintProperties, unknown]>
+}
+
 /**
  * Build a context menu from a declarative items list.
  */
 export default function Map() {
-  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter, setHillshadeEnabled, setShadowRouteEnabled, setShadowDateTime, loading, shadowRouteEnabled, regenerateRoute } = useApp()
+  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter, loading, regenerateRoute } = useApp()
   let container!: HTMLDivElement
   let map: maplibregl.Map | undefined
   const [mapReady, setMapReady] = createSignal(false)
@@ -167,15 +194,10 @@ export default function Map() {
   let duskOverlay: HTMLDivElement | null = null
   let firstRoute = true
   let routeBounds: maplibregl.LngLatBounds | null = null
-  let terrainEnabled = true
-  let terrainExaggeration = 1.5
-  let hillshadeEnabled = true
-  let contoursEnabled = true
   let contoursReady = false
   const [mapZoom, setMapZoom] = createSignal(7)
   const [inspectMode, setInspectMode] = createSignal(false)
   const [inspectInfo, setInspectInfo] = createSignal<{ layerId: string; sourceLayer?: string; lng: string; lat: string; zoom: string; properties: Record<string, unknown> } | null>(null)
-  let hillshadeBaseIntensity = 1
   let sunDateTime = formatLocalDateTime(new Date())
   const MIN_TERRAIN_ZOOM = 10
   let destroyed = false
@@ -185,15 +207,15 @@ export default function Map() {
   function syncDynamicLayers(m: maplibregl.Map) {
     try {
       if (!m.isStyleLoaded()) return
-      const terrainVisible = terrainEnabled && m.getZoom() >= MIN_TERRAIN_ZOOM
-      if (terrainVisible) m.setTerrain({ source: 'terrain-dem', exaggeration: terrainExaggeration })
+      const terrainVisible = mapControls.terrainOn && m.getZoom() >= MIN_TERRAIN_ZOOM
+      if (terrainVisible) m.setTerrain({ source: 'terrain-dem', exaggeration: mapControls.terrainExaggeration })
       else m.setTerrain(null)
 
       if (m.getLayer('hillshade')) {
-        m.setLayoutProperty('hillshade', 'visibility', hillshadeEnabled && terrainVisible ? 'visible' : 'none')
+        m.setLayoutProperty('hillshade', 'visibility', mapControls.hillshadeOn && terrainVisible ? 'visible' : 'none')
       }
 
-      const contoursVisible = contoursEnabled && contoursReady
+      const contoursVisible = mapControls.contoursOn && contoursReady
       if (m.getLayer('contour-lines')) {
         m.setLayoutProperty('contour-lines', 'visibility', contoursVisible ? 'visible' : 'none')
       }
@@ -364,14 +386,14 @@ export default function Map() {
           type: 'hillshade',
           source: 'terrain-dem',
           layout: {
-            visibility: hillshadeEnabled ? 'visible' : 'none',
+            visibility: mapControls.hillshadeOn ? 'visible' : 'none',
           },
           paint: {
             'hillshade-method': 'basic',
             'hillshade-shadow-color': 'rgba(0, 0, 0, 0.35)',
             'hillshade-highlight-color': 'rgba(255, 255, 255, 0.22)',
             'hillshade-accent-color': 'rgba(90, 90, 90, 0.2)',
-            'hillshade-exaggeration': hillshadeBaseIntensity,
+            'hillshade-exaggeration': mapControls.hillshadeIntensity,
             'hillshade-illumination-direction': 315,
             'hillshade-illumination-altitude': 45,
           },
@@ -380,7 +402,7 @@ export default function Map() {
         const updateHillshadeLighting = () => {
           try {
             if (destroyed || !m.getLayer('hillshade') || !m.isStyleLoaded()) return
-            if (!hillshadeEnabled) {
+            if (!mapControls.hillshadeOn) {
               if (duskOverlay) {
                 duskOverlay.style.opacity = '0'
                 duskOverlay.style.background = 'transparent'
@@ -397,7 +419,7 @@ export default function Map() {
             const sunset = times.sunset ?? null
             const daylightFactor = hillshadeVisibilityFactor(dt, sunrise, sunset)
             const nightMix = hillshadeNightMix(dt, sunrise, sunset)
-            const strengthT = clamp((hillshadeBaseIntensity - 1) / 2, 0, 1)
+            const hillshadeIntensity = mapControls.hillshadeIntensity
             const ambientTintFactor = clamp((1 - daylightFactor) * (0.08 + nightMix * 0.22), 0, 0.28)
 
             if (duskOverlay) {
@@ -408,13 +430,7 @@ export default function Map() {
                 : 'transparent'
             }
 
-            try { m.setPaintProperty('hillshade', 'hillshade-illumination-direction', azimuth) } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-illumination-altitude', clamp(altitude, 5, 70)) } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-illumination-anchor', 'map') } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-exaggeration', hillshadeExaggerationFromIntensity(hillshadeBaseIntensity) * (0.4 + daylightFactor * 0.6)) } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-shadow-color', rgba(0, 0, 0, 0.35 * daylightFactor + 0.08)) } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-highlight-color', rgba(255, 255, 255, 0.22 * daylightFactor + 0.03)) } catch (_) {}
-            try { m.setPaintProperty('hillshade', 'hillshade-accent-color', rgba(90, 90, 90, 0.2 * daylightFactor + 0.04)) } catch (_) {}
+            setPaintProperties(m, 'hillshade', getHillshadePaint(hillshadeIntensity, daylightFactor, azimuth, altitude))
           } catch (_) {}
         }
 
@@ -982,22 +998,32 @@ export default function Map() {
   function maybeRegenerate() {
     if (!route() || loading()) return
     setTimeout(() => {
-      if (!route() || loading() || !shadowRouteEnabled()) return
+      if (!route() || loading() || !shadowRouteActive()) return
       void regenerateRoute()()
     }, 0)
   }
 
-  wireMapControls({
-    mapReady,
-    onTerrain: (enabled) => { terrainEnabled = enabled; if (map) syncDynamicLayers(map) },
-    onTerrainExaggeration: (v) => { terrainExaggeration = v; if (map) syncDynamicLayers(map) },
-    onHillshade: (enabled) => { hillshadeEnabled = enabled; if (map) syncDynamicLayers(map); if (enabled) refreshHillshade() },
-    onHillshadeIntensity: (v) => { hillshadeBaseIntensity = v; refreshHillshade() },
-    onSunDateTime: (v) => { sunDateTime = v; refreshHillshade() },
-    onContours: (enabled) => { contoursEnabled = enabled; contoursReady = enabled; if (map) syncDynamicLayers(map) },
-    setHillshadeEnabledCtx: setHillshadeEnabled,
-    setShadowRouteEnabledCtx: setShadowRouteEnabled,
-    setShadowDateTimeCtx: setShadowDateTime,
+  createEffect(() => {
+    if (!mapReady() || !map) return
+    const { terrainOn, hillshadeOn, contoursOn, terrainExaggeration } = mapControls
+    void terrainOn
+    void hillshadeOn
+    void contoursOn
+    void terrainExaggeration
+    syncDynamicLayers(map)
+  })
+
+  createEffect(() => {
+    if (!mapReady()) return
+    const { hillshadeIntensity } = mapControls
+    void hillshadeIntensity
+    if (mapControls.hillshadeOn) refreshHillshade()
+  })
+
+  createEffect(() => {
+    if (!mapReady()) return
+    sunDateTime = effectiveSunDateTime()
+    refreshHillshade()
   })
 
   return (
@@ -1045,50 +1071,42 @@ export default function Map() {
                 {/* Quick toggle icons */}
                 <Show when={!webglFailed()}>
                   <div class="map-toolbar-toggles">
-                    <ToggleButton
-                      class="btn-toggle btn-toggle-icon"
-                      pressed={mapControls.terrainOn}
-                      onChange={(p) => setMapControls('terrainOn', p)}
-                    >
-                      🏔️
-                    </ToggleButton>
+                    <Show when={mapZoom() >= MIN_TERRAIN_ZOOM}>
+                      <ToggleButton
+                        class="btn-toggle btn-toggle-icon"
+                        pressed={mapControls.terrainOn}
+                        onChange={(p) => mapControlActions.setTerrainOn(p)}
+                        title="3D terén"
+                      >
+                        🏔️
+                      </ToggleButton>
+                    </Show>
                     <ToggleButton
                       class="btn-toggle btn-toggle-icon"
                       pressed={mapControls.contoursOn}
-                      onChange={(p) => setMapControls('contoursOn', p)}
+                      onChange={(p) => mapControlActions.setContoursOn(p)}
+                      title="Vrstevnice"
                     >
                       📐
                     </ToggleButton>
-                    <ToggleButton
-                      class="btn-toggle btn-toggle-icon"
-                      pressed={mapControls.hillshadeOn}
-                      onChange={(p) => { setMapControls('hillshadeOn', p); maybeRegenerate() }}
-                    >
-                      🌗
-                    </ToggleButton>
+                    <Show when={mapControls.terrainOn}>
+                      <ToggleButton
+                        class="btn-toggle btn-toggle-icon"
+                        pressed={mapControls.hillshadeOn}
+                        onChange={(p) => { mapControlActions.setHillshadeOn(p); maybeRegenerate() }}
+                        title="Stínování podle denní doby"
+                      >
+                        🌗
+                      </ToggleButton>
+                    </Show>
                   </div>
                 </Show>
 
-                {/* Date — only when hillshade is on */}
-                <Show when={mapControls.hillshadeOn && !webglFailed()}>
-                  <input
-                    class="map-date-input"
-                    type="date"
-                    value={effectiveSunDate()}
-                    onInput={(e) => { setMapControls('sunDate', e.currentTarget.value); maybeRegenerate() }}
-                  />
-                </Show>
               </div>
             </Portal>
           )}
         </Show>
-        <div class="map-overlay-shadow-controls">
-          <Show when={(mapControls.terrainOn || mapControls.hillshadeOn) && !webglFailed()}>
-            <ShadowControls webglFailed={webglFailed} />
-          </Show>
-        </div>
       </div>
-      <ElevationChart />
     </div>
   )
 }

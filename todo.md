@@ -1,4 +1,5 @@
 # Chyby
+- geolokace
 
 # Nápady
 - čas výjezdu co bude brát v úvahu otevření hospod

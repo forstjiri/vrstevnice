@@ -32,6 +32,25 @@
 
 .btn-ghost:hover:not(:disabled) { background: var(--color-bg); }
 
+.btn-icon-circle {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.btn-icon-circle:hover:not(:disabled) {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
 /* ── Slider (Kobalte Slider) ───────────── */
 
 .slider-label {
@@ -204,6 +223,41 @@
   justify-content: center;
   padding: 8px 10px;
   font-size: 13px;
+}
+
+.btn-toggle-tab {
+  width: auto;
+  gap: 6px;
+  background: var(--color-border-subtle);
+  color: var(--color-text-muted);
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: none;
+  transition: background 150ms, color 150ms;
+}
+
+.btn-toggle-tab:hover {
+  background: var(--color-bg);
+}
+
+.btn-toggle-tab[data-pressed] {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+.badge-tab {
+  min-width: 20px;
+  padding: 2px 6px;
+  font-size: 11px;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.btn-toggle-tab:not([data-pressed]) .badge-tab {
+  background: var(--color-primary);
+  color: #fff;
 }
 
 /* ── Checkbox (Kobalte Checkbox) ───────── */

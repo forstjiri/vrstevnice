@@ -1,11 +1,13 @@
 import { Show } from 'solid-js'
-import { Slider } from '@kobalte/core/slider'
 import {
   mapControls,
-  setMapControls,
+  mapControlActions,
+  shadowRouteActive,
+  effectiveSunDate,
   effectiveSunMinutes,
   formatMinutes,
 } from './mapControlsStore'
+import LabeledSlider from './LabeledSlider'
 import { useApp } from './App'
 
 /**
@@ -13,90 +15,69 @@ import { useApp } from './App'
  * Toggle state lives in mapControlsStore; toggles themselves
  * are rendered in Map.tsx toolbar and Stops.tsx panel.
  */
-export default function ShadowControls(props: { webglFailed: () => boolean }) {
-  const { route, loading, shadowRouteEnabled, regenerateRoute } = useApp()
+export default function ShadowControls() {
+  const { route, loading, regenerateRoute } = useApp()
 
   function maybeRegenerate() {
     if (!route() || loading()) return
     setTimeout(() => {
-      if (!route() || loading() || !shadowRouteEnabled()) return
+      if (!route() || loading() || !shadowRouteActive()) return
       void regenerateRoute()()
     }, 0)
   }
 
   return (
-    <div class="shadow-controls">
-      <Show when={!props.webglFailed()}>
-        <div class="shadow-controls-body">
-          <Show when={mapControls.hillshadeOn}>
-            <Slider
-              value={effectiveSunMinutes()}
-              onChange={(v) => setMapControls('sunMinutes', v)}
-              onChangeEnd={maybeRegenerate}
-              minValue={0}
-              maxValue={1439}
-              step={15}
-            >
-              <div class="slider-label">
-                <Slider.Label>Čas</Slider.Label>
-                <span class="slider-value">{formatMinutes(effectiveSunMinutes()[0])}</span>
-              </div>
-              <Slider.Track class="slider-track">
-                <Slider.Fill class="slider-range" />
-                <Slider.Thumb class="slider-thumb">
-                  <Slider.Input class="slider-input" />
-                </Slider.Thumb>
-              </Slider.Track>
-            </Slider>
+    <div class="sheet-content">
+      <div class="sheet-header">
+        <h1>Terén</h1>
+      </div>
+      <div class="sheet-body shadow-controls-body">
+        <Show when={mapControls.hillshadeOn}>
+          <div class="shadow-control-row shadow-control-row-datetime">
+            <label class="shadow-datetime-label" for="shadow-date">
+              Datum
+            </label>
+            <input
+              id="shadow-date"
+              class="shadow-datetime-input"
+              type="date"
+              value={effectiveSunDate()}
+              onInput={(e) => { mapControlActions.setSunDate(e.currentTarget.value); maybeRegenerate() }}
+            />
+          </div>
 
-            <Slider
-              value={mapControls.hillshadeExaggeration}
-              onChange={(v) => setMapControls('hillshadeExaggeration', v)}
-              minValue={0}
-              maxValue={3}
-              step={0.05}
-            >
-              <div class="slider-label">
-                <Slider.Label>Intenzita stínování</Slider.Label>
-                <Slider.ValueLabel />
-              </div>
-              <Slider.Track class="slider-track">
-                <Slider.Fill class="slider-range" />
-                <Slider.Thumb class="slider-thumb">
-                  <Slider.Input class="slider-input" />
-                </Slider.Thumb>
-              </Slider.Track>
-            </Slider>
-          </Show>
+          <LabeledSlider
+            label="Čas"
+            value={effectiveSunMinutes()}
+            onChange={mapControlActions.setSunMinutes}
+            onChangeEnd={maybeRegenerate}
+            minValue={0}
+            maxValue={1439}
+            step={15}
+            valueDisplay={<span class="slider-value">{formatMinutes(effectiveSunMinutes())}</span>}
+          />
 
-          <Show when={mapControls.terrainOn}>
-            <Slider
-              value={mapControls.exaggeration}
-              onChange={(v) => setMapControls('exaggeration', v)}
-              minValue={0.5}
-              maxValue={3}
-              step={0.1}
-            >
-              <div class="slider-label">
-                <Slider.Label>Přesvěcení terénu</Slider.Label>
-                <Slider.ValueLabel />
-              </div>
-              <Slider.Track class="slider-track">
-                <Slider.Fill class="slider-range" />
-                <Slider.Thumb class="slider-thumb">
-                  <Slider.Input class="slider-input" />
-                </Slider.Thumb>
-              </Slider.Track>
-            </Slider>
-          </Show>
-        </div>
-      </Show>
+          <LabeledSlider
+            label="Intenzita stínování"
+            value={mapControls.hillshadeIntensity}
+            onChange={mapControlActions.setHillshadeIntensity}
+            minValue={0}
+            maxValue={3}
+            step={0.05}
+          />
+        </Show>
 
-      <Show when={props.webglFailed()}>
-        <p class="shadow-webgl-warning">
-          WebGL není dostupný. 3D terén a stíny vyžadují hardwarovou akceleraci.
-        </p>
-      </Show>
+        <Show when={mapControls.terrainOn}>
+          <LabeledSlider
+            label="Přesvěcení terénu"
+            value={mapControls.terrainExaggeration}
+            onChange={mapControlActions.setTerrainExaggeration}
+            minValue={0.5}
+            maxValue={3}
+            step={0.1}
+          />
+        </Show>
+      </div>
     </div>
   )
 }

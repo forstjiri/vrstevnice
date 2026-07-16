@@ -5,6 +5,7 @@ import { useApp } from './App'
 import { slopeSpeedKmh } from '../routing/index'
 import { setHoveredPoint } from './hoverStore'
 import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
+import { effectiveSunDateTime, shadowRouteActive } from './mapControlsStore'
 import {
   DEFAULT_ROAD_CLASS_COLOR,
   DEFAULT_SURFACE_COLOR,
@@ -28,7 +29,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route, shadowRouteEnabled, shadowDateTime } = useApp()
+  const { route } = useApp()
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null
@@ -75,7 +76,7 @@ export default function ElevationChart() {
     const plotY = PADDING.top
     const plotW = w - PADDING.left - PADDING.right
     const plotH = h - PADDING.top - PADDING.bottom
-    const shadowLaneHeight = shadowRouteEnabled() && cachedSunExposure.length === profile.length ? Math.min(42, plotH * 0.32) : 0
+    const shadowLaneHeight = shadowRouteActive() && cachedSunExposure.length === profile.length ? Math.min(42, plotH * 0.32) : 0
     const profilePlotH = plotH - shadowLaneHeight
 
     ctx!.clearRect(0, 0, w, h)
@@ -234,7 +235,7 @@ export default function ElevationChart() {
       }
     }
 
-		if (shadowRouteEnabled() && cachedSunExposure.length === profile.length && shadowLaneHeight > 0) {
+		if (shadowRouteActive() && cachedSunExposure.length === profile.length && shadowLaneHeight > 0) {
 			const laneTop = plotY + profilePlotH + 2
 			const laneBottom = plotY + plotH
 			ctx!.fillStyle = 'rgba(253, 230, 138, 0.10)'
@@ -354,7 +355,7 @@ export default function ElevationChart() {
       // Slope-based arrival/elapsed time
       const timeAtPoint = hoverIdx !== undefined && cachedSlopeTimes.length > hoverIdx
         ? cachedSlopeTimes[hoverIdx] : undefined
-      const dt = shadowDateTime()
+      const dt = effectiveSunDateTime()
       let timeLine = ''
       if (timeAtPoint !== undefined && timeAtPoint > 0) {
         const base = parseLocalDateTimeShared(dt)
@@ -372,7 +373,7 @@ export default function ElevationChart() {
       const surfLabel = hoverIdx !== undefined ? cachedSurfaceLabels[hoverIdx] : ''
       const rcLabel = hoverIdx !== undefined ? cachedRoadClassLabels[hoverIdx] : ''
       const shadowExposure = hoverIdx !== undefined ? cachedSunExposure[hoverIdx] : undefined
-      const shadowLabel = shadowRouteEnabled() && shadowExposure !== undefined
+      const shadowLabel = shadowRouteActive() && shadowExposure !== undefined
         ? `slunce ${Math.round(shadowExposure * 100)} %`
         : ''
       const hasMeta = surfLabel || rcLabel || shadowLabel
@@ -497,7 +498,7 @@ export default function ElevationChart() {
     if (!r?.elevationProfile?.length) return
 
     // Use the current ShadowControls datetime as base
-    const baseStr = rideAnimation().currentDateTime
+    const baseStr = effectiveSunDateTime()
     animBaseDate = baseStr ? parseAnimDateTime(baseStr) : new Date()
     if (!animBaseDate) animBaseDate = new Date()
 
@@ -787,7 +788,8 @@ export default function ElevationChart() {
 
   return (
     <Show when={route()?.elevationProfile?.length}>
-      <div class="elevation-chart-container" ref={container}>
+      <div class="sheet-content">
+        <div class="elevation-chart-container" ref={container}>
         <canvas ref={canvas} />
         <div class="ride-animation-controls">
           <button
@@ -818,6 +820,7 @@ export default function ElevationChart() {
           </label>
         </div>
       </div>
+    </div>
     </Show>
   )
 }
