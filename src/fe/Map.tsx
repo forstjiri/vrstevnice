@@ -245,29 +245,84 @@ export default function Map() {
     contextMenu = null
   }
 
-  function showContextMenu(m: maplibregl.Map, e: maplibregl.MapMouseEvent) {
+  function showContextMenu(m: maplibregl.Map, lngLat: maplibregl.LngLat, point: { x: number; y: number }) {
     removeContextMenu()
     contextMenu = buildContextMenu([
       {
         label: 'Přidat zastávku',
         action: () => addStop({
-          lat: e.lngLat.lat,
-          lng: e.lngLat.lng,
-          name: `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`,
+          lat: lngLat.lat,
+          lng: lngLat.lng,
+          name: `${lngLat.lat.toFixed(5)}, ${lngLat.lng.toFixed(5)}`,
         }),
       },
       {
         label: 'Otevřít na Mapy.cz',
         action: () => window.open(
-          `https://en.mapy.cz/turisticka?x=${e.lngLat.lng.toFixed(6)}&y=${e.lngLat.lat.toFixed(6)}&z=16`,
+          `https://en.mapy.cz/turisticka?x=${lngLat.lng.toFixed(6)}&y=${lngLat.lat.toFixed(6)}&z=16`,
           '_blank',
         ),
       },
     ])
     const mapContainer = m.getContainer()
-    contextMenu.style.left = `${e.point.x}px`
-    contextMenu.style.top = `${e.point.y}px`
+    const menuW = 180
+    const menuH = contextMenu.offsetHeight || 80
+    const containerRect = mapContainer.getBoundingClientRect()
+    let left = Math.min(point.x, containerRect.width - menuW - 8)
+    let top = Math.min(point.y, containerRect.height - menuH - 8)
+    left = Math.max(8, left)
+    top = Math.max(8, top)
+    contextMenu.style.left = `${left}px`
+    contextMenu.style.top = `${top}px`
     mapContainer.appendChild(contextMenu)
+  }
+
+  const LONG_PRESS_MS = 500
+  const LONG_PRESS_MOVE_THRESHOLD = 10
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null
+  let longPressStart: { x: number; y: number } | null = null
+  let longPressFired = false
+
+  function clearLongPress() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
+    longPressStart = null
+  }
+
+  function handleTouchStart(e: TouchEvent) {
+    if (e.touches.length !== 1) { clearLongPress(); return }
+    const t = e.touches[0]
+    longPressStart = { x: t.clientX, y: t.clientY }
+    longPressFired = false
+    longPressTimer = setTimeout(() => {
+      if (!longPressStart) return
+      longPressFired = true
+      const m = map
+      if (!m) return
+      const containerRect = m.getContainer().getBoundingClientRect()
+      const point = {
+        x: longPressStart.x - containerRect.left,
+        y: longPressStart.y - containerRect.top,
+      }
+      const lngLat = m.unproject(new maplibregl.Point(point.x, point.y))
+      showContextMenu(m, lngLat, point)
+    }, LONG_PRESS_MS)
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    if (!longPressStart || longPressFired) return
+    const t = e.touches[0]
+    const dx = Math.abs(t.clientX - longPressStart.x)
+    const dy = Math.abs(t.clientY - longPressStart.y)
+    if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+      clearLongPress()
+    }
+  }
+
+  function handleTouchEnd(_e: TouchEvent) {
+    clearLongPress()
   }
 
   onMount(() => {
@@ -629,7 +684,8 @@ export default function Map() {
     // Context menu handling
     m.on('contextmenu', (e) => {
       e.preventDefault()
-      showContextMenu(m, e)
+      if (longPressFired) return
+      showContextMenu(m, e.lngLat, e.point)
     })
     m.on('click', (e) => {
       if (inspectMode()) {
@@ -700,11 +756,25 @@ export default function Map() {
     }
     document.addEventListener('keydown', handleKey)
 
+    const mapCanvas = m.getCanvas()
+    mapCanvas.addEventListener('touchstart', handleTouchStart, { passive: true })
+    mapCanvas.addEventListener('touchmove', handleTouchMove, { passive: true })
+    mapCanvas.addEventListener('touchend', handleTouchEnd)
+    mapCanvas.addEventListener('touchcancel', handleTouchEnd)
+    const suppressNativeContextMenu = (e: Event) => { e.preventDefault() }
+    mapCanvas.addEventListener('contextmenu', suppressNativeContextMenu)
+
     onCleanup(() => {
       destroyed = true
       updateHillshadeLightingLocal = null
       if ((window as any).__fitRouteOverview) delete (window as any).__fitRouteOverview
       document.removeEventListener('keydown', handleKey)
+      mapCanvas.removeEventListener('touchstart', handleTouchStart)
+      mapCanvas.removeEventListener('touchmove', handleTouchMove)
+      mapCanvas.removeEventListener('touchend', handleTouchEnd)
+      mapCanvas.removeEventListener('touchcancel', handleTouchEnd)
+      mapCanvas.removeEventListener('contextmenu', suppressNativeContextMenu)
+      clearLongPress()
       removeContextMenu()
       m.off('moveend', updateCenter)
       m.off('zoom', updateZoom)
@@ -1035,6 +1105,7 @@ export default function Map() {
           {(slot) => (
             <Portal mount={slot()}>
               <div class="map-top-right-ui">
+                <Show when={import.meta.env.DEV}>
                 <div class="map-top-right-row">
                   <Badge class="badge" textValue={`Zoom ${mapZoom().toFixed(1)}`}>
                     z {mapZoom().toFixed(1)}
@@ -1050,6 +1121,7 @@ export default function Map() {
                     ⌖ Inspect
                   </ToggleButton>
                 </div>
+                </Show>
                 {inspectMode() && inspectInfo() && (() => {
                   const info = inspectInfo()!
                   const props = info.properties
