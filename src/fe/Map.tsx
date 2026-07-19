@@ -8,7 +8,8 @@ maplibregl.setWorkerUrl(
   new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).href,
 )
 import { haversineMeters, computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime, formatLocalDateTime } from '@vrstevnice/shared'
-import { useApp } from './App'
+import { planner, addStop, updateStop, setStops, loading, regenerateRoute } from './appStore'
+import { mapCamera, setMapCamera } from './cameraStore'
 import { hoveredPoint } from './hoverStore'
 import { rideAnimation, updateRideAnimation, cameraTarget, setCameraTarget } from './rideAnimationStore'
 import { createStopMarker, createPoiMarker, stopColor, buildContextMenu } from './map-markers'
@@ -177,7 +178,8 @@ function getHillshadePaint(
  * Build a context menu from a declarative items list.
  */
 export default function Map() {
-  const { stops, setStops, addStop, updateStop, route, mapCenter, setMapCenter, loading, regenerateRoute } = useApp()
+  const route = () => planner.route
+  const stops = () => planner.stops
   let container!: HTMLDivElement
   let map: maplibregl.Map | undefined
   const [mapReady, setMapReady] = createSignal(false)
@@ -187,7 +189,7 @@ export default function Map() {
   let geometryDistances: number[] | null = null
   let contextMenu: HTMLDivElement | null = null
   let duskOverlay: HTMLDivElement | null = null
-  let firstRoute = true
+  let firstRoute = !route()
   let routeBounds: maplibregl.LngLatBounds | null = null
   let contoursReady = false
   const [mapZoom, setMapZoom] = createSignal(7)
@@ -325,8 +327,10 @@ export default function Map() {
       map = new maplibregl.Map({
         container,
         style: `${TILESERVER_URL}/styles/basic/style.json?v=2`,
-        center: [15.47, 49.82], // [lng, lat]
-        zoom: 7,
+        center: mapCamera() ? [mapCamera()!.lon, mapCamera()!.lat] : [15.47, 49.82], // [lng, lat]
+        zoom: mapCamera()?.zoom ?? 7,
+        bearing: mapCamera()?.bearing ?? 0,
+        pitch: mapCamera()?.pitch ?? 0,
       })
     } catch (err) {
       console.error('[Map] Failed to create map (WebGL not available?):', err)
@@ -730,7 +734,7 @@ export default function Map() {
       try {
         if (destroyed) return
         const c = m.getCenter()
-        setMapCenter({ lat: c.lat, lon: c.lng, zoom: m.getZoom() })
+        setMapCamera({ lat: c.lat, lon: c.lng, zoom: m.getZoom(), bearing: m.getBearing(), pitch: m.getPitch() })
       } catch (_) {}
     }
     const updateZoom = () => {
@@ -892,11 +896,10 @@ export default function Map() {
             if (sClosest < poiClosest) insertIdx = si + 1
             else break
           }
-          setStops(prev => {
-            const next = [...prev]
-            next.splice(insertIdx, 0, { lat: poi.lat, lng: poi.lng, name: poi.name })
-            return next
-          })
+          const prev = planner.stops
+          const next = [...prev]
+          next.splice(insertIdx, 0, { lat: poi.lat, lng: poi.lng, name: poi.name })
+          setStops(next)
         },
       })
       poiMarkers.push(marker)
@@ -1064,7 +1067,7 @@ export default function Map() {
     if (!route() || loading()) return
     setTimeout(() => {
       if (!route() || loading() || !shadowRouteActive()) return
-      void regenerateRoute()()
+      void regenerateRoute()
     }, 0)
   }
 

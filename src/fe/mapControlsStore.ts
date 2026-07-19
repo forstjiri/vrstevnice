@@ -1,15 +1,15 @@
-import { createStore } from 'solid-js/store'
 import { createMemo } from 'solid-js'
 import { formatLocalDate, parseLocalDateTime } from '@vrstevnice/shared'
 import { rideAnimation } from './rideAnimationStore'
+import { persistedStore } from './persist'
 
 const now = new Date()
 
 export const DEFAULT_TERRAIN_EXAGGERATION = 2.2
 
-// ── State ──
+// ── State (persisted to localStorage) ──
 
-export const [mapControls, setMapControls] = createStore({
+export const [mapControls, setMapControls] = persistedStore({
   terrainOn: false,
   hillshadeOn: false,
   contoursOn: true,
@@ -18,7 +18,7 @@ export const [mapControls, setMapControls] = createStore({
   terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
   sunDate: formatLocalDate(now),
   sunMinutes: now.getHours() * 60 + now.getMinutes(),
-})
+}, { name: 'vrstevnice.map-controls' })
 
 // ── Actions (enforce invariants) ──
 

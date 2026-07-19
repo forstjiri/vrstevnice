@@ -555,6 +555,12 @@ body {
   gap: 6px;
 }
 
+.button-wrap {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
 .map-inspect-panel {
   width: 280px;
   max-height: 220px;

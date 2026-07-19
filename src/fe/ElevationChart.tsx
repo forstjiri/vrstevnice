@@ -1,7 +1,7 @@
 import {createEffect, onCleanup, onMount, Show} from 'solid-js'
 import type { ElevationPoint } from '@vrstevnice/shared'
 import {computeGeometryDistances, findPositionAtDistance, computeBearing, parseLocalDateTime as parseLocalDateTimeShared, formatLocalDateTime as formatLocalDateTimeShared} from '@vrstevnice/shared'
-import { useApp } from './App'
+import { planner } from './appStore'
 import { slopeSpeedKmh } from '../routing/index'
 import { setHoveredPoint } from './hoverStore'
 import {rideAnimation, setCameraTarget, updateRideAnimation} from './rideAnimationStore'
@@ -29,7 +29,7 @@ interface ProfileGroup {
 }
 
 export default function ElevationChart() {
-  const { route } = useApp()
+  const route = () => planner.route
   let container!: HTMLDivElement
   let canvas!: HTMLCanvasElement
   let ctx: CanvasRenderingContext2D | null = null

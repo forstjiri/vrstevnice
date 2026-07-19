@@ -8,7 +8,7 @@ import {
   formatMinutes,
 } from './mapControlsStore'
 import LabeledSlider from './LabeledSlider'
-import { useApp } from './App'
+import { planner, loading, regenerateRoute } from './appStore'
 
 /**
  * Advanced sliders panel for terrain/shadow fine-tuning.
@@ -16,13 +16,13 @@ import { useApp } from './App'
  * are rendered in Map.tsx toolbar and Stops.tsx panel.
  */
 export default function ShadowControls() {
-  const { route, loading, regenerateRoute } = useApp()
+  const route = () => planner.route
 
   function maybeRegenerate() {
     if (!route() || loading()) return
     setTimeout(() => {
       if (!route() || loading() || !shadowRouteActive()) return
-      void regenerateRoute()()
+      void regenerateRoute()
     }, 0)
   }
 

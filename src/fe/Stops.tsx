@@ -6,35 +6,22 @@ import { Separator } from '@kobalte/core/separator'
 import { Progress } from '@kobalte/core/progress'
 import { Tooltip } from '@kobalte/core/tooltip'
 import { ToggleButton } from '@kobalte/core/toggle-button'
-import { useApp } from './App'
+import { treaty } from './api'
 import { downloadGPX } from './gpx'
 import LabeledSlider from './LabeledSlider'
+import {
+  planner, setStops, updateStop, removeStop, moveStop,
+  setRoute, clearRoute, setLoading, setError,
+  loading, error, setRegenerateFn, regenerateRoute,
+  setElevation, setRoadAvoid, setCycleway, setShowPOI,
+} from './appStore'
+import { mapCamera } from './cameraStore'
 import { mapControls, mapControlActions, shadowRouteActive, effectiveSunDateTime } from './mapControlsStore'
-import type { RouteRequest, Stop, RouteResponse } from '@vrstevnice/shared'
+import type { RouteRequest } from '@vrstevnice/shared'
 import type { GeocodeResult } from '@vrstevnice/shared'
 import type { SearchRootItemComponentProps } from '@kobalte/core/search'
 
-const DEFAULT_ROAD_AVOIDANCE = .9;
-const DEFAULT_CYCLEWAY = .9;
-const DEFAULT_ELEVATION = .4;
-
 export default function Stops() {
-  const {
-    treaty,
-    stops,
-    setStops,
-    route,
-    setRoute,
-    loading,
-    setLoading,
-    error,
-    setError,
-    mapCenter,
-    showPOI,
-    setShowPOI,
-    regenerateRoute,
-    setRegenerateRoute,
-  } = useApp()
   const [results, setResults] = createSignal<GeocodeResult[]>([])
 
   function showSearchPreview(lat: number, lng: number) {
@@ -89,11 +76,6 @@ export default function Stops() {
       }
     } catch (_) {}
   }
-  const [elevCoeff, setElevCoeff] = createSignal<number>(DEFAULT_ELEVATION)
-  const [roadAvoidCoeff, setRoadAvoidCoeff] = createSignal<number>(DEFAULT_ROAD_AVOIDANCE)
-  const [cyclewayCoeff, setCyclewayCoeff] = createSignal<number>(DEFAULT_CYCLEWAY)
-
-
   const handleSearch = async (query: string) => {
     if (query.length < 3) { setResults([]); return }
     setError(null)
@@ -101,7 +83,7 @@ export default function Stops() {
       // Geocode via BE — BE handles GPS detection (DD/DDM/DMS),
       // Photon fallback chain (local :2322 → photon.komoot.io),
       // and location bias from map center.
-      const center = mapCenter()
+      const center = mapCamera()
       const queryParams: { q: string; lat?: string; lon?: string; zoom?: string } = { q: query }
       if (center) {
         queryParams.lat = String(center.lat)
@@ -127,23 +109,9 @@ export default function Stops() {
   const handleSelect = (result: GeocodeResult | null) => {
     hideSearchPreview()
     if (!result) return
-    setStops(prev => [...prev, { lat: result.lat, lng: result.lng, name: result.name }])
+    setStops([...planner.stops, { lat: result.lat, lng: result.lng, name: result.name }])
     setResults([])
     if (searchInput) searchInput.value = ''
-  }
-
-  const removeStop = (index: number) => {
-    setStops(prev => prev.filter((_, i) => i !== index))
-  }
-
-  const moveStop = (index: number, dir: -1 | 1) => {
-    setStops(prev => {
-      const next = [...prev]
-      const target = index + dir
-      if (target < 0 || target >= next.length) return prev
-      ;[next[index], next[target]] = [next[target], next[index]]
-      return next
-    })
   }
 
   const calculateRoute = async () => {
@@ -151,11 +119,11 @@ export default function Stops() {
     setError(null)
     try {
       const body: RouteRequest = {
-        stops: stops(),
-        elevationCoefficient: elevCoeff(),
-        roadAvoidanceCoefficient: 1 - roadAvoidCoeff(),
-        cyclewayCoefficient: cyclewayCoeff(),
-        showPOI: showPOI(),
+        stops: planner.stops,
+        elevationCoefficient: planner.elevation,
+        roadAvoidanceCoefficient: 1 - planner.roadAvoid,
+        cyclewayCoefficient: planner.cycleway,
+        showPOI: planner.showPOI,
         shadowDateTime: shadowRouteActive() ? effectiveSunDateTime() : undefined,
       }
       const { data, error } = await treaty.api.route.post(body)
@@ -170,10 +138,10 @@ export default function Stops() {
     } finally { setLoading(false) }
   }
 
-  const canCompute = () => stops().length >= 2 && !loading()
+  const canCompute = () => planner.stops.length >= 2 && !loading()
 
-  // Register route calculator in app context (once, after mount — not during render)
-  onMount(() => setRegenerateRoute(() => calculateRoute))
+  // Register route calculator (once, after mount — not during render)
+  onMount(() => setRegenerateFn(() => calculateRoute))
 
   return (
     <div class="sheet-content">
@@ -226,13 +194,13 @@ export default function Stops() {
       {/* Stop list */}
       <div class="sheet-body">
         <Show
-          when={stops().length > 0}
+          when={planner.stops.length > 0}
           fallback={<p class="stops-empty">Přidejte alespoň 2 zastávky</p>}
         >
-          <For each={stops()}>
+          <For each={planner.stops}>
             {(stop, index) => {
               const isFirst = () => index() === 0
-              const isLast = () => index() === stops().length - 1
+              const isLast = () => index() === planner.stops.length - 1
               const badgeClass = () =>
                 isFirst() ? 'start' : isLast() ? 'end' : 'mid'
 
@@ -267,27 +235,26 @@ export default function Stops() {
         </Show>
       </div>
 
-      {/* Footer controls */}
       <div class="sheet-footer">
-        <Show when={route()}>
+        <Show when={planner.route}>
           <div class="route-stats">
             <span class="route-stat">
-              <span class="route-stat-value">{(route()!.distance).toFixed(1)}</span>
+              <span class="route-stat-value">{(planner.route!.distance).toFixed(1)}</span>
               <span class="route-stat-unit">km</span>
             </span>
             <span class="route-stat">
               <span class="route-stat-emoji">⬆️</span>
-              <span class="route-stat-value">{Math.round(route()!.elevationGain)}</span>
+              <span class="route-stat-value">{Math.round(planner.route!.elevationGain)}</span>
               <span class="route-stat-unit">m</span>
             </span>
             <span class="route-stat">
               <span class="route-stat-emoji">⬇️</span>
-              <span class="route-stat-value">{Math.round(route()!.elevationLoss)}</span>
+              <span class="route-stat-value">{Math.round(planner.route!.elevationLoss)}</span>
               <span class="route-stat-unit">m</span>
             </span>
             <span class="route-stat">
               <span class="route-stat-emoji">⏱️</span>
-              <span class="route-stat-value">{Math.round(route()!.duration / 60)}</span>
+              <span class="route-stat-value">{Math.round(planner.route!.duration / 60)}</span>
               <span class="route-stat-unit">min</span>
             </span>
           </div>
@@ -302,7 +269,7 @@ export default function Stops() {
         <div class="sheet-toggles">
           <ToggleButton
             class="btn-toggle btn-toggle-label"
-            pressed={showPOI()}
+            pressed={planner.showPOI}
             onChange={setShowPOI}
           >
             🍻 Občerstvení na cestě
@@ -312,10 +279,10 @@ export default function Stops() {
             pressed={mapControls.shadowRouteOn}
             onChange={(p) => {
               mapControlActions.setShadowRouteOn(p)
-              if (!route() || loading()) return
+              if (!planner.route || loading()) return
               setTimeout(() => {
-                if (!route() || loading() || !shadowRouteActive()) return
-                void regenerateRoute()()
+                if (!planner.route || loading() || !shadowRouteActive()) return
+                void regenerateRoute()
               }, 0)
             }}
           >
@@ -323,26 +290,26 @@ export default function Stops() {
           </ToggleButton>
         </div>
 
-        <LabeledSlider value={elevCoeff()} onChange={setElevCoeff} label="Vyhnout se kopcům" minValue={0} maxValue={1} step={0.05} />
+        <LabeledSlider value={planner.elevation} onChange={setElevation} label="Vyhnout se kopcům" minValue={0} maxValue={1} step={0.05} />
 
-        <LabeledSlider value={roadAvoidCoeff()} onChange={setRoadAvoidCoeff} label="Vyhnutí silnicím" minValue={0} maxValue={1} step={0.05} />
+        <LabeledSlider value={planner.roadAvoid} onChange={setRoadAvoid} label="Vyhnutí silnicím" minValue={0} maxValue={1} step={0.05} />
 
-        <LabeledSlider value={cyclewayCoeff()} onChange={setCyclewayCoeff} label="Cyklostezky" minValue={0} maxValue={1} step={0.05} />
+        <LabeledSlider value={planner.cycleway} onChange={setCycleway} label="Cyklostezky" minValue={0} maxValue={1} step={0.05} />
+      </div>
 
+      <Separator />
 
-
-        <Separator />
-
+      <div class="button-wrap">
         <Button
-          class="btn btn-primary"
-          disabled={!canCompute()}
-          onClick={calculateRoute}
+            class="btn btn-primary"
+            disabled={!canCompute()}
+            onClick={calculateRoute}
         >
-          {loading() ? '⏳ Výpočet…' : route() ? 'Přegenerovat trasu' : 'Vytvořit trasu'}
+          {loading() ? '⏳ Výpočet…' : planner.route ? 'Přegenerovat trasu' : 'Vytvořit trasu'}
         </Button>
 
-        <Show when={route()}>
-          <Button class="btn btn-ghost" onClick={() => setRoute(null)}>
+        <Show when={planner.route}>
+          <Button class="btn btn-ghost" onClick={() => clearRoute()}>
             Zrušit trasu
           </Button>
           <Button class="btn btn-ghost btn-fit-overview" onClick={() => {
@@ -350,11 +317,12 @@ export default function Stops() {
           }}>
             ⊞ Přehled trasy
           </Button>
-          <Button class="btn btn-ghost" onClick={() => downloadGPX(route()!)}>
+          <Button class="btn btn-ghost" onClick={() => downloadGPX(planner.route!)}>
             ↓ Stáhnout GPX
           </Button>
         </Show>
       </div>
+
     </div>
   )
 }
