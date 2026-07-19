@@ -10,9 +10,11 @@
 #   bash scripts/deploy.sh --photon                # plný deploy + Photon databáze
 #   bash scripts/deploy.sh --code-only             # jen kód + build + restart
 #   REMOTE=root@server.example.com bash scripts/deploy.sh
+#   REMOTE=root@10.8.0.4 SSH_PORT=2222 bash scripts/deploy.sh  # vlastní port
 #
 # Proměnné (přes env):
 #   REMOTE        SSH cíl            (required)
+#   SSH_PORT      SSH port           (default: 22)
 #   REMOTE_DIR    Cíl na serveru     (default: /opt/vrstevnice)
 #   GH_HEAP       GraphHopper -Xmx   (default: 1500m)
 # ═══════════════════════════════════════════════════════════════════════
@@ -20,6 +22,7 @@ set -euo pipefail
 
 # ── Config ──
 REMOTE="${REMOTE:?REMOTE must be set (e.g. root@server.example.com)}"
+SSH_PORT="${SSH_PORT:-22}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/vrstevnice}"
 GH_HEAP="${GH_HEAP:-1500m}"
 BE_PORT="${BE_PORT:-3002}"
@@ -43,7 +46,7 @@ ok()    { printf '  \033[1;32m✓\033[0m %s\n' "$*"; }
 warn()  { printf '  \033[1;33m⚠\033[0m %s\n' "$*"; }
 die()   { printf '\n\033[1;31m✗ %s\033[0m\n\n' "$*"; exit 1; }
 phase() { printf '\n\033[1;36m══ %s ══\033[0m\n' "$*"; }
-runc()  { ssh "$REMOTE" "$@"; }  # run command on remote
+runc()  { ssh -p "$SSH_PORT" "$REMOTE" "$@"; }  # run command on remote
 
 # ═══════════════════════════════════════════════════════════════════════
 # PHASE 1: Pre-flight checks
@@ -86,6 +89,7 @@ ok "Datové soubory přítomny"
 # Summary
 echo ""
 printf "\033[1;37mCíl:\033[0m  %s:%s  (%s)\n" "$REMOTE" "$BE_PORT" "$REMOTE_DIR"
+[[ "$SSH_PORT" != "22" ]] && printf "\033[1;37mSSH:\033[0m  port %s\n" "$SSH_PORT"
 printf "\033[1;37mRAM:\033[0m  %sGB\n" "$RAM_GB"
 printf "\033[1;37mGH:  \033[0m  -Xmx%s\n" "$GH_HEAP"
 MODE_DESC="plný deploy"
@@ -151,7 +155,7 @@ rsync -az --delete \
   --exclude='dist' \
   --exclude='*.log' \
   --exclude='data.db*' \
-  -e ssh \
+  -e "ssh -p $SSH_PORT" \
   "$PROJECT_ROOT/" "$REMOTE:$REMOTE_DIR/" >/dev/null 2>&1
 
 ok "Kód synchronizován"
@@ -174,7 +178,7 @@ for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/c
       ok "$fname už je aktuální ($(( LOCAL_SIZE / 1024 / 1024 ))MB)"
     else
       printf "  přenáším %sMB...\n" "$(( LOCAL_SIZE / 1024 / 1024 ))"
-      rsync -az --progress -e ssh "$PROJECT_ROOT/$f" "$REMOTE:$REMOTE_DIR/data/" 2>&1 | tail -1
+      rsync -az --progress -e "ssh -p $SSH_PORT" "$PROJECT_ROOT/$f" "$REMOTE:$REMOTE_DIR/data/" 2>&1 | tail -1
       ok "$fname přenesen"
     fi
   done

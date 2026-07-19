@@ -156,11 +156,6 @@ function hillshadeVisibilityFactor(date: Date, sunrise: Date | null, sunset: Dat
   return 0
 }
 
-function hillshadeExaggerationFromIntensity(intensity: number): number {
-  const normalized = clamp(intensity, 0, 3)
-  return 0.45 + normalized * 0.35
-}
-
 function getHillshadePaint(
   intensity: number,
   daylightFactor: number,
@@ -171,7 +166,7 @@ function getHillshadePaint(
     ['hillshade-illumination-direction', azimuth],
     ['hillshade-illumination-altitude', clamp(altitude, 5, 70)],
     ['hillshade-illumination-anchor', 'map'],
-    ['hillshade-exaggeration', hillshadeExaggerationFromIntensity(intensity) * (0.4 + daylightFactor * 0.6)],
+    ['hillshade-exaggeration', intensity * (0.4 + daylightFactor * 0.6)],
     ['hillshade-shadow-color', rgba(0, 0, 0, 0.35 * daylightFactor + 0.08)],
     ['hillshade-highlight-color', rgba(255, 255, 255, 0.22 * daylightFactor + 0.03)],
     ['hillshade-accent-color', rgba(90, 90, 90, 0.2 * daylightFactor + 0.04)],

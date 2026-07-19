@@ -14,7 +14,7 @@ export const [mapControls, setMapControls] = createStore({
   hillshadeOn: false,
   contoursOn: true,
   shadowRouteOn: false,
-  hillshadeIntensity: 1,
+  hillshadeIntensity: 0.8,
   terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
   sunDate: formatLocalDate(now),
   sunMinutes: now.getHours() * 60 + now.getMinutes(),

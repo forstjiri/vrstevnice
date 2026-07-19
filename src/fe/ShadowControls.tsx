@@ -61,8 +61,8 @@ export default function ShadowControls() {
             label="Intenzita stínování"
             value={mapControls.hillshadeIntensity}
             onChange={mapControlActions.setHillshadeIntensity}
-            minValue={0}
-            maxValue={3}
+            minValue={0.2}
+            maxValue={1}
             step={0.05}
           />
         </Show>
