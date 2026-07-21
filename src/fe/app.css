@@ -51,30 +51,6 @@ body {
   line-height: 1.4;
 }
 
-.bottom-sheet-panel {
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  max-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.bottom-sheet-tabs {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-}
-
 .sheet-close {
   position: absolute;
   top: 8px;
@@ -678,4 +654,27 @@ body {
   color: var(--color-text-muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+/* The single tabs tree is a desktop workspace and a mobile sheet launcher. */
+.workspace { position: absolute; z-index: 100; left: 16px; bottom: 16px; width: min(var(--panel-w), calc(100vw - 32px)); max-height: calc(100dvh - 32px); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); box-shadow: 0 4px 16px rgb(0 0 0 / .16); overflow: hidden; }
+.workspace-tabs { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); overflow: hidden; }
+.workspace-tab-list { order: 2; flex: none; display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--color-border); }
+.workspace-tab { flex: 1; min-height: 38px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-muted); font: 600 12px/1 var(--font); cursor: pointer; }
+.workspace-tab[data-selected] { background: var(--color-primary-muted); color: var(--color-primary); }
+.workspace .badge-tab { background: var(--color-primary); color: #fff; }
+.workspace-tab-panel { order: 1; min-height: 0; overflow: auto; }
+.workspace-tab-panel .sheet-body { max-height: min(28dvh, 260px); overflow-y: auto; overscroll-behavior: contain; }
+.workspace .sheet-close { display: none; }
+@media (max-height: 480px) and (min-width: 801px) { .workspace-tabs { height: calc(100dvh - 32px); } .workspace-tab-panel { flex: 1; overflow: hidden; } .workspace-tab-panel .sheet-content { height: 100%; overflow-y: auto; } .workspace-tab-panel .sheet-body { max-height: none; overflow: visible; } }
+@media (max-width: 800px) {
+  .workspace { left: 0; bottom: 0; width: 100%; max-height: min(76dvh, 680px); border-width: 1px 0 0; border-radius: 18px 18px 0 0; }
+  .workspace-tabs { max-height: min(76dvh, 680px); }
+  .workspace-is-open .workspace-tab-list { position: absolute; right: 0; bottom: 0; left: 0; visibility: hidden; }
+  .workspace-is-open .sheet-content { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .workspace-is-open .sheet-close { display: inline-flex; position: absolute; top: 8px; right: 8px; z-index: 2; }
+  .workspace-is-closed { left: 12px; bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: calc(100% - 24px); height: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
+  .workspace-is-closed .workspace-tab-list { padding: 0; border: 0; gap: 8px; }
+  .workspace-is-closed .workspace-tab { min-height: 42px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 3px 10px rgb(0 0 0 / .12); }
+  .workspace-is-closed .workspace-tab-panel, .workspace-is-closed .sheet-close, .workspace-is-closed .badge-tab { display: none; }
 }
