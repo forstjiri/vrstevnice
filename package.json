@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\" --fix",
+    "lint:css": "stylelint \"src/**/*.css\"",
+    "lint:css:fix": "stylelint \"src/**/*.css\" --fix",
     "typecheck": "tsc --build",
     "dev": "pnpm -r --parallel dev",
     "dev:be": "pnpm --filter @vrstevnice/be dev",
@@ -18,7 +22,15 @@
     "@types/bun": "^1.3.11",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^25.9.2",
+    "eslint": "^9.39.5",
+    "eslint-config-airbnb-extended": "^3.1.1",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-solid": "^0.14.5",
+    "globals": "^17.7.0",
+    "stylelint": "^17.14.1",
+    "stylelint-config-standard": "^40.0.0",
     "typescript": "^6.0.2",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.4"
   }
 }
