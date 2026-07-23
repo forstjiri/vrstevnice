@@ -1,4 +1,4 @@
-import { Show } from 'solid-js'
+import { Show } from 'solid-js';
 import {
   mapControls,
   mapControlActions,
@@ -6,9 +6,9 @@ import {
   effectiveSunDate,
   effectiveSunMinutes,
   formatMinutes,
-} from './mapControlsStore'
-import LabeledSlider from './LabeledSlider'
-import { planner, loading, regenerateRoute } from './appStore'
+} from './mapControlsStore';
+import LabeledSlider from './LabeledSlider';
+import { planner, loading, regenerateRoute } from './appStore';
 
 /**
  * Advanced sliders panel for terrain/shadow fine-tuning.
@@ -16,14 +16,14 @@ import { planner, loading, regenerateRoute } from './appStore'
  * are rendered in Map.tsx toolbar and Stops.tsx panel.
  */
 export default function ShadowControls() {
-  const route = () => planner.route
+  const route = () => planner.route;
 
   function maybeRegenerate() {
-    if (!route() || loading()) return
+    if (!route() || loading()) return;
     setTimeout(() => {
-      if (!route() || loading() || !shadowRouteActive()) return
-      void regenerateRoute()
-    }, 0)
+      if (!route() || loading() || !shadowRouteActive()) return;
+      regenerateRoute();
+    }, 0);
   }
 
   return (
@@ -42,7 +42,10 @@ export default function ShadowControls() {
               class="shadow-datetime-input"
               type="date"
               value={effectiveSunDate()}
-              onInput={(e) => { mapControlActions.setSunDate(e.currentTarget.value); maybeRegenerate() }}
+              onInput={(e) => {
+                mapControlActions.setSunDate(e.currentTarget.value);
+                maybeRegenerate();
+              }}
             />
           </div>
 
@@ -79,5 +82,5 @@ export default function ShadowControls() {
         </Show>
       </div>
     </div>
-  )
+  );
 }

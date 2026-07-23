@@ -1,110 +1,109 @@
-import { Elysia, t } from 'elysia'
-import { cors } from '@elysiajs/cors'
-import logixlysia from 'logixlysia'
-import { rateLimit } from 'elysia-rate-limit'
-import type { GeocodeResult, POILocation } from '@vrstevnice/shared'
-import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared'
+import { Elysia, t } from 'elysia';
+import { cors } from '@elysiajs/cors';
+import logixlysia from 'logixlysia';
+import { rateLimit } from 'elysia-rate-limit';
+import type { GeocodeResult, POILocation } from '@vrstevnice/shared';
+import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared';
 import {
-	buildCustomModel,
-	convertGHToRouteResponse,
-	fetchRouteFromGH,
-	sampleRouteGeometry,
-	deduplicatePOIs,
-} from '@vrstevnice/routing'
-import { db, routes } from './db'
-import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain'
-import { queryLocalPOIs } from './pois'
-import { resolve } from 'node:path'
-import {appendFile, readFile} from 'node:fs/promises'
-import { Buffer } from 'node:buffer'
+  buildCustomModel,
+  convertGHToRouteResponse,
+  fetchRouteFromGH,
+  sampleRouteGeometry,
+  deduplicatePOIs,
+} from '@vrstevnice/routing';
+import { resolve } from 'node:path';
+import { appendFile, readFile } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
+import { db, routes } from './db';
+import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain';
+import queryLocalPOIs from './pois';
 
-const LOG_LEVEL = process.env.LOG_LEVEL || 'info'
-const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
-const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1'
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
+const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1';
 
-type Logger = (...args: any[]) => void
-type PinoStore = { pino: { debug: Logger; info: Logger; warn: Logger; error: Logger } }
+type Logger = (...args: any[]) => void;
+interface PinoStore {
+  pino: { debug: Logger; info: Logger; warn: Logger; error: Logger };
+}
 
 // Photon geocode — local instance only (no external fallback).
-const PHOTON_URL = 'http://localhost:2322'
+const PHOTON_URL = 'http://localhost:2322';
 
 async function fetchPhoton(pathWithQuery: string): Promise<Response> {
-  const url = `${PHOTON_URL}${pathWithQuery}`
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-  if (!res.ok) throw new Error(`Photon returned ${res.status}`)
-  return res
+  const url = `${PHOTON_URL}${pathWithQuery}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`Photon returned ${res.status}`);
+  return res;
 }
 
-const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log')
+const LOG_FILE = resolve(PROJECT_ROOT, 'data', 'app.log');
 
 const TRANSPARENT_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg==',
+  'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAAD0lEQVR42mP8/5+hHgAHggJ/P0s8WQAAAABJRU5ErkJggg=='
+    .replace(/(.{50})/, '$1\n'),
   'base64',
-)
+);
 
 /** Browsers treat localhost vs 127.0.0.1 as different origins; allow both in dev. */
-const LOCAL_DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
+const LOCAL_DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
-const EXTRA_CORS_ORIGINS =
-  process.env.CORS_ORIGIN?.split(',')
-    .map((s) => s.trim())
-    .filter(Boolean) ?? []
+const EXTRA_CORS_ORIGINS = process.env.CORS_ORIGIN?.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean) ?? [];
 
 function isOriginAllowed(origin: string): boolean {
-  if (EXTRA_CORS_ORIGINS.includes(origin)) return true
-  if (EXTRA_CORS_ORIGINS.length > 0) return false
-  return LOCAL_DEV_ORIGIN.test(origin)
+  if (EXTRA_CORS_ORIGINS.includes(origin)) return true;
+  if (EXTRA_CORS_ORIGINS.length > 0) return false;
+  return LOCAL_DEV_ORIGIN.test(origin);
 }
 
-/** Manual `Response` from onError bypasses the CORS plugin's `set.headers`; mirror allowlist here. */
+/** Manual response from onError mirrors the CORS allowlist. */
 function corsHeadersForRequest(request: Request): Record<string, string> {
-  const origin = request.headers.get('Origin')
-  if (!origin || !isOriginAllowed(origin)) return {}
+  const origin = request.headers.get('Origin');
+  if (!origin || !isOriginAllowed(origin)) return {};
   return {
     Vary: 'Origin',
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Credentials': 'true',
-  }
+  };
 }
 
 // ── Soft-warn rate limiter: pino warning at 60 req/min/IP, never blocks ──
 
 class RateLimitError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = 'RateLimitError'
+    super(message);
+    this.name = 'RateLimitError';
   }
 }
 
-const ipCounts = new Map<string, { count: number; resetAt: number }>()
+const ipCounts = new Map<string, { count: number; resetAt: number }>();
 
-const softWarnPlugin = new Elysia({ name: 'soft-warn-rate-limit' }).onBeforeHandle(
-  { as: 'global' },
-  ({ request, server }) => {
-    const ip = server?.requestIP(request)?.address
-    if (!ip) return
+const softWarnPlugin = new Elysia({
+  name: 'soft-warn-rate-limit',
+}).onBeforeHandle({ as: 'global' }, ({ request, server }) => {
+  const ip = server?.requestIP(request)?.address;
+  if (!ip) return;
 
-    const now = Date.now()
-    let entry = ipCounts.get(ip)
-    if (!entry || now >= entry.resetAt) {
-      entry = { count: 0, resetAt: now + 60_000 }
-      ipCounts.set(ip, entry)
-    }
-    entry.count++
+  const now = Date.now();
+  let entry = ipCounts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + 60_000 };
+    ipCounts.set(ip, entry);
+  }
+  entry.count += 1;
 
-    if (entry.count === 60) {
-      const msg = `WARN Rate limit soft threshold reached {"ip":"${ip}","count":60,"threshold":"soft"}\n`
-			appendFile(LOG_FILE, msg).catch(() => {
-			})
-    }
-  },
-)
+  if (entry.count === 60) {
+    const msg = `WARN rate limit threshold {"ip":"${ip}","count":60,"threshold":"soft"}\n`;
+    appendFile(LOG_FILE, msg).catch(() => {});
+  }
+});
 
-const app = new Elysia({ prefix: '/api' })
+export const app = new Elysia({ prefix: '/api' })
   .use(
     cors({
-      origin:
-        EXTRA_CORS_ORIGINS.length > 0 ? EXTRA_CORS_ORIGINS : LOCAL_DEV_ORIGIN,
+      origin: EXTRA_CORS_ORIGINS.length > 0 ? EXTRA_CORS_ORIGINS : LOCAL_DEV_ORIGIN,
     }),
   )
   .use(
@@ -114,15 +113,17 @@ const app = new Elysia({ prefix: '/api' })
         showStartupMessage: true,
         ip: true,
         timestamp: { translateTime: 'yyyy-mm-dd HH:MM:ss.SSS' },
-        ...(ENABLE_FILE_LOGGING ? {
-          logFilePath: LOG_FILE,
-          logRotation: {
-            maxSize: '10m',
-            interval: '1d',
-            maxFiles: '7d',
-            compress: true,
-          },
-        } : {}),
+        ...(ENABLE_FILE_LOGGING
+          ? {
+            logFilePath: LOG_FILE,
+            logRotation: {
+              maxSize: '10m',
+              interval: '1d',
+              maxFiles: '7d',
+              compress: true,
+            },
+          }
+          : {}),
         pino: {
           level: LOG_LEVEL,
           prettyPrint: false,
@@ -139,69 +140,75 @@ const app = new Elysia({ prefix: '/api' })
     }),
   )
 
-  .get('/terrain/:z/:x/:y', async ({ params, set }) => {
-		const z = Number(params.z)
-		const x = Number(params.x)
-		const y = Number(params.y)
+  .get(
+    '/terrain/:z/:x/:y',
+    async ({ params }) => {
+      const z = Number(params.z);
+      const x = Number(params.x);
+      const y = Number(params.y);
 
-		// Try reading from local mbtiles (DMR 5G) first
-		const tile = readTerrainTile(z, x, y)
-		if (tile) {
-			set.headers['Content-Type'] = 'image/png'
-			set.headers['Cache-Control'] = 'public, max-age=86400'
-			return tile
-		}
-
-		// Fallback: proxy to tileserver when local mbtiles miss a tile.
-		// This avoids rectangular holes in contours/hillshade when generated
-		// terrain coverage is incomplete or a tile is absent in the mbtiles.
-    const upstream = `http://localhost:2323/data/cz-terrain/${params.z}/${params.x}/${params.y}.png`
-    try {
-      const res = await fetch(upstream)
-      if (res.ok) {
-        set.headers['Content-Type'] = 'image/png'
-        set.headers['Cache-Control'] = 'public, max-age=86400'
-        return new Uint8Array(await res.arrayBuffer())
+      // Try reading from local mbtiles (DMR 5G) first
+      const tile = readTerrainTile(z, x, y);
+      if (tile) {
+        return new Response(new Uint8Array(tile), {
+          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+        });
       }
-    } catch {
-      // fall through to transparent tile
-    }
 
-    set.headers['Content-Type'] = 'image/png'
-    set.headers['Cache-Control'] = 'public, max-age=86400'
-    return TRANSPARENT_PNG
-  }, {
-    params: t.Object({
-      z: t.String(),
-      x: t.String(),
-      y: t.String(),
-    }),
-  })
+      // Fallback: proxy to tileserver when local mbtiles miss a tile.
+      // This avoids rectangular holes in contours/hillshade when generated
+      // terrain coverage is incomplete or a tile is absent in the mbtiles.
+      const upstream = [
+        'http://localhost:2323/data/cz-terrain', params.z, params.x, `${params.y}.png`,
+      ].join('/');
+      try {
+        const res = await fetch(upstream);
+        if (res.ok) {
+          return new Response(new Uint8Array(await res.arrayBuffer()), {
+            headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+          });
+        }
+      } catch {
+        // fall through to transparent tile
+      }
+
+      return new Response(TRANSPARENT_PNG, {
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+      });
+    },
+    {
+      params: t.Object({
+        z: t.String(),
+        x: t.String(),
+        y: t.String(),
+      }),
+    },
+  )
 
   .onError(async ({ code, error, request }) => {
-    const msg = error instanceof Error ? error.message : String(error)
-    const cors = corsHeadersForRequest(request)
+    const msg = error instanceof Error ? error.message : String(error);
+    const corsHeaders = corsHeadersForRequest(request);
 
     if (error instanceof RateLimitError) {
       return new Response(JSON.stringify({ message: msg }), {
         status: 429,
-        headers: { 'Content-Type': 'application/json', ...cors },
-      })
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
     }
 
     if (code === 'VALIDATION') {
       return new Response(JSON.stringify({ message: msg }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', ...cors },
-      })
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
     }
 
     if (code === 'NOT_FOUND') {
       // SPA fallback: serve static FE files for non-API paths
-      const url = new URL(request.url)
-      const reqPath = url.pathname
+      const url = new URL(request.url);
+      const reqPath = url.pathname;
       if (!reqPath.startsWith('/api/')) {
-        const FE_DIST = resolve(PROJECT_ROOT, 'src', 'fe', 'dist')
+        const FE_DIST = resolve(PROJECT_ROOT, 'src', 'fe', 'dist');
         const MIME: Record<string, string> = {
           '.html': 'text/html; charset=utf-8',
           '.js': 'application/javascript; charset=utf-8',
@@ -214,291 +221,343 @@ const app = new Elysia({ prefix: '/api' })
           '.woff': 'font/woff',
           '.mjs': 'application/javascript; charset=utf-8',
           '.map': 'application/json; charset=utf-8',
-        }
-        const cleanPath = reqPath.replace(/\.\./g, '')
-        const candidate = resolve(FE_DIST, cleanPath === '/' ? 'index.html' : cleanPath.slice(1))
+        };
+        const cleanPath = reqPath.replace(/\.\./g, '');
+        const candidate = resolve(FE_DIST, cleanPath === '/' ? 'index.html' : cleanPath.slice(1));
         // Guard against path traversal — candidate must stay within FE_DIST
-        if (!candidate.startsWith(FE_DIST)) return new Response('Forbidden', { status: 403, headers: cors })
+        if (!candidate.startsWith(FE_DIST)) {
+          return new Response('Forbidden', { status: 403, headers: corsHeaders });
+        }
         try {
-          const file = Bun.file(candidate)
+          const file = Bun.file(candidate);
           if (await file.exists()) {
-            const ext = candidate.slice(candidate.lastIndexOf('.'))
+            const ext = candidate.slice(candidate.lastIndexOf('.'));
             const headers: Record<string, string> = {
               'Content-Type': MIME[ext] ?? 'application/octet-stream',
-              ...cors,
-            }
-            if (ext === '.html') headers['Cache-Control'] = 'no-cache'
-            else headers['Cache-Control'] = 'public, max-age=86400'
-            return new Response(file, { status: 200, headers })
+              ...corsHeaders,
+            };
+            if (ext === '.html') headers['Cache-Control'] = 'no-cache';
+            else headers['Cache-Control'] = 'public, max-age=86400';
+            return new Response(file, { status: 200, headers });
           }
-        } catch { /* fall through */ }
+        } catch {
+          /* fall through */
+        }
         // SPA index.html fallback
         try {
-          const index = Bun.file(resolve(FE_DIST, 'index.html'))
+          const index = Bun.file(resolve(FE_DIST, 'index.html'));
           if (await index.exists()) {
             return new Response(index, {
               status: 200,
-              headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ...cors },
-            })
+              headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'no-cache',
+                ...corsHeaders,
+              },
+            });
           }
-        } catch { /* dev mode — no dist */ }
+        } catch {
+          /* dev mode — no dist */
+        }
       }
-      return new Response('Not Found', { status: 404, headers: cors })
+      return new Response('Not Found', { status: 404, headers: corsHeaders });
     }
 
     // Unknown error - return 500
     return new Response(JSON.stringify({ message: msg }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json', ...cors },
-    })
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
   })
 
-  .get('/geocode', async ({ query, store }) => {
-		const { pino } = store as PinoStore
-    pino.debug({ q: query.q }, 'Geocode request')
+  .get(
+    '/geocode',
+    async ({ query, store }) => {
+      const { pino } = store as PinoStore;
+      pino.debug({ q: query.q }, 'Geocode request');
 
-    // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
-    const gpsCoord = detectAndParseGPS(query.q)
-    if (gpsCoord) {
-      pino.debug({ lat: gpsCoord.lat, lng: gpsCoord.lng }, 'GPS detected')
+      // ── GPS coordinate detection: reverse-geocode if input looks like coords ──
+      const gpsCoord = detectAndParseGPS(query.q);
+      if (gpsCoord) {
+        pino.debug({ lat: gpsCoord.lat, lng: gpsCoord.lng }, 'GPS detected');
 
-      try {
-        const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`)
-        const reverseData = await reverseRes.json() as any
-        const features: any[] = reverseData?.features ?? []
-        pino.debug({ count: features.length }, 'Reverse geocode results')
-        if (features.length > 0) {
-          return [mapPhotonFeature(features[0])]
+        try {
+          const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`);
+          const reverseData = await reverseRes.json();
+          const features: any[] = reverseData?.features ?? [];
+          pino.debug({ count: features.length }, 'Reverse geocode results');
+          if (features.length > 0) {
+            return [mapPhotonFeature(features[0])];
+          }
+        } catch (err) {
+          pino.error({ error: (err as Error).message }, 'Photon reverse geocode failed');
         }
+
+        // Fallback: return raw coordinate as a GeocodeResult
+        return [
+          {
+            lat: gpsCoord.lat,
+            lng: gpsCoord.lng,
+            name: `${gpsCoord.lat}, ${gpsCoord.lng}`,
+            displayName: `${gpsCoord.lat}, ${gpsCoord.lng}`,
+          },
+        ];
+      }
+
+      pino.debug('GPS: no match, forward geocode');
+
+      // ── Forward geocode via local Photon ──
+      // viewbox/bounded accepted for backward compat but ignored by Photon
+      let photonPath = `/api?q=${encodeURIComponent(query.q)}&limit=5`;
+
+      // Apply Photon location bias when lat/lon are provided by the frontend
+      if (query.lat && query.lon) {
+        const biasZoom = Math.round(parseFloat(query.zoom || '14'));
+        photonPath += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`;
+        pino.debug(
+          { lat: query.lat, lon: query.lon, zoom: biasZoom },
+          'Location bias applied to Photon geocode',
+        );
+      }
+
+      let data: any;
+      try {
+        const res = await fetchPhoton(photonPath);
+        data = await res.json();
       } catch (err) {
-        pino.error({ error: (err as Error).message }, 'Photon reverse geocode failed')
+        pino.error({ error: (err as Error).message }, 'Photon geocode failed');
+        throw new Error('Geocode service unavailable');
       }
 
-      // Fallback: return raw coordinate as a GeocodeResult
-      return [{
-        lat: gpsCoord.lat,
-        lng: gpsCoord.lng,
-        name: `${gpsCoord.lat}, ${gpsCoord.lng}`,
-        displayName: `${gpsCoord.lat}, ${gpsCoord.lng}`,
-      }]
-    }
+      const features: any[] = data?.features ?? [];
+      const results: GeocodeResult[] = features.map(mapPhotonFeature);
 
-    pino.debug('GPS: no match, forward geocode')
+      pino.debug({ q: query.q, count: results.length }, 'Geocode results');
+      return results;
+    },
+    {
+      query: t.Object({
+        q: t.String({ minLength: 1 }),
+        viewbox: t.Optional(t.String()),
+        bounded: t.Optional(t.String()),
+        lat: t.Optional(t.String()),
+        lon: t.Optional(t.String()),
+        zoom: t.Optional(t.String()),
+      }),
+      response: t.Array(
+        t.Object({
+          lat: t.Number(),
+          lng: t.Number(),
+          name: t.String(),
+          displayName: t.String(),
+        }),
+      ),
+    },
+  )
 
-    // ── Forward geocode via local Photon ──
-    // viewbox/bounded accepted for backward compat but ignored by Photon
-    let photonPath = `/api?q=${encodeURIComponent(query.q)}&limit=5`
+  .post(
+    '/route',
+    async ({ body, store }) => {
+      const { pino } = store as PinoStore;
+      const {
+        stops,
+        elevationCoefficient,
+        roadAvoidanceCoefficient,
+        cyclewayCoefficient,
+        showPOI = false,
+      } = body;
 
-    // Apply Photon location bias when lat/lon are provided by the frontend
-    if (query.lat && query.lon) {
-      const biasZoom = Math.round(parseFloat(query.zoom || '14'))
-      photonPath += `&lat=${query.lat}&lon=${query.lon}&zoom=${biasZoom}&location_bias_scale=0.2`
-      pino.debug({ lat: query.lat, lon: query.lon, zoom: biasZoom }, 'Location bias applied to Photon geocode')
-    }
+      pino.info(
+        {
+          stopCount: stops.length,
+          elevCoeff: elevationCoefficient,
+          roadAvoid: roadAvoidanceCoefficient,
+          cycleway: cyclewayCoefficient,
+          showPOI,
+        },
+        'Route request',
+      );
 
-    let data: any
-    try {
-      const res = await fetchPhoton(photonPath)
-      data = await res.json()
-    } catch (err) {
-      pino.error({ error: (err as Error).message }, 'Photon geocode failed')
-      throw new Error('Geocode service unavailable')
-    }
+      const customModel = buildCustomModel(
+        elevationCoefficient,
+        roadAvoidanceCoefficient,
+        cyclewayCoefficient,
+      );
+      pino.debug({ customModel }, 'Custom model built');
 
-    const features: any[] = data?.features ?? []
-    const results: GeocodeResult[] = features.map(mapPhotonFeature)
+      // Stage 1: Compute base route
+      const t0 = performance.now();
+      const ghResult = await fetchRouteFromGH(stops, customModel);
+      const routeData = convertGHToRouteResponse(ghResult);
+      const elapsed = Math.round(performance.now() - t0);
 
-    pino.debug({ q: query.q, count: results.length }, 'Geocode results')
-    return results
-  }, {
-    query: t.Object({
-      q: t.String({ minLength: 1 }),
-      viewbox: t.Optional(t.String()),
-      bounded: t.Optional(t.String()),
-      lat: t.Optional(t.String()),
-      lon: t.Optional(t.String()),
-      zoom: t.Optional(t.String()),
-    }),
-    response: t.Array(t.Object({
-      lat: t.Number(),
-      lng: t.Number(),
-      name: t.String(),
-      displayName: t.String(),
-    })),
-  })
+      pino.info(
+        {
+          distance: routeData.distance,
+          duration: routeData.duration,
+          gain: routeData.elevationGain,
+          loss: routeData.elevationLoss,
+          points: routeData.geometry.length,
+          profilePoints: routeData.elevationProfile.length,
+          surfaceSegments: routeData.surfaceSegments.length,
+          elapsedMs: elapsed,
+        },
+        'Route calculated',
+      );
 
-  .post('/route', async ({ body, store }) => {
-		const { pino } = store as PinoStore
-		const {
-			stops,
-			elevationCoefficient,
-			roadAvoidanceCoefficient,
-			cyclewayCoefficient,
-			showPOI = false,
-		} = body
-
-    pino.info(
-			{
-				stopCount: stops.length,
-				elevCoeff: elevationCoefficient,
-				roadAvoid: roadAvoidanceCoefficient,
-				cycleway: cyclewayCoefficient,
-				showPOI,
-			},
-      'Route request',
-    )
-
-    const customModel = buildCustomModel(elevationCoefficient, roadAvoidanceCoefficient, cyclewayCoefficient)
-    pino.debug({ customModel }, 'Custom model built')
-
-    // Stage 1: Compute base route
-    const t0 = performance.now()
-    const ghResult = await fetchRouteFromGH(stops, customModel)
-    let routeData = convertGHToRouteResponse(ghResult)
-    const elapsed = Math.round(performance.now() - t0)
-
-    pino.info(
-			{
-				distance: routeData.distance,
-				duration: routeData.duration,
-				gain: routeData.elevationGain,
-				loss: routeData.elevationLoss,
-				points: routeData.geometry.length,
-				profilePoints: routeData.elevationProfile.length,
-				surfaceSegments: routeData.surfaceSegments.length,
-				elapsedMs: elapsed
-			},
-      'Route calculated',
-    )
-
-    // Stage 2 (conditional): query POIs along route for map display
-    let finalRouteData = routeData
-    if (showPOI) {
-      try {
-        pino.info('Querying POIs along route')
-        const routeLengthM = routeData.distance * 1000
-        const sampleInterval = Math.max(500, Math.min(2000, routeLengthM / 20))
-        const samplePoints = sampleRouteGeometry(routeData.geometry, sampleInterval, 50)
-        const allPOIs: POILocation[] = []
-        for (const [lat, lng] of samplePoints) {
-          const pois = await queryLocalPOIs(lat, lng, 2000)
-          allPOIs.push(...pois)
+      // Stage 2 (conditional): query POIs along route for map display
+      const finalRouteData = routeData;
+      if (showPOI) {
+        try {
+          pino.info('Querying POIs along route');
+          const routeLengthM = routeData.distance * 1000;
+          const sampleInterval = Math.max(500, Math.min(2000, routeLengthM / 20));
+          const samplePoints = sampleRouteGeometry(routeData.geometry, sampleInterval, 50);
+          const allPOIs: POILocation[] = [];
+          const poiGroups = await Promise.all(
+            samplePoints.map(([lat, lng]) => queryLocalPOIs(lat, lng, 2000)),
+          );
+          poiGroups.forEach((pois) => allPOIs.push(...pois));
+          finalRouteData.allPOILocations = deduplicatePOIs(allPOIs);
+          pino.info({ poiCount: finalRouteData.allPOILocations.length }, 'POI query complete');
+        } catch (poiErr) {
+          pino.error({ error: (poiErr as Error).message }, 'POI query failed');
         }
-        finalRouteData.allPOILocations = deduplicatePOIs(allPOIs)
-        pino.info({ poiCount: finalRouteData.allPOILocations.length }, 'POI query complete')
-      } catch (poiErr) {
-        pino.error({ error: (poiErr as Error).message }, 'POI query failed')
       }
-    }
 
-    try {
-      await db.insert(routes).values({
-        name: `Trasa ${new Date().toISOString()}`,
-        stops: JSON.stringify(stops),
-        geometry: JSON.stringify(finalRouteData.geometry),
-        distance: finalRouteData.distance,
-        duration: finalRouteData.duration,
-        elevationGain: finalRouteData.elevationGain,
-        elevationLoss: finalRouteData.elevationLoss,
-        elevationProfile: JSON.stringify(finalRouteData.elevationProfile),
-        surfaceSegments: JSON.stringify(finalRouteData.surfaceSegments),
-      roadClassSegments: JSON.stringify(finalRouteData.roadClassSegments),
-      })
-      pino.debug('Route saved to DB')
-    } catch (dbErr) {
-      pino.error({ error: (dbErr as Error).message }, 'Failed to save route to DB')
-      // Don't fail the request - route data is still valid
-    }
-
-    if (body.shadowDateTime && hasTerrainData()) {
       try {
-        finalRouteData.shadowProfile = computeShadowProfile(finalRouteData.geometry, body.shadowDateTime, {
-          durationMs: finalRouteData.duration * 1000,
-        })
-      } catch (shadowErr) {
-        pino.warn({ error: (shadowErr as Error).message }, 'Shadow profile computation failed')
+        await db.insert(routes).values({
+          name: `Trasa ${new Date().toISOString()}`,
+          stops: JSON.stringify(stops),
+          geometry: JSON.stringify(finalRouteData.geometry),
+          distance: finalRouteData.distance,
+          duration: finalRouteData.duration,
+          elevationGain: finalRouteData.elevationGain,
+          elevationLoss: finalRouteData.elevationLoss,
+          elevationProfile: JSON.stringify(finalRouteData.elevationProfile),
+          surfaceSegments: JSON.stringify(finalRouteData.surfaceSegments),
+          roadClassSegments: JSON.stringify(finalRouteData.roadClassSegments),
+        });
+        pino.debug('Route saved to DB');
+      } catch (dbErr) {
+        pino.error({ error: (dbErr as Error).message }, 'Failed to save route to DB');
+        // Don't fail the request - route data is still valid
       }
-    }
 
-    return finalRouteData
-  }, {
-    body: t.Object({
-      stops: t.Array(t.Object({
-        lat: t.Number(),
-        lng: t.Number(),
-        name: t.String(),
-      })),
-      elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
-      roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
-      cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
-      showPOI: t.Optional(t.Boolean()),
-      shadowDateTime: t.Optional(t.String()),
-    }),
-    response: t.Object({
-      geometry: t.Array(t.Array(t.Number())),
-      distance: t.Number(),
-      duration: t.Number(),
-      elevationGain: t.Number(),
-      elevationLoss: t.Number(),
-      elevationProfile: t.Array(t.Object({
+      if (body.shadowDateTime && hasTerrainData()) {
+        try {
+          finalRouteData.shadowProfile = computeShadowProfile(
+            finalRouteData.geometry,
+            body.shadowDateTime,
+            {
+              durationMs: finalRouteData.duration * 1000,
+            },
+          );
+        } catch (shadowErr) {
+          pino.warn({ error: (shadowErr as Error).message }, 'Shadow profile computation failed');
+        }
+      }
+
+      return finalRouteData;
+    },
+    {
+      body: t.Object({
+        stops: t.Array(
+          t.Object({
+            lat: t.Number(),
+            lng: t.Number(),
+            name: t.String(),
+          }),
+        ),
+        elevationCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+        roadAvoidanceCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+        cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
+        showPOI: t.Optional(t.Boolean()),
+        shadowDateTime: t.Optional(t.String()),
+      }),
+      response: t.Object({
+        geometry: t.Array(t.Array(t.Number())),
         distance: t.Number(),
-        elevation: t.Number(),
-      })),
-      surfaceSegments: t.Array(t.Object({
-        from: t.Number(),
-        to: t.Number(),
-        surface: t.String(),
-      })),
-      roadClassSegments: t.Array(t.Object({
-        from: t.Number(),
-        to: t.Number(),
-        roadClass: t.String(),
-      })),
-      roadEnvSegments: t.Array(t.Object({
-        from: t.Number(),
-        to: t.Number(),
-        roadClass: t.String(),
-      })),
-      poiLocations: t.Array(t.Object({
-        lat: t.Number(),
-        lng: t.Number(),
-        name: t.String(),
-        type: t.String(),
-      })),
-      allPOILocations: t.Array(t.Object({
-        lat: t.Number(),
-        lng: t.Number(),
-        name: t.String(),
-        type: t.String(),
-      })),
-      shadowProfile: t.Optional(t.Array(t.Object({
-        distance: t.Number(),
-        shadow: t.Boolean(),
-        sunExposure: t.Number(),
-      }))),
-      slopeBasedTimes: t.Optional(t.Array(t.Number())),
-    }),
-  })
+        duration: t.Number(),
+        elevationGain: t.Number(),
+        elevationLoss: t.Number(),
+        elevationProfile: t.Array(
+          t.Object({
+            distance: t.Number(),
+            elevation: t.Number(),
+          }),
+        ),
+        surfaceSegments: t.Array(
+          t.Object({
+            from: t.Number(),
+            to: t.Number(),
+            surface: t.String(),
+          }),
+        ),
+        roadClassSegments: t.Array(
+          t.Object({
+            from: t.Number(),
+            to: t.Number(),
+            roadClass: t.String(),
+          }),
+        ),
+        roadEnvSegments: t.Array(
+          t.Object({
+            from: t.Number(),
+            to: t.Number(),
+            roadClass: t.String(),
+          }),
+        ),
+        poiLocations: t.Array(
+          t.Object({
+            lat: t.Number(),
+            lng: t.Number(),
+            name: t.String(),
+            type: t.String(),
+          }),
+        ),
+        allPOILocations: t.Array(
+          t.Object({
+            lat: t.Number(),
+            lng: t.Number(),
+            name: t.String(),
+            type: t.String(),
+          }),
+        ),
+        shadowProfile: t.Optional(
+          t.Array(
+            t.Object({
+              distance: t.Number(),
+              shadow: t.Boolean(),
+              sunExposure: t.Number(),
+            }),
+          ),
+        ),
+        slopeBasedTimes: t.Optional(t.Array(t.Number())),
+      }),
+    },
+  )
 
-  .get('/history', async () => {
-    return db.select().from(routes).orderBy(routes.createdAt).all()
-  })
+  .get('/history', async () => db.select().from(routes).orderBy(routes.createdAt).all())
 
-  .get('/cycleroutes', async ({ set }) => {
-    const filePath = resolve(PROJECT_ROOT, 'data', 'cycleroutes.geojson')
+  .get('/cycleroutes', async () => {
+    const filePath = resolve(PROJECT_ROOT, 'data', 'cycleroutes.geojson');
     try {
-      const data = await readFile(filePath, 'utf-8')
-      set.headers['Content-Type'] = 'application/geo+json'
-      set.headers['Cache-Control'] = 'public, max-age=86400'
-      return data
+      const data = await readFile(filePath, 'utf-8');
+      return new Response(data, {
+        headers: {
+          'Content-Type': 'application/geo+json',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
     } catch {
       return new Response('Cycle routes data not found. Run pnpm extract-routes first.', {
         status: 404,
         headers: { 'Content-Type': 'text/plain' },
-      })
+      });
     }
   })
 
-  .listen(3002)
+  .listen(3002);
 
-export type App = typeof app
+export type App = typeof app;

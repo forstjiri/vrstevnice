@@ -1,28 +1,31 @@
-import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { sql } from 'drizzle-orm/sql'
-import { Database } from 'bun:sqlite'
-import { mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core'
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { sql } from 'drizzle-orm/sql';
+import { Database } from 'bun:sqlite';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  sqliteTable, text, real, integer,
+} from 'drizzle-orm/sqlite-core';
 
 /**
  * Safely add a column to an existing table. No-op if column already exists.
  */
+const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
+const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+
+mkdirSync(DATA_DIR, { recursive: true });
+
+const sqlite = new Database(resolve(DATA_DIR, 'data.db'));
+
 function ensureColumn(table: string, column: string, definition: string) {
   try {
-    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   } catch {
     // Column already exists — ignore
   }
 }
 
-const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
-const DATA_DIR = resolve(PROJECT_ROOT, 'data')
-
-mkdirSync(DATA_DIR, { recursive: true })
-
-const sqlite = new Database(resolve(DATA_DIR, 'data.db'))
-sqlite.exec('PRAGMA journal_mode=WAL')
+sqlite.exec('PRAGMA journal_mode=WAL');
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS routes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,12 +40,12 @@ sqlite.exec(`
     surface_segments TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
-`)
+`);
 
-ensureColumn('routes', 'surface_segments', 'TEXT')
-ensureColumn('routes', 'road_class_segments', 'TEXT')
+ensureColumn('routes', 'surface_segments', 'TEXT');
+ensureColumn('routes', 'road_class_segments', 'TEXT');
 
-export const db = drizzle(sqlite)
+export const db = drizzle(sqlite);
 
 export const routes = sqliteTable('routes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -56,5 +59,7 @@ export const routes = sqliteTable('routes', {
   elevationProfile: text('elevation_profile'),
   surfaceSegments: text('surface_segments'),
   roadClassSegments: text('road_class_segments'),
-  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-})
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});

@@ -15,45 +15,45 @@
  *   no custom model:             Path A wins (default GH bike profile, shortest)
  */
 
-import { describe, it, expect } from 'vitest'
-import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle'
-import { nodePoint, TEST_NODES } from '../fixtures/nodes'
-import { assertRoutePassesThrough, findNodeHits } from '../helpers/assert-route'
-import { buildCustomModel, type GHCustomModel } from '@vrstevnice/routing'
+import { describe, it, expect } from 'vitest';
+import { buildCustomModel, type GHCustomModel } from '@vrstevnice/routing';
+import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle';
+import { nodePoint, TEST_NODES } from '../fixtures/nodes';
+import { assertRoutePassesThrough, findNodeHits } from '../helpers/assert-route';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface GHRouteResponse {
-  paths?: GHPath[]
-  info?: { errors?: unknown[] }
+  paths?: GHPath[];
+  info?: { errors?: unknown[] };
 }
 
 interface GHPath {
-  distance: number
-  time: number
-  ascend: number
-  descend: number
+  distance: number;
+  time: number;
+  ascend: number;
+  descend: number;
   points: {
-    type: string
-    coordinates: number[][] // [lon, lat, ...]
-  }
-  instructions: unknown[]
+    type: string;
+    coordinates: number[][]; // [lon, lat, ...]
+  };
+  instructions: unknown[];
 }
 
 interface RouteTestCase {
-  name: string
-  startNode: string
-  endNode: string
-  elevationCoeff: number
-  roadAvoidanceCoeff: number
+  name: string;
+  startNode: string;
+  endNode: string;
+  elevationCoeff: number;
+  roadAvoidanceCoeff: number;
   /** Cycleway preference coefficient 0→1. Defaults to 0. */
-  cyclewayCoeff?: number
+  cyclewayCoeff?: number;
   /** Expected node names in order the route must pass through. */
-  expectedNodes: string[]
+  expectedNodes: string[];
   /** If true, sends NO custom model — tests GH base bike profile. */
-  skipCalibration?: boolean
+  skipCalibration?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,8 +67,10 @@ interface RouteTestCase {
 function stripSlopeRules(cm: GHCustomModel): GHCustomModel {
   return {
     ...cm,
-    priority: cm.priority.filter((r: { if: string; multiply_by?: string }) => !r.if.includes('slope')),
-  }
+    priority: cm.priority.filter(
+      (r: { if: string; multiply_by?: string }) => !r.if.includes('slope'),
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,25 +84,25 @@ async function ghRoute(points: [number, number][], customModel?: unknown) {
     elevation: false,
     points_encoded: false,
     'ch.disable': true,
-  }
+  };
 
   if (customModel) {
-    body.custom_model = customModel
+    body.custom_model = customModel;
   }
 
   const res = await fetch(`${GRAPHHOPPER_URL}/route`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  });
 
   if (!res.ok) {
-    const text = await res.text()
-    dumpGHLogs(30)
-    throw new Error(`GH /route returned ${res.status}: ${text}`)
+    const text = await res.text();
+    dumpGHLogs(30);
+    throw new Error(`GH /route returned ${res.status}: ${text}`);
   }
 
-  return res.json() as Promise<GHRouteResponse>
+  return res.json() as Promise<GHRouteResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +180,7 @@ const testCases: RouteTestCase[] = [
     cyclewayCoeff: 0.7,
     expectedNodes: ['Start', 'C_Cyc1', 'C_Cyc2', 'C_Cyc3', 'C_Cyc4', 'End'],
   },
-]
+];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -186,47 +188,52 @@ const testCases: RouteTestCase[] = [
 
 describe('Routing: buildCustomModel() route selection', () => {
   it.each(testCases)('$name', async (tc) => {
-    const startPt = nodePoint(tc.startNode)
-    const endPt = nodePoint(tc.endNode)
+    const startPt = nodePoint(tc.startNode);
+    const endPt = nodePoint(tc.endNode);
 
-    let customModel: unknown = undefined
+    let customModel: unknown;
     if (!tc.skipCalibration) {
-      const cm = buildCustomModel(tc.elevationCoeff, tc.roadAvoidanceCoeff, tc.cyclewayCoeff ?? 0)
-      customModel = stripSlopeRules(cm)
+      const cm = buildCustomModel(tc.elevationCoeff, tc.roadAvoidanceCoeff, tc.cyclewayCoeff ?? 0);
+      customModel = stripSlopeRules(cm);
     }
 
-    console.log(`[routing-test] Case: "${tc.name}"`)
-    console.log(`[routing-test]   coeff: elev=${tc.elevationCoeff}, roadAvoid=${tc.roadAvoidanceCoeff}, cycleway=${tc.cyclewayCoeff ?? 0}`)
-    console.log(`[routing-test]   customModel: ${customModel ? JSON.stringify(customModel) : 'none'}`)
+    console.log(`[routing-test] Case: "${tc.name}"`);
+    console.log(
+      `[routing-test]   coeff: elev=${tc.elevationCoeff}, `
+        + `roadAvoid=${tc.roadAvoidanceCoeff}, cycleway=${tc.cyclewayCoeff ?? 0}`,
+    );
+    console.log(
+      `[routing-test]   customModel: ${customModel ? JSON.stringify(customModel) : 'none'}`,
+    );
 
-    const data = await ghRoute([startPt, endPt], customModel)
+    const data = await ghRoute([startPt, endPt], customModel);
 
-    expect(data.paths).toBeDefined()
-    expect(data.paths!.length).toBeGreaterThanOrEqual(1)
-    expect(data.info?.errors).toBeUndefined()
+    expect(data.paths).toBeDefined();
+    expect(data.paths!.length).toBeGreaterThanOrEqual(1);
+    expect(data.info?.errors).toBeUndefined();
 
-    const path = data.paths![0]
-    expect(path.distance).toBeGreaterThan(0)
-    expect(path.time).toBeGreaterThan(0)
+    const path = data.paths![0];
+    expect(path.distance).toBeGreaterThan(0);
+    expect(path.time).toBeGreaterThan(0);
 
-    const coords = path.points.coordinates
-    expect(coords.length).toBeGreaterThanOrEqual(2)
+    const coords = path.points.coordinates;
+    expect(coords.length).toBeGreaterThanOrEqual(2);
 
-    console.log(`[routing-test]   distance: ${(path.distance / 1000).toFixed(3)} km`)
-    console.log(`[routing-test]   duration: ${(path.time / 1000).toFixed(1)} s`)
+    console.log(`[routing-test]   distance: ${(path.distance / 1000).toFixed(3)} km`);
+    console.log(`[routing-test]   duration: ${(path.time / 1000).toFixed(1)} s`);
 
     // Log which named nodes the route passes near (for debugging)
-    const routeLonLat = coords.map(c => [c[0], c[1]] as [number, number])
+    const routeLonLat = coords.map((c) => [c[0], c[1]] as [number, number]);
     const allNodeCoords = Object.entries(TEST_NODES).map(
       ([n, nd]) => [n, nd.lon, nd.lat] as [string, number, number],
-    ) as [string, number, number][]
-    const hits = findNodeHits(routeLonLat, allNodeCoords, 50)
+    );
+    const hits = findNodeHits(routeLonLat, allNodeCoords, 50);
     const hitSummary = [...hits.entries()]
       .sort((a, b) => a[1] - b[1])
       .map(([n, idx]) => `${n}@${idx}`)
-      .join(', ')
-    console.log(`[routing-test]   nodes:    ${hitSummary}`)
+      .join(', ');
+    console.log(`[routing-test]   nodes:    ${hitSummary}`);
 
-    assertRoutePassesThrough(coords, tc.expectedNodes)
-  })
-})
+    assertRoutePassesThrough(coords, tc.expectedNodes);
+  });
+});

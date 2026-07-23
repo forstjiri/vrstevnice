@@ -2,30 +2,35 @@
  * Elevation chart display constants and utility functions.
  */
 
-import type { ElevationPoint } from '@vrstevnice/shared'
+import type { ElevationPoint } from '@vrstevnice/shared';
 
-export const PADDING = { top: 8, right: 12, bottom: 22, left: 42 }
-export const TOOLTIP_OFFSET = 12
+export const PADDING = {
+  top: 8,
+  right: 12,
+  bottom: 22,
+  left: 42,
+};
+export const TOOLTIP_OFFSET = 12;
 
 /**
  * Binary search for the segment containing a given distance.
  * Returns segment index, or -1 if no segment matches.
  * O(log n) per lookup instead of O(n) linear scan.
  */
-export function binarySearchSegment(
-  segStarts: number[],
-  segEnds: number[],
-  dist: number,
-): number {
-  let lo = 0
-  let hi = segStarts.length - 1
+export function binarySearchSegment(segStarts: number[], segEnds: number[], dist: number): number {
+  let lo = 0;
+  let hi = segStarts.length - 1;
   while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (dist < segStarts[mid]) { hi = mid - 1; continue }
-    if (dist > segEnds[mid]) { lo = mid + 1; continue }
-    return mid
+    const mid = Math.floor((lo + hi) / 2);
+    if (dist < segStarts[mid]) {
+      hi = mid - 1;
+    } else if (dist > segEnds[mid]) {
+      lo = mid + 1;
+    } else {
+      return mid;
+    }
   }
-  return -1
+  return -1;
 }
 
 /**
@@ -40,13 +45,13 @@ export function sampleSegmentByDistance<S extends { from: number; to: number }, 
   extract: (seg: S) => T,
   fallback: T,
 ): T[] {
-  if (segments.length === 0) return profile.map(() => fallback)
-  const starts = segments.map(s => geomDists[s.from] ?? -Infinity)
-  const ends = segments.map(s => geomDists[s.to] ?? Infinity)
-  return profile.map(p => {
-    const idx = binarySearchSegment(starts, ends, p.distance)
-    return idx >= 0 ? extract(segments[idx]) : fallback
-  })
+  if (segments.length === 0) return profile.map(() => fallback);
+  const starts = segments.map((s) => geomDists[s.from] ?? -Infinity);
+  const ends = segments.map((s) => geomDists[s.to] ?? Infinity);
+  return profile.map((p) => {
+    const idx = binarySearchSegment(starts, ends, p.distance);
+    return idx >= 0 ? extract(segments[idx]) : fallback;
+  });
 }
 
 /**
@@ -59,23 +64,23 @@ export function sampleValueByDistance<T>(
   values: T[],
   fallback: T,
 ): T[] {
-  if (samples.length === 0) return profile.map(() => fallback)
-  const starts = samples.map(s => s.distance)
-  const ends = [...starts.slice(1), Infinity]
-  return profile.map(p => {
-    const idx = binarySearchSegment(starts, ends, p.distance)
-    return idx >= 0 ? values[idx] : fallback
-  })
+  if (samples.length === 0) return profile.map(() => fallback);
+  const starts = samples.map((s) => s.distance);
+  const ends = [...starts.slice(1), Infinity];
+  return profile.map((p) => {
+    const idx = binarySearchSegment(starts, ends, p.distance);
+    return idx >= 0 ? values[idx] : fallback;
+  });
 }
 
 /**
  * Convert hex color to rgba string.
  */
 export function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export const SURFACE_COLORS: Record<string, string> = {
@@ -95,9 +100,9 @@ export const SURFACE_COLORS: Record<string, string> = {
   paved: '#9ca3af',
   grass: '#4ade80',
   sand: '#fbbf24',
-}
+};
 
-export const DEFAULT_SURFACE_COLOR = '#94a3b8'
+export const DEFAULT_SURFACE_COLOR = '#94a3b8';
 
 export const SURFACE_LABELS: Record<string, string> = {
   asphalt: 'asfalt',
@@ -116,7 +121,7 @@ export const SURFACE_LABELS: Record<string, string> = {
   paved: 'zpevněno',
   grass: 'tráva',
   sand: 'písek',
-}
+};
 
 export const ROAD_CLASS_LABELS: Record<string, string> = {
   motorway: 'dálnice',
@@ -134,7 +139,7 @@ export const ROAD_CLASS_LABELS: Record<string, string> = {
   steps: 'schody',
   ferry: 'přívoz',
   other: 'jiná',
-}
+};
 
 export const ROAD_CLASS_COLORS: Record<string, string> = {
   motorway: '#dc2626',
@@ -152,9 +157,9 @@ export const ROAD_CLASS_COLORS: Record<string, string> = {
   steps: '#f97316',
   ferry: '#38bdf8',
   other: '#6b7280',
-}
+};
 
-export const DEFAULT_ROAD_CLASS_COLOR = '#6b7280'
+export const DEFAULT_ROAD_CLASS_COLOR = '#6b7280';
 
 /**
  * Line dash pattern per road class. null = solid line.
@@ -164,4 +169,4 @@ export const ROAD_CLASS_DASH: Record<string, number[] | undefined> = {
   cycleway: [6, 3],
   track: undefined,
   // All others default to solid
-}
+};

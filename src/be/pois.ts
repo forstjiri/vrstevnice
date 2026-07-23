@@ -6,27 +6,27 @@
  * Each query uses a bounding-box pre-filter (cheap with idx_pois_lat_lng) followed
  * by an exact haversine post-filter.
  */
-import { Database } from 'bun:sqlite'
-import { resolve } from 'node:path'
-import { existsSync } from 'node:fs'
-import { haversineMeters, type POILocation } from '@vrstevnice/shared'
+import { Database } from 'bun:sqlite';
+import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { haversineMeters, type POILocation } from '@vrstevnice/shared';
 
-const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
-const POI_DB_PATH = resolve(PROJECT_ROOT, 'data', 'cz-pois.sqlite')
+const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
+const POI_DB_PATH = resolve(PROJECT_ROOT, 'data', 'cz-pois.sqlite');
 
 // Read-only + immutable=1 → safe shared handle, no WAL journaling overhead
-let db: Database | null = null
+let db: Database | null = null;
 
 function getDb(): Database | null {
-  if (db) return db
+  if (db) return db;
   if (!existsSync(POI_DB_PATH)) {
-    return null
+    return null;
   }
   try {
-    db = new Database(POI_DB_PATH, { readonly: true })
-    return db
+    db = new Database(POI_DB_PATH, { readonly: true });
+    return db;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -43,34 +43,34 @@ function getDb(): Database | null {
  *
  * Graceful fallback: returns [] if the DB file is missing or unreadable.
  */
-export async function queryLocalPOIs(
+export default async function queryLocalPOIs(
   lat: number,
   lng: number,
   radius: number,
 ): Promise<POILocation[]> {
-  const handle = getDb()
-  if (!handle) return []
+  const handle = getDb();
+  if (!handle) return [];
 
   // Bounding box: widen by 5% to cover circle corners
-  const dLat = (radius / 111_000) * 1.05
-  const cosLat = Math.cos((lat * Math.PI) / 180)
-  const dLng = (radius / (111_000 * Math.max(0.1, cosLat))) * 1.05
+  const dLat = (radius / 111_000) * 1.05;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const dLng = (radius / (111_000 * Math.max(0.1, cosLat))) * 1.05;
 
-  const minLat = lat - dLat
-  const maxLat = lat + dLat
-  const minLng = lng - dLng
-  const maxLng = lng + dLng
+  const minLat = lat - dLat;
+  const maxLat = lat + dLat;
+  const minLng = lng - dLng;
+  const maxLng = lng + dLng;
 
   const stmt = handle.query<POILocation, [number, number, number, number]>(
     `SELECT lat, lng, name, type FROM pois
      WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?`,
-  )
+  );
 
-  const results: POILocation[] = []
-  for (const row of stmt.all(minLat, maxLat, minLng, maxLng)) {
+  const results: POILocation[] = [];
+  stmt.all(minLat, maxLat, minLng, maxLng).forEach((row) => {
     if (haversineMeters(lat, lng, row.lat, row.lng) <= radius) {
-      results.push(row)
+      results.push(row);
     }
-  }
-  return results
+  });
+  return results;
 }

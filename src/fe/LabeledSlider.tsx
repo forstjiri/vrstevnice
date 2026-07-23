@@ -1,17 +1,17 @@
-import { Show, type JSX } from 'solid-js'
-import { Slider } from '@kobalte/core/slider'
+import { Show, type JSX } from 'solid-js';
+import { Slider } from '@kobalte/core/slider';
 
 interface LabeledSliderProps {
-  value: number
-  onChange: (v: number) => void
-  onChangeEnd?: () => void
-  label: string
-  minValue: number
-  maxValue: number
-  step: number
-  labelExtra?: JSX.Element
+  value: number;
+  onChange: (v: number) => void;
+  onChangeEnd?: () => void;
+  label: string;
+  minValue: number;
+  maxValue: number;
+  step: number;
+  labelExtra?: JSX.Element;
   /** Custom value display; defaults to Slider.ValueLabel */
-  valueDisplay?: JSX.Element
+  valueDisplay?: JSX.Element;
 }
 
 /**
@@ -22,7 +22,7 @@ export default function LabeledSlider(props: LabeledSliderProps) {
   return (
     <Slider
       value={[props.value]}
-      onChange={(v) => props.onChange(v[0]!)}
+      onChange={(v) => props.onChange(v[0])}
       onChangeEnd={props.onChangeEnd}
       minValue={props.minValue}
       maxValue={props.maxValue}
@@ -43,5 +43,5 @@ export default function LabeledSlider(props: LabeledSliderProps) {
         </Slider.Thumb>
       </Slider.Track>
     </Slider>
-  )
+  );
 }

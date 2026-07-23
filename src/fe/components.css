@@ -162,15 +162,22 @@
   color: var(--color-text-subtle);
   transition: background 100ms, color 100ms;
   font-family: var(--font);
+
   --btn-hover-bg: var(--color-border-subtle);
 }
 
 .btn-sm:hover,
-.btn-ghost-sm:hover { background: var(--btn-hover-bg); color: var(--color-text); }
+.btn-ghost-sm:hover {
+  background: var(--btn-hover-bg);
+  color: var(--color-text);
+}
 
 .btn-danger-sm { --btn-hover-bg: #fef2f2; }
 
-.btn-danger-sm:hover { background: var(--btn-hover-bg); color: var(--color-danger); }
+.btn-danger-sm:hover {
+  background: var(--btn-hover-bg);
+  color: var(--color-danger);
+}
 
 /* ── Tooltip (Kobalte Tooltip) ─────────── */
 
@@ -185,7 +192,10 @@
 
 /* ── Separator (Kobalte Separator) ─────── */
 
-.separator { border: none; border-top: 1px solid var(--color-border); }
+.separator {
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
 
 /* ── Badge (Kobalte Badge) ──────────────── */
 
@@ -196,13 +206,13 @@
   min-width: 56px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.82);
+  background: rgb(17 24 39 / 82%);
   color: #fff;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1;
   backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.16);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 16%);
 }
 
 /* ── Toggle button (Kobalte ToggleButton) ─ */
@@ -213,13 +223,13 @@
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgb(255 255 255 / 92%);
   color: var(--color-text);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
   backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
   transition: background 100ms, border-color 100ms, color 100ms;
 }
 
@@ -252,7 +262,7 @@
   padding: 2px 6px;
   font-size: 11px;
   box-shadow: none;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgb(255 255 255 / 25%);
   color: #fff;
 }
 

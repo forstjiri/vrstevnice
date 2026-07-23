@@ -5,9 +5,9 @@
  *
  * Individual test files no longer call startGH/stopGH themselves.
  */
-import { startGH, stopGH } from './helpers/gh-lifecycle'
+import { startGH, stopGH } from './helpers/gh-lifecycle';
 
-export async function setup(): Promise<() => void> {
-  await startGH(90_000)
-  return () => stopGH()
+export default async function setup(): Promise<() => void> {
+  await startGH(90_000);
+  return () => stopGH();
 }

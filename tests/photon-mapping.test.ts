@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { mapPhotonFeature } from '@vrstevnice/shared'
+import { describe, it, expect } from 'vitest';
+import { mapPhotonFeature } from '@vrstevnice/shared';
 
 describe('mapPhotonFeature', () => {
   it('swaps GeoJSON [lon, lat] → Leaflet [lat, lng]', () => {
@@ -14,13 +14,13 @@ describe('mapPhotonFeature', () => {
         city: 'Liberec',
         country: 'Czechia',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.lat).toBe(50.7671)
-    expect(result.lng).toBe(15.0742)
-  })
+    expect(result.lat).toBe(50.7671);
+    expect(result.lng).toBe(15.0742);
+  });
 
   it('constructs displayName from name + city + country', () => {
     const feature = {
@@ -31,13 +31,13 @@ describe('mapPhotonFeature', () => {
         city: 'Praha',
         country: 'Česko',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.displayName).toBe('Praha, Praha, Česko')
-    expect(result.name).toBe('Praha')
-  })
+    expect(result.displayName).toBe('Praha, Praha, Česko');
+    expect(result.name).toBe('Praha');
+  });
 
   it('falls back to street when name is missing', () => {
     const feature = {
@@ -48,12 +48,12 @@ describe('mapPhotonFeature', () => {
         city: 'Brno',
         country: 'Czechia',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.name).toBe('Husova')
-  })
+    expect(result.name).toBe('Husova');
+  });
 
   it('falls back to "Unknown" when both name and street are missing', () => {
     const feature = {
@@ -62,39 +62,39 @@ describe('mapPhotonFeature', () => {
       properties: {
         city: 'Praha',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.name).toBe('Unknown')
-  })
+    expect(result.name).toBe('Unknown');
+  });
 
   it('handles feature with only coordinates and minimal properties', () => {
     const feature = {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [12.0, 48.0] },
       properties: {},
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.lat).toBe(48.0)
-    expect(result.lng).toBe(12.0)
-    expect(result.name).toBe('Unknown')
-    expect(result.displayName).toBe('Unknown location')
-  })
+    expect(result.lat).toBe(48.0);
+    expect(result.lng).toBe(12.0);
+    expect(result.name).toBe('Unknown');
+    expect(result.displayName).toBe('Unknown location');
+  });
 
   it('handles missing geometry with default [0, 0]', () => {
     const feature = {
       type: 'Feature',
       properties: { name: 'Test' },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.lat).toBe(0)
-    expect(result.lng).toBe(0)
-  })
+    expect(result.lat).toBe(0);
+    expect(result.lng).toBe(0);
+  });
 
   it('includes housenumber and postcode in displayName when present', () => {
     const feature = {
@@ -108,14 +108,12 @@ describe('mapPhotonFeature', () => {
         postcode: '11000',
         country: 'Česko',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
-    expect(result.displayName).toBe(
-      'Kavárna, Vaclavské náměstí, 42, Praha, 11000, Česko',
-    )
-  })
+    expect(result.displayName).toBe('Kavárna, Vaclavské náměstí, 42, Praha, 11000, Česko');
+  });
 
   it('filters out empty string and null properties from displayName', () => {
     const feature = {
@@ -127,11 +125,11 @@ describe('mapPhotonFeature', () => {
         city: null as unknown as string,
         country: 'CZ',
       },
-    }
+    };
 
-    const result = mapPhotonFeature(feature)
+    const result = mapPhotonFeature(feature);
 
     // Only name and country should appear
-    expect(result.displayName).toBe('Test, CZ')
-  })
-})
+    expect(result.displayName).toBe('Test, CZ');
+  });
+});

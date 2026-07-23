@@ -1,4 +1,4 @@
-@import "maplibre-gl/dist/maplibre-gl.css";
+@import url("maplibre-gl/dist/maplibre-gl.css");
 
 :root {
   --color-bg: #fafafa;
@@ -14,11 +14,14 @@
   --color-success: #22c55e;
   --radius: 8px;
   --panel-w: 380px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font: -apple-system, blinkmacsystemfont, "Segoe UI", roboto, sans-serif;
+  --font-mono: ui-monospace, sfmono-regular, "SF Mono", menlo, monospace;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+}
 
 body {
   font-family: var(--font);
@@ -28,7 +31,15 @@ body {
   overflow: hidden;
 }
 
-#app { height: 100vh; height: 100dvh; width: 100vw; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+#app {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
 
 /* ── Bottom sheet overlay ───────────────── */
 
@@ -131,7 +142,7 @@ body {
   border-radius: 0 0 var(--radius) var(--radius);
   border: 1px solid var(--color-border);
   border-top: none;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 8%);
   max-height: 220px;
   overflow-y: auto;
   z-index: 1001;
@@ -272,6 +283,8 @@ body {
 .map-container > .map-host {
   width: 100%;
   height: 100%;
+  position: relative;
+  z-index: 0;
 }
 
 .map-dusk-overlay {
@@ -282,11 +295,6 @@ body {
   opacity: 0;
   background: transparent;
   transition: opacity 180ms linear, background 180ms linear;
-}
-
-.map-container > .map-host {
-  position: relative;
-  z-index: 0;
 }
 
 /* ── Stop markers (divIcon) ───────────── */
@@ -308,7 +316,7 @@ body {
   font-weight: 700;
   font-family: var(--font);
   border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 30%);
   cursor: grab;
   user-select: none;
 }
@@ -330,7 +338,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 30%));
 }
 
 .poi-tooltip {
@@ -348,7 +356,7 @@ body {
 
 .poi-marker-dimmed {
   opacity: 0.35;
-  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.15)) grayscale(0.7);
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 15%)) grayscale(0.7);
 }
 
 /* ── POI popup ────────────────── */
@@ -395,7 +403,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(17, 24, 39, 0.85);
+  background: rgb(17 24 39 / 85%);
   border-radius: 6px;
   padding: 4px 8px;
   backdrop-filter: blur(4px);
@@ -415,7 +423,7 @@ body {
 }
 
 .ride-anim-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgb(255 255 255 / 15%);
 }
 
 .ride-anim-speed {
@@ -447,7 +455,7 @@ body {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
   padding: 4px 0;
   min-width: 180px;
   font-family: var(--font);
@@ -541,10 +549,10 @@ body {
   width: 280px;
   max-height: 220px;
   overflow: auto;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgb(255 255 255 / 96%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
   padding: 8px 10px;
 }
 
@@ -593,15 +601,15 @@ body {
   font-size: 10px;
   line-height: 1.35;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .shadow-controls {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgb(255 255 255 / 95%);
   backdrop-filter: blur(8px);
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
   width: 260px;
   font-family: var(--font);
   font-size: 13px;
@@ -657,24 +665,174 @@ body {
 }
 
 /* The single tabs tree is a desktop workspace and a mobile sheet launcher. */
-.workspace { position: absolute; z-index: 100; left: 16px; bottom: 16px; width: min(var(--panel-w), calc(100vw - 32px)); max-height: calc(100dvh - 32px); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); box-shadow: 0 4px 16px rgb(0 0 0 / .16); overflow: hidden; }
-.workspace-tabs { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); overflow: hidden; }
-.workspace-tab-list { order: 2; flex: none; display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--color-border); }
-.workspace-tab { flex: 1; min-height: 38px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-muted); font: 600 12px/1 var(--font); cursor: pointer; }
-.workspace-tab[data-selected] { background: var(--color-primary-muted); color: var(--color-primary); }
-.workspace .badge-tab { background: var(--color-primary); color: #fff; }
-.workspace-tab-panel { order: 1; min-height: 0; overflow: auto; }
-.workspace-tab-panel .sheet-body { max-height: min(28dvh, 260px); overflow-y: auto; overscroll-behavior: contain; }
-.workspace .sheet-close { display: none; }
-@media (max-height: 480px) and (min-width: 801px) { .workspace-tabs { height: calc(100dvh - 32px); } .workspace-tab-panel { flex: 1; overflow: hidden; } .workspace-tab-panel .sheet-content { height: 100%; overflow-y: auto; } .workspace-tab-panel .sheet-body { max-height: none; overflow: visible; } }
-@media (max-width: 800px) {
-  .workspace { left: 0; bottom: 0; width: 100%; max-height: min(76dvh, 680px); border-width: 1px 0 0; border-radius: 18px 18px 0 0; }
+.workspace {
+  position: absolute;
+  z-index: 100;
+  left: 16px;
+  bottom: 16px;
+  width: min(var(--panel-w), calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  overflow: hidden;
+}
+
+.workspace-tabs {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.workspace-tab-list {
+  order: 2;
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.workspace-tab {
+  flex: 1;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: 600 12px/1 var(--font);
+  cursor: pointer;
+}
+
+.workspace-tab[data-selected] {
+  background: var(--color-primary-muted);
+  color: var(--color-primary);
+}
+
+.workspace .badge-tab {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.workspace-tab-panel {
+  order: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-tab-panel .sheet-body {
+  max-height: min(28dvh, 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.workspace .sheet-close,
+.workspace-is-closed .workspace-tab-panel,
+.workspace-is-closed .sheet-close {
+  display: none;
+}
+
+.workspace-is-open .sheet-close { display: inline-flex; }
+
+/* A closed workspace is a map launcher, not an empty panel. */
+.workspace-is-closed {
+  width: auto;
+  max-width: calc(100vw - 32px);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.workspace-is-closed .workspace-tab-list {
+  padding: 4px;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 12%);
+}
+
+.workspace-is-closed .workspace-tab {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+@media (height <= 480px) and (width >= 801px) {
+  .workspace-tabs { height: calc(100dvh - 32px); }
+
+  .workspace-tab-panel {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .workspace-tab-panel .sheet-content {
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  .workspace-tab-panel .sheet-body {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (width <= 800px) {
+  .workspace {
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: min(76dvh, 680px);
+    border-width: 1px 0 0;
+    border-radius: 18px 18px 0 0;
+  }
+
   .workspace-tabs { max-height: min(76dvh, 680px); }
-  .workspace-is-open .workspace-tab-list { position: absolute; right: 0; bottom: 0; left: 0; visibility: hidden; }
-  .workspace-is-open .sheet-content { padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .workspace-is-open .sheet-close { display: inline-flex; position: absolute; top: 8px; right: 8px; z-index: 2; }
-  .workspace-is-closed { left: 12px; bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: calc(100% - 24px); height: auto; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
-  .workspace-is-closed .workspace-tab-list { padding: 0; border: 0; gap: 8px; }
-  .workspace-is-closed .workspace-tab { min-height: 42px; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: 0 3px 10px rgb(0 0 0 / .12); }
-  .workspace-is-closed .workspace-tab-panel, .workspace-is-closed .sheet-close, .workspace-is-closed .badge-tab { display: none; }
+
+  .workspace-is-open .workspace-tab-list {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    visibility: hidden;
+  }
+
+  .workspace-is-open .sheet-content { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+  .workspace-is-open .sheet-close {
+    display: inline-flex;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+  }
+
+  .workspace-is-closed {
+    left: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    width: calc(100% - 24px);
+    height: auto;
+  }
+
+  .workspace-is-closed .workspace-tab-list {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    gap: 8px;
+  }
+
+  .workspace-is-closed .workspace-tab {
+    flex: 1;
+    min-height: 42px;
+    padding: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 3px 10px rgb(0 0 0 / 12%);
+  }
+  .workspace-is-closed .badge-tab { display: none; }
 }

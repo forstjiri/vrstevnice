@@ -1,8 +1,8 @@
-import { edenTreaty } from '@elysiajs/eden'
-import type { App as ElysiaApp } from '@vrstevnice/be'
+import { edenTreaty } from '@elysiajs/eden';
+import type { App as ElysiaApp } from '@vrstevnice/be';
 
-const API_BASE = import.meta.env.DEV
-  ? 'http://localhost:3002'
-  : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3002')
+let API_BASE = 'http://localhost:3002';
+if (!import.meta.env.DEV && typeof window !== 'undefined') API_BASE = window.location.origin;
 
-export const treaty = edenTreaty<ElysiaApp>(API_BASE)
+const treaty = edenTreaty<ElysiaApp>(API_BASE);
+export default treaty;

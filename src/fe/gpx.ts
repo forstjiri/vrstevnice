@@ -1,5 +1,5 @@
-import type { RouteResponse, ElevationPoint } from '@vrstevnice/shared'
-import { computeGeometryDistances } from '@vrstevnice/shared'
+import type { RouteResponse, ElevationPoint } from '@vrstevnice/shared';
+import { computeGeometryDistances } from '@vrstevnice/shared';
 
 /**
  * Interleave geometry points with elevation data by matching cumulative distances.
@@ -12,36 +12,36 @@ function mergeElevation(
   elevationProfile: ElevationPoint[],
 ): { lat: number; lon: number; ele: number }[] {
   if (elevationProfile.length === 0) {
-    return geometry.map(([lat, lon]) => ({ lat, lon, ele: 0 }))
+    return geometry.map(([lat, lon]) => ({ lat, lon, ele: 0 }));
   }
 
   // Pre-compute cumulative distances for geometry
-  const geoDistances = computeGeometryDistances(geometry)
+  const geoDistances = computeGeometryDistances(geometry);
 
   // Elevation profile distances are already cumulative
-  const elevDistances = elevationProfile.map(e => e.distance)
+  const elevDistances = elevationProfile.map((e) => e.distance);
 
   return geometry.map(([lat, lon], i) => {
-    const dist = geoDistances[i]
+    const dist = geoDistances[i];
 
     // Find closest elevation sample by distance
     // For large profiles, binary search would be better, but profiles are typically < 1000
-    let bestIdx = 0
-    let bestDelta = Math.abs(elevDistances[0] - dist)
-    for (let j = 1; j < elevDistances.length; j++) {
-      const delta = Math.abs(elevDistances[j] - dist)
+    let bestIdx = 0;
+    let bestDelta = Math.abs(elevDistances[0] - dist);
+    for (let j = 1; j < elevDistances.length; j += 1) {
+      const delta = Math.abs(elevDistances[j] - dist);
       if (delta < bestDelta) {
-        bestDelta = delta
-        bestIdx = j
+        bestDelta = delta;
+        bestIdx = j;
       }
     }
 
     // Safety: Math.min to guard against any index overflow
-    const safeIdx = Math.min(bestIdx, elevationProfile.length - 1)
-    const ele = Math.round(elevationProfile[safeIdx].elevation)
+    const safeIdx = Math.min(bestIdx, elevationProfile.length - 1);
+    const ele = Math.round(elevationProfile[safeIdx].elevation);
 
-    return { lat, lon, ele }
-  })
+    return { lat, lon, ele };
+  });
 }
 
 /**
@@ -52,16 +52,20 @@ function mergeElevation(
  * interleaved from the geometry and elevationProfile.
  */
 function escapeXml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 export function generateGPX(route: RouteResponse): string {
-  const merged = mergeElevation(route.geometry, route.elevationProfile)
-  const time = new Date().toISOString()
+  const merged = mergeElevation(route.geometry, route.elevationProfile);
+  const time = new Date().toISOString();
 
   const trackpoints = merged
-    .map(p => `      <trkpt lat="${p.lat}" lon="${p.lon}"><ele>${p.ele}</ele></trkpt>`)
-    .join('\n')
+    .map((p) => `      <trkpt lat="${p.lat}" lon="${p.lon}"><ele>${p.ele}</ele></trkpt>`)
+    .join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Vrstevnice"
@@ -69,7 +73,10 @@ export function generateGPX(route: RouteResponse): string {
   <metadata>
     <name>Vrstevnice Route</name>
     <time>${time}</time>
-    <desc>${escapeXml(`${(route.distance / 1000).toFixed(1)} km, ${Math.round(route.duration / 60)} min, ↑${route.elevationGain}m ↓${route.elevationLoss}m`)}</desc>
+    <desc>${escapeXml(
+      `${(route.distance / 1000).toFixed(1)} km, ${Math.round(route.duration / 60)} min, `
+      + `↑${route.elevationGain}m ↓${route.elevationLoss}m`,
+    )}</desc>
   </metadata>
   <trk>
     <name>Route</name>
@@ -78,7 +85,7 @@ ${trackpoints}
     </trkseg>
   </trk>
 </gpx>
-`
+`;
 }
 
 /**
@@ -88,14 +95,14 @@ ${trackpoints}
  * clicks a hidden anchor to trigger the download, then revokes the URL.
  */
 export function downloadGPX(route: RouteResponse, filename?: string): void {
-  const xml = generateGPX(route)
-  const blob = new Blob([xml], { type: 'application/gpx+xml' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename || `vrstevnice-${Date.now()}.gpx`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  const xml = generateGPX(route);
+  const blob = new Blob([xml], { type: 'application/gpx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `vrstevnice-${Date.now()}.gpx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

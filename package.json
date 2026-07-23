@@ -5,8 +5,8 @@
   "scripts": {
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\" --fix",
-    "lint:css": "stylelint \"src/**/*.css\"",
-    "lint:css:fix": "stylelint \"src/**/*.css\" --fix",
+    "lint:css": "stylelint \"src/**/*.css\" --ignore-pattern \"src/fe/dist/**\"",
+    "lint:css:fix": "stylelint \"src/**/*.css\" --ignore-pattern \"src/fe/dist/**\" --fix",
     "typecheck": "tsc --build",
     "dev": "pnpm -r --parallel dev",
     "dev:be": "pnpm --filter @vrstevnice/be dev",

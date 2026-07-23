@@ -1,10 +1,10 @@
-import { createSignal } from 'solid-js'
+import { createSignal } from 'solid-js';
 
 interface HoveredPoint {
-  distance: number
-  elevation: number
+  distance: number;
+  elevation: number;
 }
 
-const [hoveredPoint, setHoveredPoint] = createSignal<HoveredPoint | null>(null)
+const [hoveredPoint, setHoveredPoint] = createSignal<HoveredPoint | null>(null);
 
-export { hoveredPoint, setHoveredPoint }
+export { hoveredPoint, setHoveredPoint };

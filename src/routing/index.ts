@@ -1,75 +1,76 @@
 import type {
-	ElevationPoint,
-	POILocation,
-	RoadClassSegment,
-	RouteResponse,
-	Stop,
-	SurfaceSegment
-} from '@vrstevnice/shared'
-import {computeGeometryDistances, haversineMeters} from '@vrstevnice/shared'
+  ElevationPoint,
+  POILocation,
+  RoadClassSegment,
+  RouteResponse,
+  Stop,
+  SurfaceSegment,
+} from '@vrstevnice/shared';
+import { haversineMeters } from '@vrstevnice/shared';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface GHCustomModelRule {
-  if: string
-  multiply_by: string
+  if: string;
+  multiply_by: string;
 }
 
 export interface GHCustomModel {
-  priority: GHCustomModelRule[]
-  distance_influence: number
+  priority: GHCustomModelRule[];
+  distance_influence: number;
 }
 
 export interface GHPoint {
-  point: [number, number] // [lon, lat]
+  point: [number, number]; // [lon, lat]
 }
 
 export interface GHRouteRequest {
-  points: [number, number][] // [[lon, lat], ...]
-  profile: string
-  elevation: boolean
-  points_encoded: boolean
-  'ch.disable': boolean
-  details?: string[]
-  'custom_model'?: GHCustomModel
+  points: [number, number][]; // [[lon, lat], ...]
+  profile: string;
+  elevation: boolean;
+  points_encoded: boolean;
+  'ch.disable': boolean;
+  details?: string[];
+  custom_model?: GHCustomModel;
 }
 
 export interface GHPath {
-  distance: number     // meters
-  time: number         // milliseconds
-  ascend: number       // meters
-  descend: number      // meters
+  distance: number; // meters
+  time: number; // milliseconds
+  ascend: number; // meters
+  descend: number; // meters
   points: {
-    type: string
-    coordinates: Array<[number, number, number]> // [lon, lat, ele]
-  }
-  instructions: unknown[]
-  details?: Record<string, unknown[]>
+    type: string;
+    coordinates: [number, number, number][]; // [lon, lat, ele]
+  };
+  instructions: unknown[];
+  details?: Record<string, unknown[]>;
 }
 
 export interface GHRouteResponse {
-  paths: GHPath[]
-  info?: { errors?: unknown[] }
+  paths: GHPath[];
+  info?: { errors?: unknown[] };
 }
 
 export interface GHRouteResult {
-  distance: number     // meters (raw GH)
-  duration: number     // milliseconds (raw GH)
-  elevationGain: number // meters
-  elevationLoss: number // meters
-  geometry: Array<[number, number, number]> // [lon, lat, ele]
-  surfaceSegments: SurfaceSegment[]
-  roadClassSegments: RoadClassSegment[]
-  roadEnvSegments: RoadClassSegment[] // reuse same shape: { from, to, roadClass: string }
+  distance: number; // meters (raw GH)
+  duration: number; // milliseconds (raw GH)
+  elevationGain: number; // meters
+  elevationLoss: number; // meters
+  geometry: [number, number, number][]; // [lon, lat, ele]
+  surfaceSegments: SurfaceSegment[];
+  roadClassSegments: RoadClassSegment[];
+  roadEnvSegments: RoadClassSegment[]; // reuse same shape: { from, to, roadClass: string }
 }
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPPER_URL : undefined) || 'http://localhost:8989'
+const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPPER_URL : undefined)
+  || 'http://localhost:8989';
 
 // ---------------------------------------------------------------------------
 // Custom model builder
@@ -86,7 +87,7 @@ const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPP
  *   GH encoded values are in percentage units (3 = 3%).
  * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→3.0), lower
  *   distance_influence (allow longer detours)
- * - distance_influence = 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30
+ * - distance_influence = base plus coefficient-dependent adjustments.
  */
 export function buildCustomModel(
   elevationCoefficient: number,
@@ -115,7 +116,7 @@ export function buildCustomModel(
       if: 'road_class == TERTIARY',
       multiply_by: String(lerp(0.5, 1.0, roadAvoidanceCoefficient)),
     },
-  ]
+  ];
 
   // Elevation: 0 = hills ok (full priority), 1 = max flat preference (low priority for slopes)
   // GH encoded values for average_slope/max_slope are in percentage (3 = 3%, 7 = 7%)
@@ -142,7 +143,7 @@ export function buildCustomModel(
       if: 'average_slope > 3',
       multiply_by: String(lerp(0.6, 1.0, 1 - elevationCoefficient)),
     },
-  ]
+  ];
 
   // Cycleway forcing: 0 = don't care, 1 = strongly prefer cycleways (accept long detours)
   const cyclewayRules: GHCustomModelRule[] = [
@@ -154,14 +155,17 @@ export function buildCustomModel(
       if: 'cycleway != NO',
       multiply_by: String(lerp(1.0, 1.5, cyclewayCoefficient)),
     },
-  ]
+  ];
 
-  const distance_influence = Math.max(30, 70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30)
+  const distanceInfluence = Math.max(
+    30,
+    70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30,
+  );
 
   return {
     priority: [...roadRules, ...elevationRules, ...cyclewayRules],
-    distance_influence,
-  }
+    distance_influence: distanceInfluence,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -180,10 +184,10 @@ export async function fetchRouteFromGH(
   stops: Stop[],
   customModel: GHCustomModel,
 ): Promise<GHRouteResult> {
-  const url = `${GRAPHHOPPER_URL}/route`
+  const url = `${GRAPHHOPPER_URL}/route`;
 
   // GH points input is [[lon, lat], ...] — stops have {lat, lng}
-  const points: [number, number][] = stops.map(s => [s.lng, s.lat])
+  const points: [number, number][] = stops.map((s) => [s.lng, s.lat]);
 
   const body: GHRouteRequest = {
     points,
@@ -192,47 +196,48 @@ export async function fetchRouteFromGH(
     points_encoded: false,
     'ch.disable': true,
     details: ['surface', 'road_class', 'road_environment'],
-    'custom_model': customModel,
-  }
+    custom_model: customModel,
+  };
 
-  let res: Response
+  let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    })
+    });
   } catch (err) {
-    console.error(`GraphHopper fetch failed: ${GRAPHHOPPER_URL} — ${(err as Error).message}`)
-    throw new Error(`Could not connect to GraphHopper at ${GRAPHHOPPER_URL}`)
+    const message = `GraphHopper fetch failed: ${GRAPHHOPPER_URL} — ${(err as Error).message}`;
+    process.stderr.write(`${message}\n`);
+    throw new Error(`Could not connect to GraphHopper at ${GRAPHHOPPER_URL}`);
   }
 
   if (!res.ok) {
-    const text = await res.text()
-    console.error(`GraphHopper error: ${res.status} ${GRAPHHOPPER_URL} — ${text}`)
-    throw new Error(`GraphHopper returned ${res.status}: ${text}`)
+    const text = await res.text();
+    process.stderr.write(`GraphHopper error: ${res.status} ${GRAPHHOPPER_URL} — ${text}\n`);
+    throw new Error(`GraphHopper returned ${res.status}: ${text}`);
   }
 
-  const data: GHRouteResponse = await res.json()
+  const data: GHRouteResponse = await res.json();
 
   if (data.info?.errors?.length) {
-    throw new Error(`GraphHopper routing errors: ${JSON.stringify(data.info.errors)}`)
+    throw new Error(`GraphHopper routing errors: ${JSON.stringify(data.info.errors)}`);
   }
 
-  const path = data.paths?.[0]
+  const path = data.paths?.[0];
   if (!path) {
-    throw new Error('No route found by GraphHopper')
+    throw new Error('No route found by GraphHopper');
   }
 
   const surfaceSegments = parseDetailTriples(path.details, 'surface').map(
     ([from, to, surface]) => ({ from, to, surface }),
-  )
+  );
   const roadClassSegments = parseDetailTriples(path.details, 'road_class').map(
     ([from, to, roadClass]) => ({ from, to, roadClass }),
-  )
+  );
   const roadEnvSegments = parseDetailTriples(path.details, 'road_environment').map(
     ([from, to, env]) => ({ from, to, roadClass: env }),
-  )
+  );
 
   return {
     distance: path.distance,
@@ -243,7 +248,7 @@ export async function fetchRouteFromGH(
     surfaceSegments,
     roadClassSegments,
     roadEnvSegments,
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -257,26 +262,38 @@ export async function fetchRouteFromGH(
 function parseDetailTriples(
   details: Record<string, unknown[]> | undefined,
   key: string,
-): Array<[number, number, string]> {
-  const raw = details?.[key]
-  if (!Array.isArray(raw) || raw.length === 0) return []
-  const result: Array<[number, number, string]> = []
-  for (const entry of raw) {
-    if (!Array.isArray(entry) || entry.length < 3) continue
-    const [from, to, value] = entry
-    if (typeof from !== 'number' || typeof to !== 'number' || typeof value !== 'string') continue
-    result.push([from, to, value])
-  }
-  return result
+): [number, number, string][] {
+  const raw = details?.[key];
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const result: [number, number, string][] = [];
+  raw.forEach((entry) => {
+    if (Array.isArray(entry) && entry.length >= 3) {
+      const [from, to, value] = entry;
+      if (typeof from === 'number' && typeof to === 'number' && typeof value === 'string') {
+        result.push([from, to, value]);
+      }
+    }
+  });
+  return result;
 }
 
 /** Parse GraphHopper `details.surface` triples into SurfaceSegment[]. */
-export const parseSurfaceSegments = (details: Record<string, unknown[]> | undefined): SurfaceSegment[] =>
-  parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({ from, to, surface }))
+export const parseSurfaceSegments = (
+  details: Record<string, unknown[]> | undefined,
+): SurfaceSegment[] => parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({
+  from,
+  to,
+  surface,
+}));
 
 /** Parse GraphHopper `details.road_class` triples into RoadClassSegment[]. */
-export const parseRoadClassSegments = (details: Record<string, unknown[]> | undefined): RoadClassSegment[] =>
-  parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({ from, to, roadClass }))
+export const parseRoadClassSegments = (
+  details: Record<string, unknown[]> | undefined,
+): RoadClassSegment[] => parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({
+  from,
+  to,
+  roadClass,
+}));
 
 // ---------------------------------------------------------------------------
 // Coordinate converter
@@ -285,10 +302,8 @@ export const parseRoadClassSegments = (details: Record<string, unknown[]> | unde
 /**
  * Swap GH [lon, lat, ele] → Leaflet [lat, lng][] (drops elevation).
  */
-export function convertGHGeometryToLeaflet(
-  coords: Array<[number, number, number]>,
-): [number, number][] {
-  return coords.map(([lon, lat]) => [lat, lon])
+export function convertGHGeometryToLeaflet(coords: [number, number, number][]): [number, number][] {
+  return coords.map(([lon, lat]) => [lat, lon]);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,14 +317,14 @@ export function convertGHGeometryToLeaflet(
  * - geometry: swapped for Leaflet
  */
 export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse {
-  const rawProfile = computeElevationProfile(ghResult.geometry)
-  const smoothedProfile = smoothElevationProfile(rawProfile)
-  const { gain, loss } = computeElevationGainLoss(smoothedProfile)
+  const rawProfile = computeElevationProfile(ghResult.geometry);
+  const smoothedProfile = smoothElevationProfile(rawProfile);
+  const { gain, loss } = computeElevationGainLoss(smoothedProfile);
 
   return {
     geometry: convertGHGeometryToLeaflet(ghResult.geometry),
-    distance: Math.round(ghResult.distance / 100) / 10,   // meters → km, 1 decimal
-    duration: Math.round(ghResult.duration / 1000),        // ms → seconds
+    distance: Math.round(ghResult.distance / 100) / 10, // meters → km, 1 decimal
+    duration: Math.round(ghResult.duration / 1000), // ms → seconds
     elevationGain: gain,
     elevationLoss: loss,
     elevationProfile: smoothedProfile,
@@ -319,7 +334,7 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
     poiLocations: [],
     allPOILocations: [],
     slopeBasedTimes: computeSlopeCumulativeTimes(smoothedProfile, ghResult.duration),
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -333,29 +348,24 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
  * haversine distance in meters from the start of the route.
  * Points with NaN/undefined elevation are excluded.
  */
-export function computeElevationProfile(
-  coords: Array<[number, number, number]>,
-): ElevationPoint[] {
-  const profile: ElevationPoint[] = []
-  let cumulativeDistance = 0
+export function computeElevationProfile(coords: [number, number, number][]): ElevationPoint[] {
+  const profile: ElevationPoint[] = [];
+  let cumulativeDistance = 0;
 
-  for (let i = 0; i < coords.length; i++) {
-    const [lon, lat, ele] = coords[i]
+  for (let i = 0; i < coords.length; i += 1) {
+    const [lon, lat, ele] = coords[i];
 
     // Skip coordinates with missing or invalid elevation
-    if (ele == null || !Number.isFinite(ele)) {
-      continue
+    if (ele != null && Number.isFinite(ele)) {
+      if (i > 0) {
+        const [prevLon, prevLat] = coords[i - 1];
+        cumulativeDistance += haversineMeters(prevLat, prevLon, lat, lon);
+      }
+      profile.push({ distance: cumulativeDistance, elevation: ele });
     }
-
-    if (i > 0) {
-      const [prevLon, prevLat] = coords[i - 1]
-      cumulativeDistance += haversineMeters(prevLat, prevLon, lat, lon)
-    }
-
-    profile.push({ distance: cumulativeDistance, elevation: ele })
   }
 
-  return profile
+  return profile;
 }
 
 /**
@@ -371,23 +381,30 @@ export function smoothElevationProfile(
   profile: ElevationPoint[],
   halfWindowM = 50,
 ): ElevationPoint[] {
-  if (profile.length < 3) return profile.map(p => ({ ...p }))
+  if (profile.length < 3) return profile.map((p) => ({ ...p }));
 
-  const smoothed: ElevationPoint[] = []
-  for (let i = 0; i < profile.length; i++) {
-    let sum = 0
-    let count = 0
-    for (let j = i; j >= 0 && profile[i].distance - profile[j].distance <= halfWindowM; j--) {
-      sum += profile[j].elevation
-      count++
+  const smoothed: ElevationPoint[] = [];
+  for (let i = 0; i < profile.length; i += 1) {
+    let sum = 0;
+    let count = 0;
+    for (let j = i; j >= 0 && profile[i].distance - profile[j].distance <= halfWindowM; j -= 1) {
+      sum += profile[j].elevation;
+      count += 1;
     }
-    for (let j = i + 1; j < profile.length && profile[j].distance - profile[i].distance <= halfWindowM; j++) {
-      sum += profile[j].elevation
-      count++
+    for (
+      let j = i + 1;
+      j < profile.length && profile[j].distance - profile[i].distance <= halfWindowM;
+      j += 1
+    ) {
+      sum += profile[j].elevation;
+      count += 1;
     }
-    smoothed.push({ distance: profile[i].distance, elevation: Math.round(sum / count) })
+    smoothed.push({
+      distance: profile[i].distance,
+      elevation: Math.round(sum / count),
+    });
   }
-  return smoothed
+  return smoothed;
 }
 
 /**
@@ -403,25 +420,25 @@ export function computeElevationGainLoss(
   profile: ElevationPoint[],
   minDeltaM = 1.5,
 ): { gain: number; loss: number } {
-  if (profile.length < 2) return { gain: 0, loss: 0 }
+  if (profile.length < 2) return { gain: 0, loss: 0 };
 
-  let gain = 0
-  let loss = 0
-  let lastCounted = profile[0].elevation
+  let gain = 0;
+  let loss = 0;
+  let lastCounted = profile[0].elevation;
 
-  for (let i = 1; i < profile.length; i++) {
-    const delta = profile[i].elevation - lastCounted
+  for (let i = 1; i < profile.length; i += 1) {
+    const delta = profile[i].elevation - lastCounted;
     if (delta > minDeltaM) {
-      gain += delta
-      lastCounted = profile[i].elevation
+      gain += delta;
+      lastCounted = profile[i].elevation;
     } else if (delta < -minDeltaM) {
-      loss += -delta
-      lastCounted = profile[i].elevation
+      loss += -delta;
+      lastCounted = profile[i].elevation;
     }
     // Sub-threshold: don't update lastCounted — accumulate until a real feature emerges
   }
 
-  return { gain: Math.round(gain), loss: Math.round(loss) }
+  return { gain: Math.round(gain), loss: Math.round(loss) };
 }
 
 // ---------------------------------------------------------------------------
@@ -439,13 +456,10 @@ export function computeElevationGainLoss(
  * Clamped to [MIN_SPEED_KMH, MAX_SPEED_KMH].
  */
 export function slopeSpeedKmh(slopePct: number): number {
-  const climb = Math.max(0, slopePct)
-  const descent = Math.max(0, -slopePct)
-  const speed =
-    20
-    * Math.max(0, 1 - 0.04 * climb) ** 1.5
-    * (1 + 0.02 * descent) ** 1.2
-  return Math.max(5, Math.min(45, speed))
+  const climb = Math.max(0, slopePct);
+  const descent = Math.max(0, -slopePct);
+  const speed = 20 * Math.max(0, 1 - 0.04 * climb) ** 1.5 * (1 + 0.02 * descent) ** 1.2;
+  return Math.max(5, Math.min(45, speed));
 }
 
 /**
@@ -470,28 +484,28 @@ export function computeSlopeCumulativeTimes(
 ): number[] {
   if (profile.length < 2 || totalDurationMs <= 0) {
     // Degenerate case: return evenly spaced times
-    return profile.map((_, i) => (totalDurationMs * i) / Math.max(1, profile.length - 1))
+    return profile.map((_, i) => (totalDurationMs * i) / Math.max(1, profile.length - 1));
   }
 
   // Phase 1: raw times from slope model
-  const rawTimes = [0]
-  for (let i = 1; i < profile.length; i++) {
-    const dist = profile[i].distance - profile[i - 1].distance // meters
-    const eleDelta = profile[i].elevation - profile[i - 1].elevation
-    const slopePct = dist > 0 ? (eleDelta / dist) * 100 : 0
-    const speedMs = slopeSpeedKmh(slopePct) * 1000 / 3600 // km/h → m/s
-    const segTimeMs = (dist / speedMs) * 1000 // seconds → ms
-    rawTimes.push(rawTimes[i - 1] + segTimeMs)
+  const rawTimes = [0];
+  for (let i = 1; i < profile.length; i += 1) {
+    const dist = profile[i].distance - profile[i - 1].distance; // meters
+    const eleDelta = profile[i].elevation - profile[i - 1].elevation;
+    const slopePct = dist > 0 ? (eleDelta / dist) * 100 : 0;
+    const speedMs = (slopeSpeedKmh(slopePct) * 1000) / 3600; // km/h → m/s
+    const segTimeMs = (dist / speedMs) * 1000; // seconds → ms
+    rawTimes.push(rawTimes[i - 1] + segTimeMs);
   }
 
   // Phase 2: scale to match GH duration
-  const rawTotal = rawTimes[rawTimes.length - 1]
+  const rawTotal = rawTimes[rawTimes.length - 1];
   if (rawTotal <= 0) {
-    return profile.map((_, i) => (totalDurationMs * i) / (profile.length - 1))
+    return profile.map((_, i) => (totalDurationMs * i) / (profile.length - 1));
   }
-  const scale = totalDurationMs / rawTotal
+  const scale = totalDurationMs / rawTotal;
 
-  return rawTimes.map(t => t * scale)
+  return rawTimes.map((t) => t * scale);
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +513,7 @@ export function computeSlopeCumulativeTimes(
 // POI helpers
 // ---------------------------------------------------------------------------
 
-const DEFAULT_DEDUP_DISTANCE = 100 // meters
+const DEFAULT_DEDUP_DISTANCE = 100; // meters
 
 /**
  * Sample route geometry at regular distance intervals.
@@ -512,29 +526,29 @@ export function sampleRouteGeometry(
   interval: number,
   maxSamples = 8,
 ): [number, number][] {
-  if (geometry.length < 2) return []
+  if (geometry.length < 2) return [];
 
-  const points: [number, number][] = [geometry[0]]
-  let distSinceLast = 0
+  const points: [number, number][] = [geometry[0]];
+  let distSinceLast = 0;
 
-  for (let i = 1; i < geometry.length; i++) {
-    const [prevLat, prevLng] = geometry[i - 1]
-    const [curLat, curLng] = geometry[i]
-    const segDist = haversineMeters(prevLat, prevLng, curLat, curLng)
+  for (let i = 1; i < geometry.length; i += 1) {
+    const [prevLat, prevLng] = geometry[i - 1];
+    const [curLat, curLng] = geometry[i];
+    const segDist = haversineMeters(prevLat, prevLng, curLat, curLng);
 
-    distSinceLast += segDist
+    distSinceLast += segDist;
 
     while (distSinceLast >= interval && points.length < maxSamples) {
-      const overshoot = distSinceLast - interval
-      const fraction = 1 - overshoot / segDist
-      const interpLat = prevLat + (curLat - prevLat) * fraction
-      const interpLng = prevLng + (curLng - prevLng) * fraction
-      points.push([interpLat, interpLng])
-      distSinceLast = overshoot
+      const overshoot = distSinceLast - interval;
+      const fraction = 1 - overshoot / segDist;
+      const interpLat = prevLat + (curLat - prevLat) * fraction;
+      const interpLng = prevLng + (curLng - prevLng) * fraction;
+      points.push([interpLat, interpLng]);
+      distSinceLast = overshoot;
     }
   }
 
-  return points
+  return points;
 }
 
 /**
@@ -544,18 +558,18 @@ export function deduplicatePOIs(
   pois: POILocation[],
   minDistance = DEFAULT_DEDUP_DISTANCE,
 ): POILocation[] {
-  const accepted: POILocation[] = []
+  const accepted: POILocation[] = [];
 
-  for (const poi of pois) {
+  pois.forEach((poi) => {
     const isDuplicate = accepted.some(
       (a) => haversineMeters(a.lat, a.lng, poi.lat, poi.lng) < minDistance,
-    )
+    );
     if (!isDuplicate) {
-      accepted.push(poi)
+      accepted.push(poi);
     }
-  }
+  });
 
-  return accepted
+  return accepted;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,5 +577,5 @@ export function deduplicatePOIs(
 // ---------------------------------------------------------------------------
 
 function lerp(a: number, b: number, t: number): number {
-  return Math.max(0.01, a + (b - a) * t)
+  return Math.max(0.01, a + (b - a) * t);
 }
