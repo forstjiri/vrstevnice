@@ -5,6 +5,7 @@ import { rateLimit } from 'elysia-rate-limit';
 import type { GeocodeResult, POILocation } from '@vrstevnice/shared';
 import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared';
 import {
+  applyAscentGuard,
   buildCustomModel,
   convertGHToRouteResponse,
   fetchRouteFromGH,
@@ -385,9 +386,30 @@ export const app = new Elysia({ prefix: '/api' })
       );
       pino.debug({ customModel }, 'Custom model built');
 
-      // Stage 1: Compute base route
+      // Stage 1: Compute route (with post-hoc ascent guard when elevation avoidance is active)
       const t0 = performance.now();
-      const ghResult = await fetchRouteFromGH(stops, customModel);
+      let ghResult: Awaited<ReturnType<typeof fetchRouteFromGH>>;
+
+      if (elevationCoefficient > 0) {
+        // Post-hoc ascent guard: compute two routes in parallel —
+        // one with elevation penalty, one with only constant steep penalty (coeff=0).
+        // Return whichever has less total ascent, guaranteeing ascent never increases.
+        const baseModel = buildCustomModel(0, roadAvoidanceCoefficient, cyclewayCoefficient);
+        const [elevResult, baseResult] = await Promise.all([
+          fetchRouteFromGH(stops, customModel),
+          fetchRouteFromGH(stops, baseModel),
+        ]);
+
+        ghResult = applyAscentGuard(elevResult, baseResult);
+        if (ghResult === elevResult) {
+          pino.debug('Ascent guard: elevation route selected');
+        } else {
+          pino.info('Ascent guard: base route selected (penalized route had more ascent)');
+        }
+      } else {
+        ghResult = await fetchRouteFromGH(stops, customModel);
+      }
+
       const routeData = convertGHToRouteResponse(ghResult);
       const elapsed = Math.round(performance.now() - t0);
 

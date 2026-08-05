@@ -86,7 +86,11 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
 ### Route planning
 
-- **4 route parameters** (sliders): avoid hills, avoid roads, prefer cycleways, lemonade route
+- **4 route parameters** (sliders): avoid ascent, avoid roads, prefer cycleways, lemonade route
+- **Avoid ascent** uses a two-tier GH custom model: (a) constant light penalty for steep sections
+  both directions (`max_slope >/< 12` → 0.8, always on), (b) slider-controlled uphill-only
+  penalty (`average_slope > 3/6/10`). Post-hoc ascent guard: two parallel GH queries, returns
+  whichever has less total ascent, guaranteeing ascent never increases with slider.
 - **POI pipeline ("Limonádová cesta")**: local SQLite finds pubs/bars/restaurants along the route and reroutes through them
 - **Drag & drop stops**: dragging markers on the map updates coordinates
 - **GPX export**: download route as GPX 1.1 with elevation
@@ -171,6 +175,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - Distance in meters, time in milliseconds
 - Do not use `abs()` in custom model expressions — not allowed
 - Encoded value names: `average_slope` and `max_slope` (not `slope`)
+- Slope values are SIGNED: positive = uphill, negative = downhill. `average_slope > 6` matches only uphill edges.
 - Surface details come as `[fromIdx, toIdx, surfaceValue]` triples
 
 ### MapLibre GL JS

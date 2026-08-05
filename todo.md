@@ -1,5 +1,7 @@
 # Chyby
 - geolokace
+- nejde vložit `50.7971514N, 15.0864900E`
+- z domova do kateřinek při `1` vyhnout se kopcům je trasa o kousek delší ale 3x takový stoupání, proč? vede to přes golfáč, ale tam se nesmí přeci ne?
 
 # Nápady
 - čas výjezdu co bude brát v úvahu otevření hospod

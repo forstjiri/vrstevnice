@@ -292,7 +292,7 @@ ok "systemd služba vytvořena"
 phase "BUILD"
 
 info "pnpm install"
-runc "export BUN_INSTALL=\$HOME/.bun; export PATH=\$BUN_INSTALL/bin:\$PATH; cd $REMOTE_DIR && pnpm install --frozen-lockfile" >/dev/null 2>&1
+runc "export BUN_INSTALL=\$HOME/.bun; export PATH=\$BUN_INSTALL/bin:\$PATH; cd $REMOTE_DIR && pnpm install" 2>&1 | tail -5
 ok "Dependencies installed"
 
 info "FE build"
@@ -304,8 +304,14 @@ ok "FE postaven"
 # ═══════════════════════════════════════════════════════════════════════
 phase "LAUNCH"
 
-info "Docker: GraphHopper + tileserver + photon"
-runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT up -d graphhopper tileserver photon" 2>&1 | grep -E '(Starting|Started|Error)' | head -6
+if [[ "$CODE_ONLY" == false ]]; then
+  info "Docker: GraphHopper + tileserver + photon"
+  # Compose prints "Running" when containers are already up. Do not let a
+  # no-match grep abort the deploy under `set -euo pipefail`.
+  runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT up -d graphhopper tileserver photon" 2>&1 || die "Docker kontejnery se nepodařilo spustit"
+else
+  info "Docker: přeskočeno (code-only)"
+fi
 
 info "Čekám na GraphHopper health..."
 for i in $(seq 1 24); do
@@ -407,8 +413,6 @@ else
   warn "HTTPS — $HTTPS_STATUS (certifikát se může ještě stahovat, zkus za 30s)"
   FAIL=1
 fi
-fi
-
 info "RAM"
 USED_MB=$(runc 'awk "/MemTotal/{t=\$2} /MemAvailable/{a=\$2} END{print int((t-a)/1024)}" /proc/meminfo')
 AVAIL_MB=$(runc 'awk "/MemAvailable/{print int(\$2/1024)}" /proc/meminfo')

@@ -81,21 +81,25 @@ const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPP
  *
  * - roadAvoidanceCoefficient 0→1: penalize MOTORWAY+TRUNK (0.1→1.0),
  *   PRIMARY (0.2→1.0), SECONDARY (0.2→1.0), TERTIARY (0.5→1.0)
- * - elevationCoefficient 0→1: 0 = hills ok (no penalty), 1 = avoid hills (heavy penalty).
- *   Slope bands: average_slope > 3% (0.6→1.0), average_slope > 6% (0.4→1.0),
- *   max_slope > 6% (0.5→1.0), max_slope > 10% (0.3→1.0).
- *   GH encoded values are in percentage units (3 = 3%).
+ * - elevationCoefficient 0→1: 0 = no ascent avoidance, 1 = avoid ascent.
+ *   Two-tier system:
+ *   (a) Constant steep penalty (always on, slider-independent):
+ *       max_slope > 12% and max_slope < -12% → 0.8 (light penalty for
+ *       very steep sections in both directions)
+ *   (b) Slider-controlled uphill penalty:
+ *       average_slope > 3% (0.7→1.0), > 6% (0.5→1.0), > 10% (0.3→1.0).
+ *       GH slope values are SIGNED: positive = uphill, negative = downhill.
+ *       average_slope > X matches only uphill edges.
  * - cyclewayCoefficient 0→1: boost CYCLEWAY priority (1.0→3.0), lower
  *   distance_influence (allow longer detours)
  * - distance_influence = base plus coefficient-dependent adjustments.
+ *   Elevation does NOT reduce distance_influence.
  */
 export function buildCustomModel(
   elevationCoefficient: number,
   roadAvoidanceCoefficient: number,
   cyclewayCoefficient = 0,
 ): GHCustomModel {
-  // Road avoidance: 0 = max avoidance (low priority), 1 = no avoidance (full priority)
-  // Floors kept high enough that roads stay viable when stacked with elevation penalties
   const roadRules: GHCustomModelRule[] = [
     {
       if: 'road_class == MOTORWAY || road_class == TRUNK',
@@ -110,42 +114,42 @@ export function buildCustomModel(
       multiply_by: String(lerp(0.2, 1.0, roadAvoidanceCoefficient)),
     },
     {
-      // Tertiary penalized more gently (floor 0.5) — these are often viable cycling
-      // roads, but without this rule max road avoidance + max cycleway preference
-      // still routes through tertiary instead of a nearby cycleway detour.
       if: 'road_class == TERTIARY',
       multiply_by: String(lerp(0.5, 1.0, roadAvoidanceCoefficient)),
     },
   ];
 
-  // Elevation: 0 = hills ok (full priority), 1 = max flat preference (low priority for slopes)
-  // GH encoded values for average_slope/max_slope are in percentage (3 = 3%, 7 = 7%)
-  // Thresholds in percentage units: steep >10%, moderate >6%, gentle >3%
-  //
-  // IMPORTANT: keep minimum multipliers high enough that elevation penalties don't
-  // stack with road_class penalties and kill edges entirely. If PRIMARY road with
-  // average_slope > 6 gets 0.05 * 0.2 = 0.01, GH can't find any valid flat detour
-  // (they tend to be on higher-class roads) and falls back to the direct hilly route.
-  const elevationRules: GHCustomModelRule[] = [
+  // Constant steep penalty (always on, both directions, slider-independent).
+  // GH max_slope is SIGNED: positive = uphill, negative = downhill.
+  const steepPenaltyRules: GHCustomModelRule[] = [
     {
-      if: 'max_slope > 10',
-      multiply_by: String(lerp(0.3, 1.0, 1 - elevationCoefficient)),
+      if: 'max_slope > 12',
+      multiply_by: '0.8',
     },
     {
-      if: 'max_slope > 6',
-      multiply_by: String(lerp(0.5, 1.0, 1 - elevationCoefficient)),
-    },
-    {
-      if: 'average_slope > 6',
-      multiply_by: String(lerp(0.4, 1.0, 1 - elevationCoefficient)),
-    },
-    {
-      if: 'average_slope > 3',
-      multiply_by: String(lerp(0.6, 1.0, 1 - elevationCoefficient)),
+      if: 'max_slope < -12',
+      multiply_by: '0.8',
     },
   ];
 
-  // Cycleway forcing: 0 = don't care, 1 = strongly prefer cycleways (accept long detours)
+  // Slider-controlled uphill penalty. average_slope > X matches only uphill (positive slope).
+  // At elevationCoefficient=0 all multipliers are 1.0 (no penalty).
+  // At elevationCoefficient=1 multipliers reach their minimum (strongest penalty).
+  const uphillRules: GHCustomModelRule[] = [
+    {
+      if: 'average_slope > 10',
+      multiply_by: String(lerp(0.3, 1.0, 1 - elevationCoefficient)),
+    },
+    {
+      if: 'average_slope > 6',
+      multiply_by: String(lerp(0.5, 1.0, 1 - elevationCoefficient)),
+    },
+    {
+      if: 'average_slope > 3',
+      multiply_by: String(lerp(0.7, 1.0, 1 - elevationCoefficient)),
+    },
+  ];
+
   const cyclewayRules: GHCustomModelRule[] = [
     {
       if: 'road_class == CYCLEWAY',
@@ -159,11 +163,11 @@ export function buildCustomModel(
 
   const distanceInfluence = Math.max(
     30,
-    70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30 - elevationCoefficient * 30,
+    70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30,
   );
 
   return {
-    priority: [...roadRules, ...elevationRules, ...cyclewayRules],
+    priority: [...roadRules, ...steepPenaltyRules, ...uphillRules, ...cyclewayRules],
     distance_influence: distanceInfluence,
   };
 }
@@ -509,6 +513,33 @@ export function computeSlopeCumulativeTimes(
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Ascent guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Post-hoc ascent guard: given two GHRouteResults, return the one whose
+ * RECOMPUTED elevation gain (after smoothing + min-delta threshold) is lower.
+ *
+ * This is necessary because GraphHopper's raw `ascend` and the app's
+ * recomputed `elevationGain` (100 m smoothed + 1.5 m min-delta) can diverge,
+ * causing a raw-based guard to pick the wrong route.
+ *
+ * @returns the GHRouteResult with lower recomputed elevationGain
+ */
+export function applyAscentGuard(
+  elevResult: GHRouteResult,
+  baseResult: GHRouteResult,
+): GHRouteResult {
+  const elevGain = computeElevationGainLoss(
+    smoothElevationProfile(computeElevationProfile(elevResult.geometry)),
+  ).gain;
+  const baseGain = computeElevationGainLoss(
+    smoothElevationProfile(computeElevationProfile(baseResult.geometry)),
+  ).gain;
+  return elevGain <= baseGain ? elevResult : baseResult;
+}
+
 // ---------------------------------------------------------------------------
 // POI helpers
 // ---------------------------------------------------------------------------

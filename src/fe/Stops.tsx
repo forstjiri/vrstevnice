@@ -9,6 +9,7 @@ import { Progress } from '@kobalte/core/progress';
 import { Tooltip } from '@kobalte/core/tooltip';
 import { ToggleButton } from '@kobalte/core/toggle-button';
 import type { RouteRequest, GeocodeResult } from '@vrstevnice/shared';
+import { detectAndParseGPS } from '@vrstevnice/shared';
 import type { SearchRootItemComponentProps } from '@kobalte/core/search';
 import treaty from './api';
 import { downloadGPX } from './gpx';
@@ -223,7 +224,24 @@ export default function Stops() {
           )}
         >
           <Search.Control class="search-control" aria-label="Hledat místo">
-            <Search.Input class="search-input" ref={searchInput} />
+            <Search.Input
+              class="search-input"
+              ref={searchInput}
+              onKeyDown={(e: KeyboardEvent) => {
+                if (e.key === 'Enter') {
+                  const text = (e.target as HTMLInputElement).value.trim();
+                  if (text) {
+                    const gps = detectAndParseGPS(text);
+                    if (gps) {
+                      e.preventDefault();
+                      setStops([...planner.stops, { lat: gps.lat, lng: gps.lng, name: `${gps.lat}, ${gps.lng}` }]);
+                      setResults([]);
+                      (e.target as HTMLInputElement).value = '';
+                    }
+                  }
+                }
+              }}
+            />
           </Search.Control>
           <Search.Portal>
             <Search.Content class="search-content" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -353,7 +371,7 @@ export default function Stops() {
         <LabeledSlider
           value={planner.elevation}
           onChange={setElevation}
-          label="Vyhnout se kopcům"
+          label="Vyhnout se stoupání"
           minValue={0}
           maxValue={1}
           step={0.05}

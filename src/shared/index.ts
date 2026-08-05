@@ -279,5 +279,16 @@ export function detectAndParseGPS(input: string): GpsCoord | null {
     if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lng: b };
   }
 
+  const ddSuffixMatch = normalized.match(
+    /^\s*(-?\d+(?:\.\d+)?)\s*([NSEWnsew])\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*([NSEWnsew])\s*$/,
+  );
+  if (ddSuffixMatch) {
+    let lat = parseFloat(ddSuffixMatch[1]);
+    let lng = parseFloat(ddSuffixMatch[3]);
+    if (ddSuffixMatch[2].toUpperCase() === 'S') lat = -lat;
+    if (ddSuffixMatch[4].toUpperCase() === 'W') lng = -lng;
+    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+  }
+
   return null;
 }

@@ -2,6 +2,12 @@ import { createSignal } from 'solid-js';
 import type { Stop, RouteResponse } from '@vrstevnice/shared';
 import { persistedStore, persistedSignal } from './persist';
 
+declare global {
+  interface Window {
+    __planner: typeof planner;
+  }
+}
+
 // Persisted planner state — stores route too, but the serializer drops it when
 // inputs have changed since the last successful route calculation.
 let inputsDirty = false;
@@ -107,3 +113,5 @@ export function clearRoute() {
   inputsDirty = false;
   setPlanner('route', null);
 }
+
+if (typeof window !== 'undefined') window.__planner = planner;

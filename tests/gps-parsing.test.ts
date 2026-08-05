@@ -31,6 +31,34 @@ describe('detectAndParseGPS', () => {
         lng: 15.0742,
       });
     });
+
+    it('parses "50.7971514N, 15.0864900E" (DD with N/E suffix)', () => {
+      expect(detectAndParseGPS('50.7971514N, 15.0864900E')).toEqual({
+        lat: 50.7971514,
+        lng: 15.0864900,
+      });
+    });
+
+    it('parses "33.8688S 151.2093E" (DD with S/E suffix, space separator)', () => {
+      expect(detectAndParseGPS('33.8688S 151.2093E')).toEqual({
+        lat: -33.8688,
+        lng: 151.2093,
+      });
+    });
+
+    it('parses "40.7128N,74.0060W" (DD with N/W suffix)', () => {
+      expect(detectAndParseGPS('40.7128N,74.0060W')).toEqual({
+        lat: 40.7128,
+        lng: -74.006,
+      });
+    });
+
+    it('parses lowercase "50.7971514n, 15.0864900e"', () => {
+      expect(detectAndParseGPS('50.7971514n, 15.0864900e')).toEqual({
+        lat: 50.7971514,
+        lng: 15.0864900,
+      });
+    });
   });
 
   // ── Degrees Decimal Minutes (DDM) ──
