@@ -185,6 +185,7 @@ export default function Map() {
   let firstRoute = !route();
   let routeBounds: maplibregl.LngLatBounds | null = null;
   let contoursReady = false;
+  let userLocation: [number, number] | null = null;
   const [mapZoom, setMapZoom] = createSignal(7);
   const [inspectMode, setInspectMode] = createSignal(false);
   const [inspectInfo, setInspectInfo] = createSignal<{
@@ -365,17 +366,147 @@ export default function Map() {
 
     m.addControl(new maplibregl.NavigationControl());
 
-    m.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        fitBoundsOptions: { maxZoom: 15 },
-      }),
-    );
+    const geoLog = (message: string, details?: Record<string, unknown>) => {
+      console.info('[vrstevnice/geolocation]', message, details ?? '');
+    };
+    geoLog('control initialized', {
+      secureContext: window.isSecureContext,
+      apiAvailable: Boolean(navigator.geolocation),
+      userAgent: navigator.userAgent,
+    });
+
+    const renderUserLocation = (recenter: boolean) => {
+      if (!userLocation) {
+        return;
+      }
+
+      const source = m.getSource('user-location');
+      if (source && 'setData' in source) {
+        (source as maplibregl.GeoJSONSource).setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Point', coordinates: userLocation },
+        });
+        geoLog('blue dot updated', { coordinates: userLocation, recenter });
+      }
+      if (recenter) {
+        m.flyTo({
+          center: userLocation,
+          zoom: Math.max(m.getZoom(), 14),
+          duration: 800,
+          essential: true,
+        });
+        geoLog('map recenter requested', {
+          center: userLocation,
+          zoom: Math.max(m.getZoom(), 14),
+        });
+      }
+    };
+
+    const updateUserLocation = (event: GeolocationPosition) => {
+      userLocation = [event.coords.longitude, event.coords.latitude];
+      geoLog('position received', {
+        coordinates: userLocation,
+        accuracy: event.coords.accuracy,
+        timestamp: event.timestamp,
+      });
+      renderUserLocation(true);
+    };
+    const handleLocationError = (error: GeolocationPositionError) => {
+      console.warn('[vrstevnice/geolocation] position failed', {
+        code: error.code,
+        message: error.message,
+      });
+    };
+    const requestPosition = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        updateUserLocation,
+        (error) => {
+          if (highAccuracy && error.code === 2) {
+            geoLog('retrying with low accuracy after provider failure');
+            requestPosition(false);
+          } else {
+            handleLocationError(error);
+          }
+        },
+        {
+          enableHighAccuracy: highAccuracy,
+          maximumAge: highAccuracy ? 10_000 : 60_000,
+          timeout: highAccuracy ? 15_000 : 20_000,
+        },
+      );
+    };
+    const requestUserLocation = () => {
+      geoLog('request started');
+      if (!navigator.geolocation) {
+        console.warn('[vrstevnice/geolocation] request skipped: API unavailable');
+        return;
+      }
+      navigator.permissions?.query({ name: 'geolocation' }).then((permission) => {
+        geoLog('permission state', { state: permission.state });
+      }).catch((error: unknown) => {
+        console.warn('[vrstevnice/geolocation] permission query failed', error);
+      });
+      requestPosition(true);
+    };
+    const locationControl: maplibregl.IControl = {
+      onAdd: () => {
+        const group = document.createElement('div');
+        group.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        const button = document.createElement('button');
+        button.className = 'maplibregl-ctrl-icon maplibregl-ctrl-geolocate';
+        button.type = 'button';
+        button.title = 'Najít moji polohu';
+        button.setAttribute('aria-label', 'Najít moji polohu');
+        button.addEventListener('click', requestUserLocation);
+        group.appendChild(button);
+        return group;
+      },
+      onRemove: () => {},
+    };
+    m.addControl(locationControl);
 
     m.on('load', () => {
       setMapReady(true);
       // @ts-ignore debug
       window.__map = m;
+
+      m.addSource('user-location', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'Point',
+            coordinates: userLocation ?? [15.47, 49.82],
+          },
+        },
+      });
+      m.addLayer({
+        id: 'user-location-circle',
+        type: 'circle',
+        source: 'user-location',
+        filter: ['!=', ['get', 'hidden'], true],
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#2563eb',
+          'circle-opacity': 0.95,
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      });
+      geoLog('map loaded', {
+        styleLoaded: m.isStyleLoaded(),
+      });
+      if (userLocation) {
+        renderUserLocation(false);
+      } else {
+        (m.getSource('user-location') as maplibregl.GeoJSONSource).setData({
+          type: 'Feature',
+          properties: { hidden: true },
+          geometry: { type: 'Point', coordinates: [0, 0] },
+        });
+      }
       // @ts-ignore debug — used by Stops panel "Přehled trasy" button
       (window as any).__fitRouteOverview = () => {
         if (routeBounds) m.fitBounds(routeBounds, { padding: 50 });
