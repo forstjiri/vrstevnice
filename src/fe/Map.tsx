@@ -3,10 +3,12 @@ import {
 } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import * as maplibregl from 'maplibre-gl';
+import type { Feature } from 'geojson';
 import mlcontour from 'maplibre-contour';
 import SunCalc from 'suncalc';
 import {
   haversineMeters,
+  type JsonValue,
   computeGeometryDistances,
   findPositionAtDistance,
   parseLocalDateTime,
@@ -33,6 +35,16 @@ import {
   effectiveSunDateTime,
   shadowRouteActive,
 } from './mapControlsStore';
+import {
+  buildMapLegend,
+  buildRoadLayers,
+  CYCLE_ROUTE_STYLES,
+  hideBaseRoadLayers,
+} from './road-styles';
+import forestNoise1 from './assets/forest-noise-1.svg?url';
+import forestNoise2 from './assets/forest-noise-2.svg?url';
+import forestNoise3 from './assets/forest-noise-3.svg?url';
+import forestNoise4 from './assets/forest-noise-4.svg?url';
 
 maplibregl.setWorkerUrl(new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).href);
 
@@ -71,25 +83,36 @@ const contourTileUrl = demSource.contourProtocolUrl({
 function upsertGeoJSON(
   map: maplibregl.Map,
   sourceId: string,
-  data: Record<string, unknown>,
-  layerSpec: Record<string, unknown>,
-) {
+  data: Feature,
+  layerSpec:
+    | Omit<maplibregl.LineLayerSpecification, 'source'>
+    | Omit<maplibregl.CircleLayerSpecification, 'source'>,
+): void {
   if (map.getSource(sourceId)) {
-    (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(data as any);
+    (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(data);
   } else {
-    map.addSource(sourceId, { type: 'geojson', data: data as any });
-    map.addLayer({ ...layerSpec, source: sourceId } as any);
+    map.addSource(sourceId, { type: 'geojson', data });
+    map.addLayer({ ...layerSpec, source: sourceId });
   }
 }
+
+type PaintUpdate = readonly [
+  keyof maplibregl.AllPaintProperties,
+  maplibregl.AllPaintProperties[keyof maplibregl.AllPaintProperties],
+];
 
 function setPaintProperties(
   map: maplibregl.Map,
   layerId: string,
-  properties: [keyof maplibregl.AllPaintProperties, unknown][],
-) {
+  properties: readonly PaintUpdate[],
+): void {
   properties.forEach(([name, value]) => {
     try {
-      map.setPaintProperty(layerId, name, value as never);
+      map.setPaintProperty(
+        layerId,
+        name,
+        value,
+      );
     } catch {}
   });
 }
@@ -155,7 +178,7 @@ function getHillshadePaint(
   daylightFactor: number,
   azimuth: number,
   altitude: number,
-) {
+): PaintUpdate[] {
   return [
     ['hillshade-illumination-direction', azimuth],
     ['hillshade-illumination-altitude', clamp(altitude, 5, 70)],
@@ -164,7 +187,7 @@ function getHillshadePaint(
     ['hillshade-shadow-color', rgba(0, 0, 0, 0.35 * daylightFactor + 0.08)],
     ['hillshade-highlight-color', rgba(255, 255, 255, 0.22 * daylightFactor + 0.03)],
     ['hillshade-accent-color', rgba(90, 90, 90, 0.2 * daylightFactor + 0.04)],
-  ] satisfies [keyof maplibregl.AllPaintProperties, unknown][];
+  ] satisfies PaintUpdate[];
 }
 
 /**
@@ -194,7 +217,7 @@ export default function Map() {
     lng: string;
     lat: string;
     zoom: string;
-    properties: Record<string, unknown>;
+    properties: Record<string, JsonValue>;
   } | null>(null);
   let sunDateTime = formatLocalDateTime(new Date());
   const MIN_TERRAIN_ZOOM = 10;
@@ -347,6 +370,10 @@ export default function Map() {
         zoom: mapCamera()?.zoom ?? 7,
         bearing: mapCamera()?.bearing ?? 0,
         pitch: mapCamera()?.pitch ?? 0,
+        attributionControl: {
+          compact: true,
+          customAttribution: buildMapLegend(),
+        },
       });
     } catch {
       setWebglFailed(true);
@@ -366,7 +393,7 @@ export default function Map() {
 
     m.addControl(new maplibregl.NavigationControl());
 
-    const geoLog = (message: string, details?: Record<string, unknown>) => {
+    const geoLog = (message: string, details?: Record<string, JsonValue | undefined>) => {
       console.info('[vrstevnice/geolocation]', message, details ?? '');
     };
     geoLog('control initialized', {
@@ -444,7 +471,7 @@ export default function Map() {
       }
       navigator.permissions?.query({ name: 'geolocation' }).then((permission) => {
         geoLog('permission state', { state: permission.state });
-      }).catch((error: unknown) => {
+      }).catch((error) => {
         console.warn('[vrstevnice/geolocation] permission query failed', error);
       });
       requestPosition(true);
@@ -495,8 +522,45 @@ export default function Map() {
           'circle-stroke-width': 2,
         },
       });
+
+      // Darken forests and overlay four static textures without generating pixels on startup.
+      if (m.getLayer('landcover_wood')) {
+        m.setPaintProperty('landcover_wood', 'fill-color', '#98aa70');
+        const textures = [
+          { id: 'forest-noise-1', url: forestNoise1, translate: [0, 0] as [number, number] },
+          { id: 'forest-noise-2', url: forestNoise2, translate: [17, -11] as [number, number] },
+          { id: 'forest-noise-3', url: forestNoise3, translate: [-23, 19] as [number, number] },
+          { id: 'forest-noise-4', url: forestNoise4, translate: [31, 7] as [number, number] },
+        ];
+        Promise.all(textures.map((texture) => new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error(`Could not load ${texture.id}`));
+          image.src = texture.url;
+        }))).then((images) => {
+          if (destroyed) return;
+          textures.forEach((texture, index) => {
+            if (!m.hasImage(texture.id)) m.addImage(texture.id, images[index], { pixelRatio: 1 });
+            m.addLayer(
+              {
+                id: texture.id,
+                type: 'fill',
+                source: 'openmaptiles',
+                'source-layer': 'landcover',
+                filter: ['==', ['get', 'class'], 'wood'],
+                paint: {
+                  'fill-pattern': texture.id,
+                  'fill-opacity': 0.16,
+                  'fill-translate': texture.translate,
+                },
+              },
+              'water',
+            );
+          });
+        }).catch(() => {});
+      }
       geoLog('map loaded', {
-        styleLoaded: m.isStyleLoaded(),
+        styleLoaded: Boolean(m.isStyleLoaded()),
       });
       if (userLocation) {
         renderUserLocation(false);
@@ -508,69 +572,52 @@ export default function Map() {
         });
       }
       // @ts-ignore debug — used by Stops panel "Přehled trasy" button
-      (window as any).__fitRouteOverview = () => {
+      window.__fitRouteOverview = () => {
         if (routeBounds) m.fitBounds(routeBounds, { padding: 50 });
       };
 
-      // ── De-emphasize motorways & primary roads for cycling ──
+      // ── Cycling-oriented road rendering ──
       try {
-        if (m.getLayer('road_major_motorway')) {
-          m.setPaintProperty('road_major_motorway', 'line-opacity', 0.35);
-        }
-        if (m.getLayer('road_trunk_primary')) {
-          m.setPaintProperty('road_trunk_primary', 'line-opacity', 0.5);
-        }
-        // Brighten minor roads (residential, service) — good for cycling
-        if (m.getLayer('road_minor')) {
-          m.setPaintProperty('road_minor', 'line-color', '#fdf6e3');
-        }
-        // Widen forest tracks/paths — visible from z12
-        // Note: MapLibre minzoom is integer-only, 12.5 would round to 13
-        if (m.getLayer('road_path')) {
-          // Hide original thin layer — our custom layer replaces it
-          try {
-            m.setLayoutProperty('road_path', 'visibility', 'none');
-          } catch {}
-          // Bright track line
-          m.addLayer(
-            {
-              id: 'cycle-path-widen',
-              type: 'line',
-              source: 'openmaptiles',
-              'source-layer': 'transportation',
-              minzoom: 12,
-              filter: [
-                'all',
-                ['==', '$type', 'LineString'],
-                ['in', 'class', 'path', 'track'],
-                ['!=', 'subclass', 'cycleway'],
+        hideBaseRoadLayers(m);
+        if (m.getLayer('poi_label')) m.setLayoutProperty('poi_label', 'visibility', 'none');
+        buildRoadLayers().forEach((layer) => {
+          m.addLayer(layer, 'bridge_minor case');
+        });
+        m.addLayer({
+          id: 'cycling-poi-label',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'poi',
+          minzoom: 14,
+          filter: [
+            'all',
+            ['==', '$type', 'Point'],
+            ['any',
+              ['in', 'class',
+                'cafe', 'restaurant', 'fast_food', 'bar', 'beer', 'ice_cream',
+                'grocery', 'fuel', 'campsite', 'lodging', 'hospital', 'attraction',
+                'castle', 'park',
               ],
-              paint: {
-                'line-color': 'hsl(0, 0%, 97%)',
-                'line-dasharray': [1, 1],
-                'line-width': ['interpolate', ['linear'], ['zoom'], 12, 1, 14, 3, 18, 10],
-              },
-            },
-            'road_path',
-          );
-        }
-        // Highlight tertiary roads — paved, lower traffic
-        m.addLayer(
-          {
-            id: 'cycle-tertiary-highlight',
-            type: 'line',
-            source: 'openmaptiles',
-            'source-layer': 'transportation',
-            minzoom: 12,
-            filter: ['==', ['get', 'class'], 'tertiary'],
-            paint: {
-              'line-color': '#fdf6e3',
-              'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 14, 3, 18, 8],
-              'line-opacity': 0.7,
-            },
+              ['all', ['==', 'class', 'shop'], ['in', 'subclass', 'bicycle', 'bicycle_repair']],
+              ['in', 'subclass', 'drinking_water', 'toilets', 'viewpoint'],
+            ],
+          ],
+          layout: {
+            'text-field': ['coalesce', ['get', 'name:latin'], ['get', 'name']],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 12],
+            'text-anchor': 'top',
+            'text-offset': [0, 0.5],
+            'text-max-width': 8,
+            'symbol-sort-key': ['get', 'rank'],
           },
-          'road_secondary_tertiary',
-        );
+          paint: {
+            'text-color': '#53656d',
+            'text-halo-color': 'rgba(255, 255, 255, 0.9)',
+            'text-halo-width': 1,
+            'text-halo-blur': 0.5,
+          },
+        });
       } catch {}
 
       // ── Terrain DEM sources ──
@@ -821,51 +868,22 @@ export default function Map() {
             maxzoom: 14,
           });
 
-          const networkLayers: {
-            id: string;
-            filter: maplibregl.FilterSpecification;
-            color: string;
-            width: number;
-          }[] = [
-            {
-              id: 'cycleroutes-ncn',
-              filter: ['==', ['get', 'network'], 'ncn'],
-              color: '#e53e3e',
-              width: 2.5,
-            },
-            {
-              id: 'cycleroutes-rcn',
-              filter: ['==', ['get', 'network'], 'rcn'],
-              color: '#2b6cb0',
-              width: 2,
-            },
-            {
-              id: 'cycleroutes-lcn',
-              filter: ['==', ['get', 'network'], 'lcn'],
-              color: '#38a169',
-              width: 1.5,
-            },
-            {
-              id: 'cycleroutes-other',
-              filter: [
+          CYCLE_ROUTE_STYLES.forEach((layer) => {
+            const filter = layer.network === 'other'
+              ? [
                 'all',
                 ['!=', ['get', 'network'], 'ncn'],
                 ['!=', ['get', 'network'], 'rcn'],
                 ['!=', ['get', 'network'], 'lcn'],
-              ],
-              color: '#a0aec0',
-              width: 1.2,
-            },
-          ];
-
-          networkLayers.forEach((layer) => {
+              ]
+              : ['==', ['get', 'network'], layer.network];
             m.addLayer(
               {
                 id: layer.id,
                 type: 'line',
                 source: 'cycleroutes',
                 minzoom: 10,
-                filter: layer.filter,
+                filter: filter as maplibregl.FilterSpecification,
                 paint: {
                   'line-color': layer.color,
                   'line-width': layer.width,
@@ -891,9 +909,9 @@ export default function Map() {
         const features = m.queryRenderedFeatures(e.point);
         if (features.length > 0) {
           const f = features[0];
-          const p = (f.properties ?? {}) as Record<string, unknown>;
+          const p = (f.properties ?? {}) as Record<string, JsonValue>;
           // Pick relevant OSM tags for display
-          const propsToShow: Record<string, unknown> = {};
+          const propsToShow: Record<string, JsonValue> = {};
           const relevant = [
             'class',
             'subclass',
@@ -998,7 +1016,7 @@ export default function Map() {
     onCleanup(() => {
       destroyed = true;
       updateHillshadeLightingLocal = null;
-      if ((window as any).__fitRouteOverview) delete (window as any).__fitRouteOverview;
+      if (window.__fitRouteOverview) delete window.__fitRouteOverview;
       document.removeEventListener('keydown', handleKey);
       mapCanvas.removeEventListener('touchstart', handleTouchStart);
       mapCanvas.removeEventListener('touchmove', handleTouchMove);

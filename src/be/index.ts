@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import logixlysia from 'logixlysia';
 import { rateLimit } from 'elysia-rate-limit';
-import type { GeocodeResult, POILocation } from '@vrstevnice/shared';
+import type { GeocodeResult, PhotonResponse, POILocation } from '@vrstevnice/shared';
 import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared';
 import {
   applyAscentGuard,
@@ -23,7 +23,7 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
 const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === '1';
 
-type Logger = (...args: any[]) => void;
+type Logger = (value: object | string, message?: string) => void;
 interface PinoStore {
   pino: { debug: Logger; info: Logger; warn: Logger; error: Logger };
 }
@@ -284,8 +284,8 @@ export const app = new Elysia({ prefix: '/api' })
 
         try {
           const reverseRes = await fetchPhoton(`/reverse?lon=${gpsCoord.lng}&lat=${gpsCoord.lat}`);
-          const reverseData = await reverseRes.json();
-          const features: any[] = reverseData?.features ?? [];
+          const reverseData = await reverseRes.json() as PhotonResponse;
+          const features = reverseData.features ?? [];
           pino.debug({ count: features.length }, 'Reverse geocode results');
           if (features.length > 0) {
             return [mapPhotonFeature(features[0])];
@@ -321,16 +321,16 @@ export const app = new Elysia({ prefix: '/api' })
         );
       }
 
-      let data: any;
+      let data: PhotonResponse;
       try {
         const res = await fetchPhoton(photonPath);
-        data = await res.json();
+        data = await res.json() as PhotonResponse;
       } catch (err) {
         pino.error({ error: (err as Error).message }, 'Photon geocode failed');
         throw new Error('Geocode service unavailable');
       }
 
-      const features: any[] = data?.features ?? [];
+      const features = data.features ?? [];
       const results: GeocodeResult[] = features.map(mapPhotonFeature);
 
       pino.debug({ q: query.q, count: results.length }, 'Geocode results');

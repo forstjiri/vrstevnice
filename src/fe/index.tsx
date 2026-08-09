@@ -11,7 +11,7 @@ const SUPPRESSED = [
 ];
 
 const origError = globalThis.console.error;
-globalThis.console.error = (...args: unknown[]) => {
+globalThis.console.error = (...args: Parameters<Console['error']>) => {
   const msg = args.map((a) => {
     if (typeof a === 'string') return a;
     return a instanceof Error ? a.message : '';

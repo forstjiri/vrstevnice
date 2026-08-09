@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseSurfaceSegments } from '@vrstevnice/routing';
+import type { JsonValue } from '@vrstevnice/shared';
 
 describe('parseSurfaceSegments', () => {
   it('parses valid surface detail triples into SurfaceSegment[]', () => {
@@ -33,11 +34,11 @@ describe('parseSurfaceSegments', () => {
   });
 
   it('returns empty array when details is null', () => {
-    expect(parseSurfaceSegments(null as any)).toEqual([]);
+    expect(parseSurfaceSegments(null)).toEqual([]);
   });
 
   it('skips malformed entries (non-array entries)', () => {
-    const details = {
+    const details: Record<string, JsonValue[]> = {
       surface: ['not-an-array', [0, 10, 'asphalt'], 42, [10, 20, 'gravel']],
     };
 

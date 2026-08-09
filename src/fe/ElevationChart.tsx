@@ -481,13 +481,13 @@ export default function ElevationChart() {
     return ratio * total;
   }
 
-  function onMouseMove(e: MouseEvent) {
+  function updateHover(clientX: number) {
     // Don't interfere with animation
     if (rideAnimation().playing) return;
     const r = route();
     if (!r?.elevationProfile?.length) return;
 
-    const result = findClosestPoint(distFromClientX(e.clientX));
+    const result = findClosestPoint(distFromClientX(clientX));
 
     if (result) {
       setHoveredPoint({
@@ -497,6 +497,15 @@ export default function ElevationChart() {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => drawPoint(result));
     }
+  }
+
+  function onMouseMove(e: MouseEvent) {
+    updateHover(e.clientX);
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    const touch = e.touches[0];
+    if (touch) updateHover(touch.clientX);
   }
 
   function drawPoint(result: { point: ElevationPoint; index: number }) {
@@ -634,7 +643,7 @@ export default function ElevationChart() {
         animLastTimestamp = null;
         // Trigger fitBounds via window.__fitRouteOverview
         try {
-          (window as any).__fitRouteOverview?.();
+          window.__fitRouteOverview?.();
         } catch {}
         // Reset time to base after a brief delay
         setTimeout(() => {
@@ -778,14 +787,7 @@ export default function ElevationChart() {
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('mouseleave', onMouseLeave);
     canvas.addEventListener('click', onChartClick);
-    canvas.addEventListener(
-      'touchmove',
-      (e: TouchEvent) => {
-        if (e.touches.length !== 1) return;
-        onMouseMove({ clientX: e.touches[0].clientX } as MouseEvent);
-      },
-      { passive: true },
-    );
+    canvas.addEventListener('touchmove', onTouchMove, { passive: true });
     canvas.addEventListener('touchend', onMouseLeave);
     initialized = true;
   }
@@ -878,7 +880,7 @@ export default function ElevationChart() {
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('mouseleave', onMouseLeave);
       canvas.removeEventListener('click', onChartClick);
-      canvas.removeEventListener('touchmove', onMouseMove as any);
+      canvas.removeEventListener('touchmove', onTouchMove);
       canvas.removeEventListener('touchend', onMouseLeave);
     }
   });

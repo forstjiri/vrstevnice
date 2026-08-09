@@ -82,7 +82,10 @@ export default [
     files: ['src/fe/**/*.ts', 'src/fe/**/*.tsx', 'tests/vitest.config.ts'],
     rules: {
       // These names are part of the browser debug/test integration contracts.
-      'no-underscore-dangle': ['error', { allow: ['__map', '__fitRouteOverview', '__dirname'] }],
+      'no-underscore-dangle': [
+        'error',
+        { allow: ['__map', '__fitRouteOverview', '__planner', '__dirname'] },
+      ],
     },
   },
   {
@@ -99,6 +102,17 @@ export default [
       'no-empty': ['error', { allowEmptyCatch: true }],
       // Function declarations are hoisted; retain the rule for variables/classes.
       '@typescript-eslint/no-use-before-define': ['error', { functions: false }],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-restricted-types': [
+        'error',
+        {
+          types: {
+            unknown: {
+              message: 'Use a concrete domain type instead of unknown.',
+            },
+          },
+        },
+      ],
     },
   },
 ]

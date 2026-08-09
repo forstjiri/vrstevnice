@@ -10,6 +10,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import {
+  type GHCustomModel,
+  type GHRouteRequest,
+} from '@vrstevnice/routing';
+import type { JsonValue } from '@vrstevnice/shared';
 import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle';
 import { nodePoint } from '../fixtures/nodes';
 
@@ -20,8 +25,8 @@ import { nodePoint } from '../fixtures/nodes';
 /**
  * Make a raw GH /route request and return the typed response.
  */
-async function ghRoute(points: [number, number][], customModel?: unknown) {
-  const body: Record<string, unknown> = {
+async function ghRoute(points: [number, number][], customModel?: GHCustomModel) {
+  const body: GHRouteRequest = {
     points,
     profile: 'bike',
     elevation: false,
@@ -51,7 +56,7 @@ async function ghRoute(points: [number, number][], customModel?: unknown) {
 // Minimal types for the GH /route response
 interface GHRouteResponse {
   paths?: GHPath[];
-  info?: { errors?: unknown[] };
+  info?: { errors?: JsonValue[] };
 }
 
 interface GHPath {
@@ -63,7 +68,7 @@ interface GHPath {
     type: string;
     coordinates: number[][]; // [lon, lat, ele?]
   };
-  instructions: unknown[];
+  instructions: JsonValue[];
 }
 
 // ---------------------------------------------------------------------------

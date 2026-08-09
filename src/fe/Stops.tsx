@@ -48,7 +48,7 @@ export default function Stops() {
   }
 
   function showSearchPreview(lat: number, lng: number) {
-    const map = (window as any).__map as maplibregl.Map | undefined;
+    const map = window.__map;
     if (!map) return;
     hideSearchPreview();
     const geojson = {
@@ -93,7 +93,7 @@ export default function Stops() {
   }
 
   function hideSearchPreview() {
-    const map = (window as any).__map as maplibregl.Map | undefined;
+    const map = window.__map;
     if (!map) return;
     try {
       if (map.getSource('search-preview')) {
@@ -234,7 +234,10 @@ export default function Stops() {
                     const gps = detectAndParseGPS(text);
                     if (gps) {
                       e.preventDefault();
-                      setStops([...planner.stops, { lat: gps.lat, lng: gps.lng, name: `${gps.lat}, ${gps.lng}` }]);
+                      setStops([
+                        ...planner.stops,
+                        { lat: gps.lat, lng: gps.lng, name: `${gps.lat}, ${gps.lng}` },
+                      ]);
                       setResults([]);
                       (e.target as HTMLInputElement).value = '';
                     }
@@ -410,7 +413,7 @@ export default function Stops() {
           <Button
             class="btn btn-ghost btn-fit-overview"
             onClick={() => {
-              (window as any).__fitRouteOverview?.();
+              window.__fitRouteOverview?.();
             }}
           >
             ⊞ Přehled trasy

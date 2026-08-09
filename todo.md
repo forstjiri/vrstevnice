@@ -1,13 +1,25 @@
 # Chyby
-- geolokace
-- nejde vložit `50.7971514N, 15.0864900E`
-- z domova do kateřinek při `1` vyhnout se kopcům je trasa o kousek delší ale 3x takový stoupání, proč? vede to přes golfáč, ale tam se nesmí přeci ne?
+- Proč tam je 
+```text
+poi_labelpoiz16.2
+📍 50.825483, 15.018803
+
+{
+  "class": "office",
+  "subclass": "insurance",
+  "name_int": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
+  "name_de": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
+  "rank": 1,
+  "name:latin": "Jan Dvořák, Pojištění - zprostředkovatelé, poradenství",
+  "name_en": "Jan Dvořák, Pojištění - zpro
+```
+
+- Při pohybu mapou mít uniformní detaily podle nejlepšího, ne že budou vidět v různých blocích různé detaily a prvky
 
 # Nápady
 - čas výjezdu co bude brát v úvahu otevření hospod
 - https://github.com/ted-piotrowski/mapbox-gl-shadow-simulator počas jízdy
     - Plánování podle stínu (0-1) bere v úvahu jestli v tu chvíli tam svítí
-- Tvrdé omezené na stoupání - maximální úhel stoupání a zvlášť klesání
 - při příhlášení přes mojeid mít možnost hlasovat pro různý cesty
     - průjezdnost pro typ kola (a všechny víc teréní) + nebo -
     - zábavnost?

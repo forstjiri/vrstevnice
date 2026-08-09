@@ -1,3 +1,28 @@
+export type JsonValue = | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface PhotonFeature {
+  properties?: {
+    name?: string | null;
+    street?: string | null;
+    housenumber?: string | null;
+    city?: string | null;
+    postcode?: string | null;
+    country?: string | null;
+  };
+  geometry?: {
+    coordinates?: number[];
+  };
+}
+
+export interface PhotonResponse {
+  features?: PhotonFeature[];
+}
+
 export interface Stop {
   lat: number;
   lng: number;
@@ -189,16 +214,16 @@ export function formatLocalDate(date: Date): string {
 // ── Geocode helpers (shared between FE and BE) ──
 
 /** Map a Photon GeoJSON Feature to a GeocodeResult. GeoJSON [lon,lat] → [lat,lng]. */
-export function mapPhotonFeature(feature: any): GeocodeResult {
+export function mapPhotonFeature(feature: PhotonFeature): GeocodeResult {
   const props = feature.properties ?? {};
   const coordinates = feature.geometry?.coordinates ?? [0, 0];
   return {
-    lat: coordinates[1],
-    lng: coordinates[0],
+    lat: coordinates[1] ?? 0,
+    lng: coordinates[0] ?? 0,
     name: props.name || props.street || 'Unknown',
     displayName:
       [props.name, props.street, props.housenumber, props.city, props.postcode, props.country]
-        .filter((v: string | undefined) => v != null && v !== '')
+        .filter((v) => v != null && v !== '')
         .join(', ') || 'Unknown location',
   };
 }

@@ -79,9 +79,9 @@ describe('computeElevationProfile', () => {
   });
 
   it('skips coordinates with undefined/null elevation', () => {
-    const coords: [number, number, number][] = [
+    const coords: [number, number, number | undefined][] = [
       [14.4, 50.0, 200],
-      [14.4, 50.5, undefined as unknown as number],
+      [14.4, 50.5, undefined],
       [14.4, 51.0, 350],
     ];
     const profile = computeElevationProfile(coords);
@@ -103,9 +103,9 @@ describe('computeElevationProfile', () => {
   });
 
   it('returns empty array when all coordinates have invalid elevation', () => {
-    const coords: [number, number, number][] = [
+    const coords: [number, number, number | undefined][] = [
       [14.4, 50.0, NaN],
-      [14.4, 51.0, undefined as unknown as number],
+      [14.4, 51.0, undefined],
     ];
     expect(computeElevationProfile(coords)).toEqual([]);
   });

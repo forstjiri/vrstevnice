@@ -16,7 +16,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildCustomModel, type GHCustomModel } from '@vrstevnice/routing';
+import {
+  buildCustomModel,
+  type GHCustomModel,
+  type GHRouteRequest,
+} from '@vrstevnice/routing';
+import type { JsonValue } from '@vrstevnice/shared';
 import { GRAPHHOPPER_URL, dumpGHLogs } from '../helpers/gh-lifecycle';
 import { nodePoint, TEST_NODES } from '../fixtures/nodes';
 import { assertRoutePassesThrough, findNodeHits } from '../helpers/assert-route';
@@ -27,7 +32,7 @@ import { assertRoutePassesThrough, findNodeHits } from '../helpers/assert-route'
 
 interface GHRouteResponse {
   paths?: GHPath[];
-  info?: { errors?: unknown[] };
+  info?: { errors?: JsonValue[] };
 }
 
 interface GHPath {
@@ -39,7 +44,7 @@ interface GHPath {
     type: string;
     coordinates: number[][]; // [lon, lat, ...]
   };
-  instructions: unknown[];
+  instructions: JsonValue[];
 }
 
 interface RouteTestCase {
@@ -77,8 +82,8 @@ function stripSlopeRules(cm: GHCustomModel): GHCustomModel {
 // Helper: GH route fetch
 // ---------------------------------------------------------------------------
 
-async function ghRoute(points: [number, number][], customModel?: unknown) {
-  const body: Record<string, unknown> = {
+async function ghRoute(points: [number, number][], customModel?: GHCustomModel) {
+  const body: GHRouteRequest = {
     points,
     profile: 'bike',
     elevation: false,
@@ -191,7 +196,7 @@ describe('Routing: buildCustomModel() route selection', () => {
     const startPt = nodePoint(tc.startNode);
     const endPt = nodePoint(tc.endNode);
 
-    let customModel: unknown;
+    let customModel: GHCustomModel | undefined;
     if (!tc.skipCalibration) {
       const cm = buildCustomModel(tc.elevationCoeff, tc.roadAvoidanceCoeff, tc.cyclewayCoeff ?? 0);
       customModel = stripSlopeRules(cm);

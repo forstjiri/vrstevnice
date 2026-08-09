@@ -17,6 +17,7 @@
     "suncalc": "^1.9.0"
   },
   "devDependencies": {
+    "@maplibre/maplibre-gl-style-spec": "^24.10.0",
     "@types/geojson": "^7946.0.16",
     "@types/suncalc": "^1.9.2",
     "@vrstevnice/be": "workspace:*",

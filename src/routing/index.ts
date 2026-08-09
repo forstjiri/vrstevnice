@@ -1,5 +1,6 @@
 import type {
   ElevationPoint,
+  JsonValue,
   POILocation,
   RoadClassSegment,
   RouteResponse,
@@ -45,13 +46,13 @@ export interface GHPath {
     type: string;
     coordinates: [number, number, number][]; // [lon, lat, ele]
   };
-  instructions: unknown[];
-  details?: Record<string, unknown[]>;
+  instructions: JsonValue[];
+  details?: Record<string, JsonValue[]>;
 }
 
 export interface GHRouteResponse {
   paths: GHPath[];
-  info?: { errors?: unknown[] };
+  info?: { errors?: JsonValue[] };
 }
 
 export interface GHRouteResult {
@@ -263,27 +264,32 @@ export async function fetchRouteFromGH(
  * Parse GraphHopper `details[key]` triples into [from, to, value] tuples.
  * Each triple represents a segment [from, to] (geometry indices) with a string value.
  */
+type DetailTriple = [number, number, string];
+
+function isDetailTriple(value: JsonValue): value is DetailTriple {
+  return Array.isArray(value)
+    && value.length >= 3
+    && typeof value[0] === 'number'
+    && typeof value[1] === 'number'
+    && typeof value[2] === 'string';
+}
+
 function parseDetailTriples(
-  details: Record<string, unknown[]> | undefined,
+  details: Record<string, JsonValue[]> | null | undefined,
   key: string,
 ): [number, number, string][] {
   const raw = details?.[key];
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const result: [number, number, string][] = [];
   raw.forEach((entry) => {
-    if (Array.isArray(entry) && entry.length >= 3) {
-      const [from, to, value] = entry;
-      if (typeof from === 'number' && typeof to === 'number' && typeof value === 'string') {
-        result.push([from, to, value]);
-      }
-    }
+    if (isDetailTriple(entry)) result.push([entry[0], entry[1], entry[2]]);
   });
   return result;
 }
 
 /** Parse GraphHopper `details.surface` triples into SurfaceSegment[]. */
 export const parseSurfaceSegments = (
-  details: Record<string, unknown[]> | undefined,
+  details: Record<string, JsonValue[]> | null | undefined,
 ): SurfaceSegment[] => parseDetailTriples(details, 'surface').map(([from, to, surface]) => ({
   from,
   to,
@@ -292,7 +298,7 @@ export const parseSurfaceSegments = (
 
 /** Parse GraphHopper `details.road_class` triples into RoadClassSegment[]. */
 export const parseRoadClassSegments = (
-  details: Record<string, unknown[]> | undefined,
+  details: Record<string, JsonValue[]> | null | undefined,
 ): RoadClassSegment[] => parseDetailTriples(details, 'road_class').map(([from, to, roadClass]) => ({
   from,
   to,
@@ -352,7 +358,9 @@ export function convertGHToRouteResponse(ghResult: GHRouteResult): RouteResponse
  * haversine distance in meters from the start of the route.
  * Points with NaN/undefined elevation are excluded.
  */
-export function computeElevationProfile(coords: [number, number, number][]): ElevationPoint[] {
+export function computeElevationProfile(
+  coords: [number, number, number | null | undefined][],
+): ElevationPoint[] {
   const profile: ElevationPoint[] = [];
   let cumulativeDistance = 0;
 

@@ -122,7 +122,7 @@ describe('mapPhotonFeature', () => {
       properties: {
         name: 'Test',
         street: '',
-        city: null as unknown as string,
+        city: null,
         country: 'CZ',
       },
     };

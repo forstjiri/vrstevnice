@@ -17,16 +17,16 @@ async function checkServices(): Promise<{ ok: boolean; reason: string }> {
   try {
     const res = await fetch(FE_URL, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) errors.push(`FE ${res.status}`);
-  } catch (e: any) {
-    errors.push(`FE: ${e.message}`);
+  } catch (e) {
+    errors.push(`FE: ${e instanceof Error ? e.message : String(e)}`);
   }
   try {
     const res = await fetch(`${BE_URL}/api/history`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) errors.push(`BE ${res.status}`);
-  } catch (e: any) {
-    errors.push(`BE: ${e.message}`);
+  } catch (e) {
+    errors.push(`BE: ${e instanceof Error ? e.message : String(e)}`);
   }
   return errors.length > 0 ? { ok: false, reason: errors.join('; ') } : { ok: true, reason: '' };
 }
