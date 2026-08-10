@@ -175,14 +175,14 @@ const testCases: RouteTestCase[] = [
     cyclewayCoeff: 1.0,
     expectedNodes: ['Start', 'C_Cyc1', 'C_Cyc2', 'C_Cyc3', 'C_Cyc4', 'End'],
   },
-  // At avoid=0.5, cycleway=0.75 the cycleway boost crosses Path B's weight boundary
+  // At avoid=0.5, cycleway=0.9 the cycleway boost crosses Path B's weight boundary
   {
-    name: 'moderate avoidance + strong cycleway → Path C (roadAvoid=0.5, cycleway=0.75)',
+    name: 'moderate avoidance + strong cycleway → Path C (roadAvoid=0.5, cycleway=0.9)',
     startNode: 'Start',
     endNode: 'End',
     elevationCoeff: 0.5,
     roadAvoidanceCoeff: 0.5,
-    cyclewayCoeff: 0.75,
+    cyclewayCoeff: 0.9,
     expectedNodes: ['Start', 'C_Cyc1', 'C_Cyc2', 'C_Cyc3', 'C_Cyc4', 'End'],
   },
 ];

@@ -145,14 +145,17 @@ ok "rsync ready"
 # ═══════════════════════════════════════════════════════════════════════
 phase "CODE SYNC"
 
-info "Synchronizace zdrojového kódu"
+info "FE build (lokální)"
+pnpm --filter @vrstevnice/fe build 2>&1 | tail -3
+ok "FE postaven"
+
+info "Synchronizace zdrojového kódu + dist/"
 runc "mkdir -p $REMOTE_DIR/data"
 
 rsync -az --delete \
   --exclude='node_modules' \
   --exclude='data' \
   --exclude='.git' \
-  --exclude='dist' \
   --exclude='*.log' \
   --exclude='data.db*' \
   -e "ssh -p $SSH_PORT" \
@@ -291,13 +294,9 @@ ok "systemd služba vytvořena"
 # ═══════════════════════════════════════════════════════════════════════
 phase "BUILD"
 
-info "pnpm install"
+info "pnpm install (BE deps)"
 runc "export BUN_INSTALL=\$HOME/.bun; export PATH=\$BUN_INSTALL/bin:\$PATH; cd $REMOTE_DIR && pnpm install" 2>&1 | tail -5
-ok "Dependencies installed"
-
-info "FE build"
-runc "export BUN_INSTALL=\$HOME/.bun; export PATH=\$BUN_INSTALL/bin:\$PATH; cd $REMOTE_DIR && pnpm --filter @vrstevnice/fe build" 2>&1 | grep -E '(built|error)' | head -3
-ok "FE postaven"
+ok "BE dependencies installed"
 
 # ═══════════════════════════════════════════════════════════════════════
 # PHASE 8: Launch
@@ -431,16 +430,16 @@ SERVER_IP="${REMOTE#*@}"
 echo "║                                                              ║"
 printf "║  \033[1;32mOtevři v prohlížeči:\033[0m  https://howevil.eu                  ║\n"
 echo "║                                                              ║"
-echo "║  \033[1;37mCo funguje:\033[0m                                             ║"
+printf "║  \033[1;37mCo funguje:\033[0m                                             ║\n"
 echo "║    • Plánování tras, 3D terén, stíny, vrstevnice             ║"
 echo "║    • Profilový graf s barvením povrchu                       ║"
 echo "║    • GPX export, ride animation                             ║"
 echo "║                                                              ║"
-echo "║  \033[1;32m✓ 100%% self-hosted: lokální Photon + SQLite POI\033[0m       ║"
-echo "║  \033[1;32m✓ HTTPS: Caddy + Let's Encrypt (auto-renew)\033[0m              ║"
+printf "║  \033[1;32m✓ 100%% self-hosted: lokální Photon + SQLite POI\033[0m       ║\n"
+printf "║  \033[1;32m✓ HTTPS: Caddy + Let's Encrypt (auto-renew)\033[0m              ║\n"
 echo "║                                                              ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  \033[1;37mÚdržba:\033[0m                                                  ║"
+printf "║  \033[1;37mÚdržba:\033[0m                                                  ║\n"
 echo "║    Update kódu:  bash scripts/deploy.sh --code-only         ║"
 echo "║    BE logy:      ssh $REMOTE 'journalctl -u vrstevnice-be -f'   ║"
 echo "║    GH logy:      ssh $REMOTE 'docker logs vrstevnice-gh -f'     ║"

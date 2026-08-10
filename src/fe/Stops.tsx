@@ -355,20 +355,6 @@ export default function Stops() {
           >
             🍻 Občerstvení na cestě
           </ToggleButton>
-          <ToggleButton
-            class="btn-toggle btn-toggle-label"
-            pressed={mapControls.shadowRouteOn}
-            onChange={(p) => {
-              mapControlActions.setShadowRouteOn(p);
-              if (!planner.route || loading()) return;
-              setTimeout(() => {
-                if (!planner.route || loading() || !shadowRouteActive()) return;
-                regenerateRoute();
-              }, 0);
-            }}
-          >
-            ☀️ Slunce na trase
-          </ToggleButton>
         </div>
 
         <LabeledSlider
@@ -398,8 +384,6 @@ export default function Stops() {
           step={0.05}
         />
       </div>
-
-      <Separator />
 
       <div class="button-wrap">
         <Button class="btn btn-primary" disabled={!canCompute()} onClick={calculateRoute}>
