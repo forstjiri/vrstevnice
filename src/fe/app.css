@@ -645,9 +645,11 @@ body {
   text-decoration: none;
   margin-bottom: 4px;
 }
+
 .map-inspect-osm-link:hover {
   text-decoration: underline;
 }
+
 .map-inspect-osm-dim {
   opacity: 0.7;
 }

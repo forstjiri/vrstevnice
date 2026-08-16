@@ -313,7 +313,11 @@ export default function Map() {
       {
         label: 'OpenStreetMap',
         action: () => window.open(
-          `https://www.openstreetmap.org/?mlat=${lngLat.lat.toFixed(6)}&mlon=${lngLat.lng.toFixed(6)}#map=16/${lngLat.lat.toFixed(6)}/${lngLat.lng.toFixed(6)}`,
+          [
+            `https://www.openstreetmap.org/?mlat=${lngLat.lat.toFixed(6)}`,
+            `&mlon=${lngLat.lng.toFixed(6)}#map=16/${lngLat.lat.toFixed(6)}/`,
+            lngLat.lng.toFixed(6),
+          ].join(''),
           '_blank',
         ),
       },
@@ -962,7 +966,7 @@ export default function Map() {
         // Pass a plain object — MapLibre's Point instance from the event
         // (worker shared-chunk class) can take an empty code path in
         // queryRenderedFeatures, while a plain {x, y} object works.
-        const queryPoint = { x: e.point.x, y: e.point.y } as unknown as maplibregl.PointLike;
+        const queryPoint = { x: e.point.x, y: e.point.y } as maplibregl.PointLike;
         const features = m.queryRenderedFeatures(queryPoint);
         if (features.length > 0) {
           const f = features[0];
@@ -1006,10 +1010,10 @@ export default function Map() {
           // Multi-geometries are merged by planetiler → synthetic ids, skip those.
           // The topmost feature may be an app layer (route, markers) without ids —
           // scan all queried features for the first one with a usable OSM id.
-          const simpleGeom = (t: string | undefined) =>
-            t === 'Point' || t === 'LineString' || t === 'Polygon';
-          const idFeature = features.find((feat) =>
-            typeof feat.id === 'number' && simpleGeom(feat.geometry?.type));
+          const simpleGeom = (t: string | undefined) => t === 'Point'
+            || t === 'LineString' || t === 'Polygon';
+          const idFeature = features.find((feat) => typeof feat.id === 'number'
+            && simpleGeom(feat.geometry?.type));
           let osmId: { type: 'node' | 'way'; id: number } | undefined;
           if (idFeature && typeof idFeature.id === 'number') {
             osmId = {
@@ -1517,14 +1521,17 @@ export default function Map() {
                         {info.osmId && (
                           <a
                             class="map-inspect-osm-link"
-                            href={`https://www.openstreetmap.org/${info.osmId.type}/${info.osmId.id}#map=19/${info.lat}/${info.lng}&layers=CNDG`}
+                            href={`https://www.openstreetmap.org/${info.osmId.type}`
+                              + `/${info.osmId.id}`
+                              + `#map=19/${info.lat}/${info.lng}&layers=CNDG`}
                             target="_blank"
                             rel="noopener"
                           >🌐 {info.osmId.type}/{info.osmId.id} na OSM</a>
                         )}
                         <a
                           class="map-inspect-osm-link map-inspect-osm-dim"
-                          href={`https://www.openstreetmap.org/#map=19/${info.lat}/${info.lng}&layers=CNDG`}
+                          href={`https://www.openstreetmap.org/#map=19/${info.lat}/${info.lng}`
+                            + '&layers=CNDG'}
                           target="_blank"
                           rel="noopener"
                         >🗺️ souřadnice v OSM</a>
