@@ -5,6 +5,8 @@ import {
 } from 'node:fs';
 import { resolve as pathResolve } from 'node:path';
 
+const tileServerUrl = process.env.VITE_TILESERVER_URL ?? 'http://localhost:2323';
+
 /**
  * Vite plugin: ensures maplibre-gl worker shared chunk is emitted alongside
  * the worker file. maplibre-gl's production worker imports
@@ -52,7 +54,8 @@ export default defineConfig(() => ({
     port: 5173,
     proxy: {
       '/api/': 'http://localhost:3002',
-      '/data/': 'http://localhost:2323',
+      '/styles/': tileServerUrl,
+      '/data/': tileServerUrl,
     },
   },
 }));

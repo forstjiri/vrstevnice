@@ -31,7 +31,7 @@ pnpm test                # Vitest
 One-time setup (after first clone):
 
 ```bash
-bash scripts/generate-tiles.sh          # ~684 MB vector tiles
+bash scripts/generate-tiles.sh          # vector tiles + original OSM road-way index for ratings
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb tiles
 pnpm extract-routes                   # cycle routes from OSM (requires Python + osmium)
 pnpm import-pois                      # SQLite POI DB from OSM PBF
@@ -79,6 +79,11 @@ data/              mbtiles, GeoJSON, DEM data, SQLite DB (gitignored)
 | GET | `/api/history` | Route history from SQLite |
 | GET | `/api/cycleroutes` | GeoJSON of cycle routes |
 | GET | `/api/terrain/:z/:x/:y` | Terrain tile proxy with 404 fallback (transparent PNG) |
+| GET | `/api/road-rating-roads?bbox=minLng,minLat,maxLng,maxLat` | Original OSM road ways in viewport for rating interaction |
+| GET | `/api/road-ratings?bbox=minLng,minLat,maxLng,maxLat` | Aggregated rated roads in viewport |
+| GET | `/api/road-ratings/:wayId` | Aggregate for one OSM way and requesting IP |
+| POST | `/api/road-ratings` | Create or update the requesting IP's road rating |
+| DELETE | `/api/road-ratings/:wayId` | Remove the requesting IP's rating |
 
 Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
@@ -94,6 +99,16 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **POI pipeline ("Limonádová cesta")**: local SQLite finds pubs/bars/restaurants along the route and reroutes through them
 - **Drag & drop stops**: dragging markers on the map updates coordinates
 - **GPX export**: download route as GPX 1.1 with elevation
+
+### Road ratings
+
+- **Rating mode**: transient `👍👎 Hodnocení cest` mode enables road hover/click and a modal with multi-select reasons.
+- **Community routing**: persisted `👥 Komunitní hodnocení` opt-in applies ratings to route calculation; saving or
+  deleting a rating recalculates only when an active route and this opt-in are both enabled.
+- **Bubbles**: rated roads show aggregate and per-subtype counts while rating mode is active at zoom ≥ 12.
+- **Identity and storage**: v1 identity is the requesting IP. A rating targets one connected same-name street group
+  (or one unnamed OSM way); `rated_roads` stores its cached geometry and anchor data, while `road_ratings` stores
+  votes with a unique `(way_id, ip)` upsert.
 
 ### Map
 
@@ -143,10 +158,18 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **Planetiler + tileserver-gl-light:** one-time build step, ~684 MB mbtiles, 15 vector layers, z0-14
 - **POI pipeline two-stage:** Base route → local SQLite POI queries → reroute through extended stops
 - **Rate limiting:** elysia-rate-limit, soft-warn 60/min, hard-stop 300/min
+- **Road ratings:** write endpoints use a manual sliding-window limit of 2/min and 20/hour per IP. The first vote
+  resolves a connected same-name group from exact original OSM ways in `data/road-rating-roads.sqlite`; no external
+  API is used.
+- **Road-rating routing:** OSM way IDs cannot be referenced in GraphHopper custom-model expressions. Rated ways are
+  buffered into closed `[lng, lat]` Polygon areas inside `custom_model.areas`; `in_<id>` rules use median-aggregated
+  multipliers. Only rated roads anchored in the stops bbox plus 10 km corridor are used, capped at 200, and the
+  same areas/rules are applied to both ascent-guard queries.
 - **Data sources:**
   - Vector tiles: `data/cz.mbtiles` (OpenMapTiles, z0–14, ~684 MB)
   - Terrain tiles: `data/cz-terrain.mbtiles` (terrain-rgb, DMR 5G z0–14)
   - Cycle routes: `data/cycleroutes.geojson` (~48 MB, 3510 features)
+  - Road ratings: `data/road-rating-roads.sqlite` (original OSM highway ways with R-tree viewport index)
   - POIs: `data/cz-pois.sqlite` (~20k amenity nodes: pubs, bars, restaurants, cafes, biergartens)
 - **Zero external API calls** (all data local)
 
@@ -226,6 +249,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
 ### Testing
 
+- Road ratings core: run `pnpm vitest run tests/road-ratings.test.ts` for the targeted pure-unit suite.
 - Test GH container on port 8988 (production GH on 8989)
 - Without slope encodings with noop elevation provider — GH throws IllegalArgumentException
 - Docker volume mount filename must exactly match GH config custom_model_files reference
@@ -254,6 +278,8 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | `src/be/gps.ts` | GPS parsing (DD/DDM/DMS formats) |
 | `src/be/db.ts` | Drizzle schema + Bun SQLite (`data/data.db`) |
 | `src/be/pois.ts` | Local SQLite POI query with bbox pre-filter + haversine post-filter |
+| `src/be/road-ratings.ts` | Road-rating SQLite service and original OSM-way spatial index |
+| `src/be/road-ratings-core.ts` | Pure road-rating aggregation, buffering, chaining, throttle, and area helpers |
 | `src/routing/index.ts` | GraphHopper Custom Model API, POI pipeline, road_class/surface/road_environment details |
 | `src/fe/App.tsx` | SolidJS context provider, Eden treaty client |
 | `src/fe/Stops.tsx` | Stop management + sliders (Kobalte Search/Slider/Button) |
@@ -261,6 +287,8 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | `src/fe/ElevationChart.tsx` | Canvas 2D elevation profile with surface color fill + road_class stroke, ride animation controls |
 | `src/fe/chart-constants.ts` | SURFACE_COLORS, ROAD_CLASS_COLORS, ROAD_CLASS_DASH, binarySearchSegment, hexToRgba |
 | `src/fe/ShadowControls.tsx` | Hillshade/terrain/time UI, sync with rideAnimationStore |
+| `src/fe/roadRatingsStore.ts` | Road-rating Solid state and typed Eden API actions |
+| `src/fe/RoadRatingModal.tsx` | Road-rating reason selection and save/delete modal |
 | `src/fe/rideAnimationStore.ts` | Shared state for ride animation (playing, speed, cameraTarget) |
 | `src/fe/hoverStore.ts` | Hover sync chart↔map |
 | `docker-compose.yml` | GH + Photon + tileserver services |

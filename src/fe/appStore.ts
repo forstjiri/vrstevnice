@@ -20,6 +20,7 @@ const ctx = createRoot(() => {
       roadAvoid: 0.9,
       cycleway: 0.9,
       showPOI: false,
+      useRoadRatings: false,
       route: null as RouteResponse | null,
     },
     {
@@ -126,6 +127,14 @@ export function setCycleway(v: number) {
 export function setShowPOI(v: boolean) {
   markStale();
   setPlanner('showPOI', v);
+}
+
+export function setUseRoadRatings(v: boolean) {
+  if (planner.useRoadRatings === v) return;
+  const shouldRegenerate = planner.route !== null && !ctx.loading();
+  markStale();
+  setPlanner('useRoadRatings', v);
+  if (shouldRegenerate) regenerateRoute().catch(() => {});
 }
 
 // ── Route actions ──

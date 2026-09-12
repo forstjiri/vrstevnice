@@ -50,3 +50,6 @@ data/photon-import/
 # ── GSD / opencode (cont.) ──
 .mcp.json
 /CODE-REVIEW.md
+
+# ── deepwork state ──
+.slim/deepwork/

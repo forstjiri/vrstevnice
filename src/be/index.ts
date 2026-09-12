@@ -2,7 +2,13 @@ import { Elysia, t } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import logixlysia from 'logixlysia';
 import { rateLimit } from 'elysia-rate-limit';
-import type { GeocodeResult, PhotonResponse, POILocation } from '@vrstevnice/shared';
+import type {
+  GeocodeResult,
+  JsonValue,
+  PhotonResponse,
+  POILocation,
+  RoadRatingAggregate,
+} from '@vrstevnice/shared';
 import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared';
 import {
   applyAscentGuard,
@@ -18,6 +24,21 @@ import { Buffer } from 'node:buffer';
 import { db, routes } from './db';
 import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain';
 import queryLocalPOIs from './pois';
+import {
+  deleteRating,
+  getAggregateByWayId,
+  getAggregatesInBbox,
+  getRoadRatingFeaturesInBbox,
+  getVotedRoadsInCorridor,
+  RoadGeometryNotFoundError,
+  isRoadRatingRoadIndexUnavailable,
+  saveRating,
+} from './road-ratings';
+import {
+  buildRoadRatingModelParts,
+  createRatingThrottle,
+  validateSubtypes,
+} from './road-ratings-core';
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..');
@@ -80,6 +101,63 @@ class RateLimitError extends Error {
 }
 
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
+
+const ratingThrottle = createRatingThrottle();
+
+function checkRatingThrottle(ip: string): { ok: boolean; retryAfterSec: number } {
+  return ratingThrottle(ip);
+}
+
+const roadRatingResponseSchema = t.Object({
+  wayId: t.Number(),
+  name: t.Nullable(t.String()),
+  lat: t.Number(),
+  lng: t.Number(),
+  multiplier: t.Nullable(t.Number()),
+  type: t.Nullable(t.Union([t.Literal('prefer'), t.Literal('demote')])),
+  counts: t.Object({
+    total: t.Number(),
+    prefer: t.Number(),
+    demote: t.Number(),
+    subtypes: t.Object({
+      nice: t.Number(),
+      safe: t.Number(),
+      fast: t.Number(),
+      dangerous: t.Number(),
+      unpassable: t.Number(),
+      bad_terrain: t.Number(),
+    }),
+  }),
+  mine: t.Nullable(t.Object({
+    type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
+    subtypes: t.Array(t.Union([
+      t.Literal('nice'),
+      t.Literal('safe'),
+      t.Literal('fast'),
+      t.Literal('dangerous'),
+      t.Literal('unpassable'),
+      t.Literal('bad_terrain'),
+    ])),
+    comment: t.Nullable(t.String()),
+  })),
+});
+
+function ratingErrorResponse(message: string, status: number, retryAfterSec?: number): Response {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (retryAfterSec != null) headers['Retry-After'] = String(retryAfterSec);
+  const body = { message, ...(retryAfterSec == null ? {} : { retryAfterSec }) };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers,
+  });
+}
+
+function ratingJsonResponse(value: RoadRatingAggregate | RoadRatingAggregate[] | null): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 const softWarnPlugin = new Elysia({
   name: 'soft-warn-rate-limit',
@@ -183,6 +261,127 @@ export const app = new Elysia({ prefix: '/api' })
         x: t.String(),
         y: t.String(),
       }),
+    },
+  )
+
+  .get(
+    '/road-rating-roads',
+    ({ query }) => {
+      const values = query.bbox.split(',').map(Number);
+      if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+        return ratingErrorResponse('Neplatný bbox.', 400);
+      }
+      const [minLng, minLat, maxLng, maxLat] = values;
+      if (minLng > maxLng || minLat > maxLat) return ratingErrorResponse('Neplatný bbox.', 400);
+      try {
+        return getRoadRatingFeaturesInBbox({
+          minLng, minLat, maxLng, maxLat,
+        });
+      } catch (error) {
+        if (error instanceof Error && isRoadRatingRoadIndexUnavailable(error)) {
+          return ratingErrorResponse('Index cest pro hodnocení není vygenerovaný.', 503);
+        }
+        throw error;
+      }
+    },
+    { query: t.Object({ bbox: t.String() }) },
+  )
+
+  .get(
+    '/road-ratings',
+    async ({ query, server, request }) => {
+      const values = query.bbox.split(',').map(Number);
+      if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+        return ratingErrorResponse('Neplatný bbox.', 400);
+      }
+      const [minLng, minLat, maxLng, maxLat] = values;
+      if (minLng > maxLng || minLat > maxLat) return ratingErrorResponse('Neplatný bbox.', 400);
+      const ip = server?.requestIP(request)?.address ?? 'unknown';
+      return ratingJsonResponse(await getAggregatesInBbox({
+        minLng, minLat, maxLng, maxLat,
+      }, ip));
+    },
+    {
+      query: t.Object({ bbox: t.String() }),
+      response: t.Array(roadRatingResponseSchema),
+    },
+  )
+
+  .get(
+    '/road-ratings/:wayId',
+    async ({ params, server, request }) => {
+      const ip = server?.requestIP(request)?.address ?? 'unknown';
+      return ratingJsonResponse(await getAggregateByWayId(params.wayId, ip));
+    },
+    {
+      params: t.Object({ wayId: t.Integer() }),
+      response: t.Nullable(roadRatingResponseSchema),
+    },
+  )
+
+  .post(
+    '/road-ratings',
+    async ({ body, server, request }) => {
+      if (!validateSubtypes(body.type, body.subtypes)) {
+        return ratingErrorResponse('Neplatné podtypy hodnocení.', 400);
+      }
+      const ip = server?.requestIP(request)?.address ?? 'unknown';
+      const throttle = checkRatingThrottle(ip);
+      if (!throttle.ok) {
+        return ratingErrorResponse(
+          'Příliš mnoho hodnocení. Zkuste to později.',
+          429,
+          throttle.retryAfterSec,
+        );
+      }
+      try {
+        return ratingJsonResponse(await saveRating({ ...body, subtypes: body.subtypes, ip }));
+      } catch (error) {
+        if (error instanceof Error && isRoadRatingRoadIndexUnavailable(error)) {
+          return ratingErrorResponse('Index cest pro hodnocení není vygenerovaný.', 503);
+        }
+        if (error instanceof RoadGeometryNotFoundError) {
+          return ratingErrorResponse('Geometrii cesty se nepodařilo najít.', 422);
+        }
+        throw error;
+      }
+    },
+    {
+      body: t.Object({
+        wayId: t.Integer(),
+        name: t.Optional(t.String({ maxLength: 200 })),
+        type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
+        subtypes: t.Array(t.String()),
+        comment: t.Optional(t.String({ maxLength: 1000 })),
+      }),
+      response: roadRatingResponseSchema,
+    },
+  )
+
+  .delete(
+    '/road-ratings/:wayId',
+    async ({ params, server, request }) => {
+      const ip = server?.requestIP(request)?.address ?? 'unknown';
+      const throttle = checkRatingThrottle(ip);
+      if (!throttle.ok) {
+        return ratingErrorResponse(
+          'Příliš mnoho hodnocení. Zkuste to později.',
+          429,
+          throttle.retryAfterSec,
+        );
+      }
+      try {
+        return ratingJsonResponse(await deleteRating(Number(params.wayId), ip));
+      } catch (error) {
+        if (error instanceof RoadGeometryNotFoundError) {
+          return ratingErrorResponse('Hodnocení cesty nebylo nalezeno.', 404);
+        }
+        throw error;
+      }
+    },
+    {
+      params: t.Object({ wayId: t.String() }),
+      response: roadRatingResponseSchema,
     },
   )
 
@@ -366,6 +565,7 @@ export const app = new Elysia({ prefix: '/api' })
         roadAvoidanceCoefficient,
         cyclewayCoefficient,
         showPOI = false,
+        useRoadRatings = false,
       } = body;
 
       pino.info(
@@ -379,11 +579,27 @@ export const app = new Elysia({ prefix: '/api' })
         'Route request',
       );
 
+      let roadRatingBuckets: { multiplier: number; areaIds: string[] }[] = [];
+      let roadRatingAreas: { type: 'FeatureCollection'; features: JsonValue[] } | undefined;
+      if (useRoadRatings) {
+        try {
+          const votedRoads = await getVotedRoadsInCorridor(stops);
+          const modelParts = buildRoadRatingModelParts(votedRoads);
+          roadRatingAreas = modelParts.areas;
+          roadRatingBuckets = modelParts.buckets;
+          pino.debug({ roadCount: votedRoads.length }, 'Community road ratings loaded');
+        } catch (ratingErr) {
+          pino.warn({ error: (ratingErr as Error).message }, 'Community road ratings unavailable');
+        }
+      }
+
       const customModel = buildCustomModel(
         elevationCoefficient,
         roadAvoidanceCoefficient,
         cyclewayCoefficient,
+        roadRatingBuckets,
       );
+      if (roadRatingAreas) customModel.areas = roadRatingAreas;
       pino.debug({ customModel }, 'Custom model built');
 
       // Stage 1: Compute route (with post-hoc ascent guard when elevation avoidance is active)
@@ -394,7 +610,13 @@ export const app = new Elysia({ prefix: '/api' })
         // Post-hoc ascent guard: compute two routes in parallel —
         // one with elevation penalty, one with only constant steep penalty (coeff=0).
         // Return whichever has less total ascent, guaranteeing ascent never increases.
-        const baseModel = buildCustomModel(0, roadAvoidanceCoefficient, cyclewayCoefficient);
+        const baseModel = buildCustomModel(
+          0,
+          roadAvoidanceCoefficient,
+          cyclewayCoefficient,
+          roadRatingBuckets,
+        );
+        if (roadRatingAreas) baseModel.areas = roadRatingAreas;
         const [elevResult, baseResult] = await Promise.all([
           fetchRouteFromGH(stops, customModel),
           fetchRouteFromGH(stops, baseModel),
@@ -496,6 +718,7 @@ export const app = new Elysia({ prefix: '/api' })
         cyclewayCoefficient: t.Number({ minimum: 0, maximum: 1 }),
         showPOI: t.Optional(t.Boolean()),
         shadowDateTime: t.Optional(t.String()),
+        useRoadRatings: t.Optional(t.Boolean()),
       }),
       response: t.Object({
         geometry: t.Array(t.Array(t.Number())),

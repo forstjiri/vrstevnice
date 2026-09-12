@@ -65,7 +65,7 @@ pnpm dev                 # BE na :3002, FE na :5173
 ### Jednorázový setup po prvním klonu
 
 ```bash
-bash scripts/generate-tiles.sh          # ~684 MB vector tiles (OpenMapTiles CZ)
+bash scripts/generate-tiles.sh          # OpenMapTiles CZ + přesné OSM cesty pro hodnocení
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb
 pnpm import-pois                        # SQLite POI databáze z OSM PBF (pivnice, bary, restaurace)
 pnpm extract-routes                     # KČT cyklostezky z OSM

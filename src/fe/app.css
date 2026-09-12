@@ -915,3 +915,198 @@ body {
   }
   .workspace-is-closed .badge-tab { display: none; }
 }
+
+/* ── Community road ratings ─────────────── */
+
+.sheet-toggles .btn-toggle[data-pressed] {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.road-rating-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: max-content;
+  padding: 4px 6px;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 6px;
+  background: rgb(17 24 39 / 88%);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 35%);
+  color: #fff;
+  font: 600 11px/1.25 var(--font);
+  text-align: center;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 40%);
+  cursor: pointer;
+}
+
+.road-rating-comment-label {
+  display: block;
+  margin-top: 16px;
+  font-weight: 600;
+}
+
+.road-rating-comment-label span {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.road-rating-comment {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  resize: vertical;
+}
+
+.road-rating-bubble small {
+  max-width: 150px;
+  overflow: hidden;
+  color: #dbeafe;
+  font: 500 10px/1.2 var(--font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.road-rating-bubble:hover,
+.road-rating-bubble:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+  background: #1e3a5f;
+}
+
+.road-rating-overlay {
+  position: fixed;
+  z-index: 4000;
+  inset: 0;
+  background: rgb(15 23 42 / 48%);
+  backdrop-filter: blur(2px);
+}
+
+.road-rating-modal {
+  position: fixed;
+  z-index: 4001;
+  top: 50%;
+  left: 50%;
+  width: min(430px, calc(100vw - 32px));
+  max-height: min(680px, calc(100dvh - 32px));
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 28%);
+  color: var(--color-text);
+  transform: translate(-50%, -50%);
+}
+
+.road-rating-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.road-rating-road {
+  margin-top: 5px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.road-rating-note {
+  margin-top: 12px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.road-rating-types,
+.road-rating-reasons {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.road-rating-types { grid-template-columns: 1fr 1fr; }
+.road-rating-reasons { grid-template-columns: repeat(3, 1fr); }
+
+.road-rating-type,
+.road-rating-reason {
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: 600 12px/1.25 var(--font);
+  cursor: pointer;
+}
+
+.road-rating-type.selected,
+.road-rating-reason.selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-muted);
+  color: #1d4ed8;
+}
+
+.road-rating-type:focus-visible,
+.road-rating-reason:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.road-rating-error {
+  margin-top: 12px;
+  color: var(--color-danger);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.road-rating-success {
+  margin-top: 12px;
+  color: #15803d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.road-rating-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.road-rating-actions-main {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.road-rating-remove {
+  color: var(--color-danger);
+}
+
+@media (width <= 480px) {
+  .road-rating-modal {
+    width: calc(100vw - 20px);
+    padding: 18px;
+  }
+
+  .road-rating-types,
+  .road-rating-reasons { grid-template-columns: 1fr; }
+
+  .road-rating-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .road-rating-actions-main { width: 100%; }
+
+  .road-rating-actions-main .btn,
+  .road-rating-remove { flex: 1; }
+}

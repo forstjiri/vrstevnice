@@ -3,17 +3,22 @@ import {
 } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import * as maplibregl from 'maplibre-gl';
-import type { Feature } from 'geojson';
-import mlcontour from 'maplibre-contour';
-import SunCalc from 'suncalc';
+import type { Feature, FeatureCollection, LineString } from 'geojson';
+import type {
+  RoadRatingAggregate,
+  JsonValue,
+  OSMRoadWay,
+} from '@vrstevnice/shared';
 import {
+  connectedRoadWayGroup,
   haversineMeters,
-  type JsonValue,
   computeGeometryDistances,
   findPositionAtDistance,
   parseLocalDateTime,
   formatLocalDateTime,
 } from '@vrstevnice/shared';
+import mlcontour from 'maplibre-contour';
+import SunCalc from 'suncalc';
 import { Badge } from '@kobalte/core/badge';
 import { ToggleButton } from '@kobalte/core/toggle-button';
 import {
@@ -45,12 +50,22 @@ import forestNoise1 from './assets/forest-noise-1.svg?url';
 import forestNoise2 from './assets/forest-noise-2.svg?url';
 import forestNoise3 from './assets/forest-noise-3.svg?url';
 import forestNoise4 from './assets/forest-noise-4.svg?url';
+import RoadRatingModal from './RoadRatingModal';
+import {
+  fetchRoadRatingByWayId,
+  fetchRoadRatingRoads,
+  fetchRoadRatings,
+  openRoadRatingModal,
+  roadRatingMode,
+  setRoadRatingMode,
+  roadRatingRevision,
+} from './roadRatingsStore';
 
 const maplibreWorkerUrl = new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url);
 maplibregl.setWorkerUrl(maplibreWorkerUrl.href);
 
-// Tileserver URL: localhost in dev, proxied through same-origin in prod
-const TILESERVER_URL = import.meta.env.DEV ? 'http://localhost:2323' : '';
+// Tileserver paths are proxied by Vite in dev and served through Caddy in prod.
+const TILESERVER_URL = '';
 
 // ── Contour line setup (module-level, before any Map instance) ──
 // Relative URL — works in dev (Vite proxy origin) and prod (same-origin via BE)
@@ -73,6 +88,10 @@ const contourTileUrl = demSource.contourProtocolUrl({
   levelKey: 'level',
   contourLayer: 'contours',
 });
+
+const ROAD_RATING_SUBTYPE_ICONS: Record<keyof RoadRatingAggregate['counts']['subtypes'], string> = {
+  nice: '✨', safe: '🛡️', fast: '⚡', dangerous: '⚠️', unpassable: '🚫', bad_terrain: '🌧️',
+};
 
 /**
  * Find bearing at a given distance along route geometry.
@@ -226,6 +245,287 @@ export default function Map() {
   let destroyed = false;
   let updateHillshadeLightingLocal: (() => void) | null = null;
   const [topRightSlot, setTopRightSlot] = createSignal<HTMLDivElement | null>(null);
+  let roadRatingMarkers: maplibregl.Marker[] = [];
+  let roadRatingsRequest = 0;
+  let roadRatingRoadsRequest = 0;
+  let roadRatingRoads: FeatureCollection<LineString, { osm_id: number; name: string | null }> = {
+    type: 'FeatureCollection', features: [],
+  };
+  let roadRatingsTimer: ReturnType<typeof setTimeout> | null = null;
+  let roadRatingSelectionRequest = 0;
+  let lastRoadRatingHit: maplibregl.GeoJSONFeature | null = null;
+  let lastRoadRatingHoverWayId: number | null = null;
+  let roadRatingBubbleHoverWayId: number | null = null;
+  let lastRoadRatingProcessedPoint: { x: number; y: number } | null = null;
+
+  function pointToSegmentDistance(
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ): number {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+    const progress = Math.max(0, Math.min(1, (
+      (point.x - start.x) * dx + (point.y - start.y) * dy
+    ) / lengthSquared));
+    return Math.hypot(point.x - (start.x + progress * dx), point.y - (start.y + progress * dy));
+  }
+
+  function roadRatingLineDistance(
+    m: maplibregl.Map,
+    point: { x: number; y: number },
+    coordinates: number[][],
+  ): number {
+    let closest = Infinity;
+    for (let index = 1; index < coordinates.length; index += 1) {
+      const start = m.project(coordinates[index - 1] as [number, number]);
+      const end = m.project(coordinates[index] as [number, number]);
+      closest = Math.min(closest, pointToSegmentDistance(point, start, end));
+    }
+    return closest;
+  }
+
+  function closestRoadRatingLine(
+    m: maplibregl.Map,
+    point: { x: number; y: number },
+    feature: maplibregl.GeoJSONFeature,
+  ): number[][] | null {
+    if (feature.geometry?.type === 'LineString') {
+      return feature.geometry.coordinates;
+    }
+    if (feature.geometry?.type === 'MultiLineString') {
+      return feature.geometry.coordinates.reduce<number[][] | null>((closest, line) => (
+        !closest || roadRatingLineDistance(m, point, line)
+          < roadRatingLineDistance(m, point, closest)
+          ? line
+          : closest
+      ), null);
+    }
+    return null;
+  }
+
+  function roadRatingFeatureDistance(
+    m: maplibregl.Map,
+    point: { x: number; y: number },
+    feature: maplibregl.GeoJSONFeature,
+  ): number {
+    const line = closestRoadRatingLine(m, point, feature);
+    return line ? roadRatingLineDistance(m, point, line) : Infinity;
+  }
+
+  function roadRatingOsmWayId(feature: maplibregl.GeoJSONFeature): number | null {
+    const osmId = feature.properties?.osm_id;
+    return typeof osmId === 'number' && Number.isSafeInteger(osmId) ? osmId : null;
+  }
+
+  function roadRatingFeatureGroup(wayId: number): FeatureCollection<LineString, {
+    osm_id: number; name: string | null;
+  }> {
+    const ways: OSMRoadWay[] = roadRatingRoads.features.map((feature) => ({
+      osmId: feature.properties.osm_id,
+      name: feature.properties.name,
+      coordinates: feature.geometry.coordinates as [number, number][],
+    }));
+    const groupIds = new Set(
+      connectedRoadWayGroup(wayId, ways).map((way) => way.osmId),
+    );
+    return {
+      type: 'FeatureCollection',
+      features: roadRatingRoads.features.filter(
+        (feature) => groupIds.has(feature.properties.osm_id),
+      ),
+    };
+  }
+
+  function findRoadRatingFeature(
+    m: maplibregl.Map,
+    point: { x: number; y: number },
+  ): maplibregl.GeoJSONFeature | null {
+    // Keep a generous target at ordinary zoom levels; detailed roads remain
+    // precise enough at z18 while still accepting a small off-centre pointer.
+    const hitDistance = m.getZoom() >= 18 ? 12 : 18;
+    if (lastRoadRatingHit
+      && roadRatingFeatureDistance(m, point, lastRoadRatingHit) <= hitDistance) {
+      return lastRoadRatingHit;
+    }
+    // Candidate retrieval must use a box query, not a point query: point hit-testing
+    // only reaches features within their rendered line buffers. The transparent
+    // hit layer below supplies a stable, minimum-width buffer for narrow roads.
+    const queryBox: [maplibregl.PointLike, maplibregl.PointLike] = [
+      { x: point.x - hitDistance, y: point.y - hitDistance } as maplibregl.PointLike,
+      { x: point.x + hitDistance, y: point.y + hitDistance } as maplibregl.PointLike,
+    ];
+    const candidates = m.queryRenderedFeatures(queryBox, {
+      layers: ['road-rating-hit-target'],
+    }).filter((candidate) => (
+      (candidate.geometry?.type === 'LineString'
+        || candidate.geometry?.type === 'MultiLineString')
+      && roadRatingOsmWayId(candidate) !== null
+    ));
+    const nearest = candidates.reduce<{
+      feature: maplibregl.GeoJSONFeature | null;
+      distance: number;
+    }>(
+      (result, candidate) => {
+        const distance = roadRatingFeatureDistance(m, point, candidate);
+        return distance < result.distance ? { feature: candidate, distance } : result;
+      },
+      { feature: null, distance: Infinity },
+    );
+    lastRoadRatingHit = nearest.distance <= hitDistance ? nearest.feature : null;
+    return lastRoadRatingHit;
+  }
+
+  function setRoadRatingHover(
+    m: maplibregl.Map,
+    feature: maplibregl.GeoJSONFeature,
+  ) {
+    const wayId = roadRatingOsmWayId(feature);
+    if (wayId === null) return;
+    setRoadRatingHoverWay(m, wayId);
+  }
+
+  function setRoadRatingHoverWay(m: maplibregl.Map, wayId: number) {
+    if (lastRoadRatingHoverWayId !== wayId) {
+      const source = m.getSource('road-rating-hover-geometry') as maplibregl.GeoJSONSource;
+      if (source) source.setData(roadRatingFeatureGroup(wayId));
+      if (m.getLayer('road_major_label')) {
+        // Cycleroutes and hillshade are added later than the hover layers. Keep
+        // the selected road above those visual overlays, but below its label.
+        if (m.getLayer('road-rating-hover-halo')) {
+          m.moveLayer('road-rating-hover-halo', 'road_major_label');
+        }
+        if (m.getLayer('road-rating-hover')) {
+          m.moveLayer('road-rating-hover', 'road_major_label');
+        }
+      }
+      lastRoadRatingHoverWayId = wayId;
+    }
+  }
+
+  function clearRoadRatingHover(m: maplibregl.Map) {
+    const source = m.getSource('road-rating-hover-geometry') as maplibregl.GeoJSONSource;
+    if (source) source.setData({ type: 'FeatureCollection', features: [] });
+    lastRoadRatingHit = null;
+    lastRoadRatingHoverWayId = null;
+    lastRoadRatingProcessedPoint = null;
+    const canvas = m.getCanvas();
+    canvas.style.cursor = '';
+  }
+
+  function clearRoadRatingBubbles() {
+    roadRatingsRequest += 1;
+    if (roadRatingsTimer) {
+      clearTimeout(roadRatingsTimer);
+      roadRatingsTimer = null;
+    }
+    roadRatingMarkers.forEach((marker) => marker.remove());
+    roadRatingMarkers = [];
+  }
+
+  function openAggregateRating(aggregate: RoadRatingAggregate) {
+    roadRatingSelectionRequest += 1;
+    openRoadRatingModal({
+      wayId: aggregate.wayId,
+      name: aggregate.name,
+      mine: aggregate.mine,
+    });
+  }
+
+  function renderRoadRatingBubbles(m: maplibregl.Map, aggregates: RoadRatingAggregate[]) {
+    roadRatingMarkers.forEach((marker) => marker.remove());
+    roadRatingMarkers = aggregates.map((aggregate) => {
+      const element = document.createElement('button');
+      element.type = 'button';
+      element.className = 'road-rating-bubble';
+      element.setAttribute('aria-label', `Hodnocení: ${aggregate.name ?? 'Vybraná cesta'}`);
+      const subtypeLine = Object.entries(aggregate.counts.subtypes)
+        .filter(([, count]) => count > 0)
+        .map(([subtype, count]) => (
+          `${ROAD_RATING_SUBTYPE_ICONS[
+            subtype as keyof typeof ROAD_RATING_SUBTYPE_ICONS
+          ]} ${count}`
+        ))
+        .join(' · ');
+      const countLine = `<span>👍 ${aggregate.counts.prefer} · 👎 ${aggregate.counts.demote}</span>`;
+      element.innerHTML = `${countLine}${
+        subtypeLine ? `<small>${subtypeLine}</small>` : ''
+      }`;
+      element.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openAggregateRating(aggregate);
+      });
+      element.addEventListener('mouseenter', () => {
+        roadRatingBubbleHoverWayId = aggregate.wayId;
+        setRoadRatingHoverWay(m, aggregate.wayId);
+      });
+      element.addEventListener('mouseleave', () => {
+        roadRatingBubbleHoverWayId = null;
+        clearRoadRatingHover(m);
+      });
+      return new maplibregl.Marker({ element, anchor: 'bottom' })
+        .setLngLat([aggregate.lng, aggregate.lat])
+        .addTo(m);
+    });
+  }
+
+  function loadRoadRatingBubbles(m: maplibregl.Map) {
+    if (!roadRatingMode() || m.getZoom() < 12 || destroyed) {
+      clearRoadRatingBubbles();
+      return;
+    }
+    roadRatingsRequest += 1;
+    const request = roadRatingsRequest;
+    const bounds = m.getBounds();
+    fetchRoadRatings({
+      minLng: bounds.getWest(),
+      minLat: bounds.getSouth(),
+      maxLng: bounds.getEast(),
+      maxLat: bounds.getNorth(),
+    }).then((aggregates) => {
+      if (destroyed || request !== roadRatingsRequest || !roadRatingMode()
+        || m.getZoom() < 12) return;
+      renderRoadRatingBubbles(m, aggregates);
+    }).catch(() => {
+      if (request === roadRatingsRequest) clearRoadRatingBubbles();
+    });
+  }
+
+  function loadRoadRatingRoads(m: maplibregl.Map) {
+    if (!roadRatingMode() || m.getZoom() < 11 || destroyed) return;
+    roadRatingRoadsRequest += 1;
+    const request = roadRatingRoadsRequest;
+    const bounds = m.getBounds();
+    fetchRoadRatingRoads({
+      minLng: bounds.getWest(),
+      minLat: bounds.getSouth(),
+      maxLng: bounds.getEast(),
+      maxLat: bounds.getNorth(),
+    }).then((roads) => {
+      if (destroyed || request !== roadRatingRoadsRequest || !roadRatingMode()) return;
+      const source = m.getSource('road-rating-roads') as maplibregl.GeoJSONSource;
+      if (source) source.setData(roads);
+      roadRatingRoads = roads;
+    }).catch(() => {
+      // An empty source is safer than stale geometry after a failed viewport request.
+      if (destroyed || request !== roadRatingRoadsRequest) return;
+      const source = m.getSource('road-rating-roads') as maplibregl.GeoJSONSource;
+      if (source) source.setData({ type: 'FeatureCollection', features: [] });
+      roadRatingRoads = { type: 'FeatureCollection', features: [] };
+    });
+  }
+
+  function debounceRoadRatingBubbles(m: maplibregl.Map) {
+    if (roadRatingsTimer) clearTimeout(roadRatingsTimer);
+    roadRatingsTimer = setTimeout(() => {
+      roadRatingsTimer = null;
+      loadRoadRatingRoads(m);
+      loadRoadRatingBubbles(m);
+    }, 180);
+  }
 
   function syncDynamicLayers(m: maplibregl.Map) {
     try {
@@ -366,6 +666,7 @@ export default function Map() {
     longPressFired = false;
     longPressTimer = setTimeout(() => {
       if (!longPressStart) return;
+      if (roadRatingMode()) return;
       longPressFired = true;
       const m = map;
       if (!m) return;
@@ -631,6 +932,55 @@ export default function Map() {
         buildRoadLayers().forEach((layer) => {
           m.addLayer(layer, 'bridge_minor case');
         });
+        // MapLibre's rendered-feature queries respect the line's rendered width.
+        // The source contains one exact original OSM way per feature, independent
+        // of the display-oriented OpenMapTiles transportation layer.
+        m.addSource('road-rating-roads', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        });
+        m.addLayer({
+          id: 'road-rating-hit-target',
+          type: 'line',
+          source: 'road-rating-roads',
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+            visibility: 'none',
+          },
+          paint: {
+            // The target must remain rendered for queryRenderedFeatures, but
+            // must not tint the terrain underneath it.
+            'line-color': 'rgba(0, 0, 0, 0)',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 36, 18, 24],
+          },
+        }, 'road_major_label');
+        m.addSource('road-rating-hover-geometry', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        });
+        m.addLayer({
+          id: 'road-rating-hover-halo',
+          type: 'line',
+          source: 'road-rating-hover-geometry',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#2563eb',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 13, 18, 18],
+            'line-opacity': 0.35,
+          },
+        }, 'road_major_label');
+        m.addLayer({
+          id: 'road-rating-hover',
+          type: 'line',
+          source: 'road-rating-hover-geometry',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#93c5fd',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 5, 18, 8],
+            'line-opacity': 1,
+          },
+        }, 'road_major_label');
         m.addLayer({
           id: 'cycling-poi-label',
           type: 'symbol',
@@ -959,9 +1309,62 @@ export default function Map() {
     m.on('contextmenu', (e) => {
       e.preventDefault();
       if (longPressFired) return;
+      if (roadRatingMode()) return;
       showContextMenu(m, e.lngLat, e.point);
     });
+    m.on('mousemove', (e) => {
+      if (!roadRatingMode()) return;
+      // A marker sits above the map canvas. While hovering its bubble, keep
+      // the bubble's road selected instead of letting the canvas hit-test
+      // replace it with the road underneath the marker.
+      if (roadRatingBubbleHoverWayId !== null) return;
+      const point = { x: e.point.x, y: e.point.y };
+      if (lastRoadRatingProcessedPoint
+        && Math.hypot(
+          point.x - lastRoadRatingProcessedPoint.x,
+          point.y - lastRoadRatingProcessedPoint.y,
+        ) < 3) return;
+      lastRoadRatingProcessedPoint = point;
+      const feature = findRoadRatingFeature(m, point);
+      const wayId = feature ? roadRatingOsmWayId(feature) : null;
+      if (feature && wayId !== null) {
+        setRoadRatingHover(m, feature);
+        m.getCanvas().style.cursor = 'pointer';
+      } else {
+        clearRoadRatingHover(m);
+      }
+    });
     m.on('click', (e) => {
+      if (roadRatingMode()) {
+        roadRatingSelectionRequest += 1;
+        const selectionRequest = roadRatingSelectionRequest;
+        const feature = findRoadRatingFeature(m, { x: e.point.x, y: e.point.y });
+        const wayId = feature ? roadRatingOsmWayId(feature) : null;
+        if (feature && wayId !== null) {
+          const properties = feature.properties ?? {};
+          let name: string | null = null;
+          if (typeof properties['name:cs'] === 'string') {
+            name = properties['name:cs'];
+          } else if (typeof properties.name === 'string') {
+            name = properties.name;
+          }
+          removeContextMenu();
+          const selection = {
+            wayId,
+            name,
+          };
+          fetchRoadRatingByWayId(wayId).then((aggregate) => {
+            if (destroyed || selectionRequest !== roadRatingSelectionRequest
+              || !roadRatingMode()) return;
+            openRoadRatingModal({ ...selection, mine: aggregate?.mine ?? null });
+          }).catch(() => {
+            if (destroyed || selectionRequest !== roadRatingSelectionRequest
+              || !roadRatingMode()) return;
+            openRoadRatingModal({ ...selection, mine: null });
+          });
+        }
+        return;
+      }
       if (untrack(inspectMode)) {
         // Pass a plain object — MapLibre's Point instance from the event
         // (worker shared-chunk class) can take an empty code path in
@@ -1063,7 +1466,9 @@ export default function Map() {
         if (!destroyed) setMapZoom(m.getZoom());
       } catch {}
     };
+    const refreshRoadRatingsOnMove = () => debounceRoadRatingBubbles(m);
     m.on('moveend', updateCenter);
+    m.on('moveend', refreshRoadRatingsOnMove);
     m.on('zoom', updateZoom);
     updateCenter();
     updateZoom();
@@ -1102,7 +1507,11 @@ export default function Map() {
       mapCanvas.removeEventListener('contextmenu', suppressNativeContextMenu);
       clearLongPress();
       removeContextMenu();
+      clearRoadRatingBubbles();
+      clearRoadRatingHover(m);
+      roadRatingSelectionRequest += 1;
       m.off('moveend', updateCenter);
+      m.off('moveend', refreshRoadRatingsOnMove);
       m.off('zoom', updateZoom);
       m.remove();
     });
@@ -1469,6 +1878,32 @@ export default function Map() {
     refreshHillshade();
   });
 
+  createEffect(() => {
+    const enabled = roadRatingMode();
+    roadRatingRevision();
+    const zoom = mapZoom();
+    if (!map || !mapReady()) return;
+    if (map.getLayer('road-rating-hit-target')) {
+      map.setLayoutProperty(
+        'road-rating-hit-target',
+        'visibility',
+        enabled ? 'visible' : 'none',
+      );
+    }
+    if (!enabled || zoom < 12) {
+      clearRoadRatingBubbles();
+      clearRoadRatingHover(map);
+      roadRatingSelectionRequest += 1;
+      roadRatingRoadsRequest += 1;
+      const source = map.getSource('road-rating-roads') as maplibregl.GeoJSONSource;
+      if (source) source.setData({ type: 'FeatureCollection', features: [] });
+      roadRatingRoads = { type: 'FeatureCollection', features: [] };
+      return;
+    }
+    loadRoadRatingRoads(map);
+    loadRoadRatingBubbles(map);
+  });
+
   return (
     <div class="map-wrapper">
       <div class="map-container">
@@ -1561,8 +1996,8 @@ export default function Map() {
                       onChange={(p) => mapControlActions.setContoursOn(p)}
                       title="Vrstevnice"
                     >
-                      📐
-                    </ToggleButton>
+                        📐
+                      </ToggleButton>
                     <Show when={mapControls.terrainOn}>
                       <ToggleButton
                         class="btn-toggle btn-toggle-icon"
@@ -1576,6 +2011,15 @@ export default function Map() {
                         🌗
                       </ToggleButton>
                     </Show>
+                    <ToggleButton
+                        class="btn-toggle btn-toggle-icon"
+                        pressed={roadRatingMode()}
+                        onChange={setRoadRatingMode}
+                        title="Hodnocení cest"
+                    >
+                      👍👎
+                    </ToggleButton>
+
                   </div>
                 </Show>
               </div>
@@ -1583,6 +2027,7 @@ export default function Map() {
           )}
         </Show>
       </div>
+      <RoadRatingModal />
     </div>
   );
 }

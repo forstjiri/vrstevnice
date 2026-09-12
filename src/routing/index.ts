@@ -21,6 +21,7 @@ export interface GHCustomModelRule {
 export interface GHCustomModel {
   priority: GHCustomModelRule[];
   distance_influence: number;
+  areas?: { type: 'FeatureCollection'; features: JsonValue[] };
 }
 
 export interface GHPoint {
@@ -95,11 +96,13 @@ const GRAPHHOPPER_URL = (typeof process !== 'undefined' ? process.env?.GRAPHHOPP
  *   distance_influence (allow longer detours)
  * - distance_influence = base plus coefficient-dependent adjustments.
  *   Elevation does NOT reduce distance_influence.
+ * @param roadRatingBuckets Optional community-rating priority buckets.
  */
 export function buildCustomModel(
   elevationCoefficient: number,
   roadAvoidanceCoefficient: number,
   cyclewayCoefficient = 0,
+  roadRatingBuckets?: { multiplier: number; areaIds: string[] }[],
 ): GHCustomModel {
   const roadRules: GHCustomModelRule[] = [
     {
@@ -167,8 +170,21 @@ export function buildCustomModel(
     70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30,
   );
 
+  const ratingRules = (roadRatingBuckets ?? [])
+    .filter((bucket) => bucket.areaIds.length > 0)
+    .map((bucket) => ({
+      if: bucket.areaIds.map((id) => `in_${id}`).join(' || '),
+      multiply_by: String(bucket.multiplier),
+    }));
+
   return {
-    priority: [...roadRules, ...steepPenaltyRules, ...uphillRules, ...cyclewayRules],
+    priority: [
+      ...roadRules,
+      ...steepPenaltyRules,
+      ...uphillRules,
+      ...cyclewayRules,
+      ...ratingRules,
+    ],
     distance_influence: distanceInfluence,
   };
 }

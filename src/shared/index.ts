@@ -115,6 +115,81 @@ export interface RouteRequest {
   showPOI: boolean;
   /** Optional datetime used for terrain-based shadow profile computation */
   shadowDateTime?: string;
+  /** Apply community road ratings to routing */
+  useRoadRatings?: boolean;
+}
+
+export type RoadRatingType = 'prefer' | 'demote';
+export type RoadRatingSubtype = 'nice' | 'safe' | 'fast' | 'dangerous' | 'unpassable'
+  | 'bad_terrain';
+export const ROAD_RATING_PREFER_SUBTYPES = [
+  'nice', 'safe', 'fast',
+] as const satisfies readonly RoadRatingSubtype[];
+export const ROAD_RATING_DEMOTE_SUBTYPES = [
+  'dangerous', 'unpassable', 'bad_terrain',
+] as const satisfies readonly RoadRatingSubtype[];
+export const ROAD_RATING_SUBTYPE_MULTIPLIERS: Record<RoadRatingSubtype, number> = {
+  nice: 1.5,
+  safe: 1.7,
+  fast: 1.4,
+  dangerous: 0.2,
+  unpassable: 0.05,
+  bad_terrain: 0.4,
+};
+
+export interface OSMRoadWay {
+  osmId: number;
+  name: string | null;
+  coordinates: [number, number][];
+}
+
+/**
+ * A named street may consist of several OSM ways. Join only members that
+ * share the exact name and an endpoint, so equal street names in other towns
+ * never become one rating target. Unnamed ways deliberately stay independent.
+ */
+export function connectedRoadWayGroup(
+  wayId: number,
+  roads: OSMRoadWay[],
+): OSMRoadWay[] {
+  const selected = roads.find((road) => road.osmId === wayId);
+  if (!selected || !selected.name) return selected ? [selected] : [];
+  const candidates = roads.filter((road) => road.name === selected.name);
+  const byEndpoint = new Map<string, OSMRoadWay[]>();
+  candidates.forEach((road) => {
+    [road.coordinates[0], road.coordinates.at(-1)!].forEach((endpoint) => {
+      const key = endpoint.join(',');
+      byEndpoint.set(key, [...(byEndpoint.get(key) ?? []), road]);
+    });
+  });
+  const connected = new Map<number, OSMRoadWay>();
+  const pending = [selected];
+  while (pending.length > 0) {
+    const road = pending.pop()!;
+    if (!connected.has(road.osmId)) {
+      connected.set(road.osmId, road);
+      [road.coordinates[0], road.coordinates.at(-1)!].forEach((endpoint) => {
+        (byEndpoint.get(endpoint.join(',')) ?? []).forEach((next) => pending.push(next));
+      });
+    }
+  }
+  return [...connected.values()];
+}
+
+export interface RoadRatingAggregate {
+  wayId: number;
+  name: string | null;
+  lat: number;
+  lng: number;
+  multiplier: number | null;
+  type: RoadRatingType | null;
+  counts: {
+    total: number;
+    prefer: number;
+    demote: number;
+    subtypes: Record<RoadRatingSubtype, number>;
+  };
+  mine: { type: RoadRatingType; subtypes: RoadRatingSubtype[]; comment: string | null } | null;
 }
 
 // --- Geo utilities ---

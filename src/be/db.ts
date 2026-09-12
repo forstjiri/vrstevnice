@@ -42,6 +42,28 @@ sqlite.exec(`
   )
 `);
 
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS rated_roads (
+    way_id INTEGER PRIMARY KEY,
+    name TEXT,
+    geometry TEXT NOT NULL,
+    anchor_lat REAL NOT NULL,
+    anchor_lng REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS road_ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    way_id INTEGER NOT NULL,
+    ip TEXT NOT NULL,
+    type TEXT NOT NULL,
+    subtypes TEXT NOT NULL,
+    multiplier REAL NOT NULL,
+    comment TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (way_id, ip)
+  );
+`);
+
 ensureColumn('routes', 'surface_segments', 'TEXT');
 ensureColumn('routes', 'road_class_segments', 'TEXT');
 
@@ -63,3 +85,25 @@ export const routes = sqliteTable('routes', {
     .notNull()
     .default(sql`(datetime('now'))`),
 });
+
+export const ratedRoads = sqliteTable('rated_roads', {
+  wayId: integer('way_id').primaryKey(),
+  name: text('name'),
+  geometry: text('geometry').notNull(),
+  anchorLat: real('anchor_lat').notNull(),
+  anchorLng: real('anchor_lng').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+export const roadRatings = sqliteTable('road_ratings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  wayId: integer('way_id').notNull(),
+  ip: text('ip').notNull(),
+  type: text('type').notNull(),
+  subtypes: text('subtypes').notNull(),
+  multiplier: real('multiplier').notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  comment: text('comment'),
+});
+
+ensureColumn('road_ratings', 'comment', 'TEXT');

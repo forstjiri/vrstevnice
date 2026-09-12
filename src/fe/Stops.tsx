@@ -28,6 +28,7 @@ import {
   setRoadAvoid,
   setCycleway,
   setShowPOI,
+  setUseRoadRatings,
 } from './appStore';
 import { mapCamera } from './cameraStore';
 import {
@@ -155,6 +156,7 @@ export default function Stops() {
         roadAvoidanceCoefficient: 1 - planner.roadAvoid,
         cyclewayCoefficient: planner.cycleway,
         showPOI: planner.showPOI,
+        useRoadRatings: planner.useRoadRatings,
         shadowDateTime: shadowRouteActive() ? effectiveSunDateTime() : undefined,
       };
       const { data, error: routeError } = await treaty.api.route.post(body);
@@ -349,6 +351,13 @@ export default function Stops() {
             onChange={setShowPOI}
           >
             🍻 Občerstvení na cestě
+          </ToggleButton>
+          <ToggleButton
+            class="btn-toggle btn-toggle-label"
+            pressed={planner.useRoadRatings}
+            onChange={setUseRoadRatings}
+          >
+            👥 Brát ohled na komunitní hodnocení
           </ToggleButton>
         </div>
 
