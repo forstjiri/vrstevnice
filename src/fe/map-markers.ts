@@ -84,6 +84,10 @@ export function createStopMarker(opts: {
   onDragEnd: (lat: number, lng: number) => void;
 }): maplibregl.Marker {
   const el = createStopElement(opts.color, opts.index, opts.name);
+  // Keep marker pointer events inside MapLibre's draggable marker. Without
+  // this, the map can also receive the gesture and treat it as a map click.
+  el.addEventListener('pointerdown', (event) => event.stopPropagation());
+  el.addEventListener('click', (event) => event.stopPropagation());
   const marker = new maplibregl.Marker({
     element: el,
     draggable: true,

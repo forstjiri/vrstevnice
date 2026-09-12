@@ -3,6 +3,7 @@ import type {
   RoadRatingAggregate,
   RoadRatingSubtype,
   RoadRatingType,
+  RoadRatingComment,
 } from '@vrstevnice/shared';
 import type { FeatureCollection, LineString } from 'geojson';
 import treaty from './api';
@@ -10,6 +11,9 @@ import treaty from './api';
 export interface RoadRatingSelection {
   wayId: number;
   name: string | null;
+  type: RoadRatingAggregate['type'];
+  counts: RoadRatingAggregate['counts'];
+  commentsCount: number;
   mine: RoadRatingAggregate['mine'];
 }
 
@@ -94,6 +98,23 @@ export async function fetchRoadRatingByWayId(wayId: number): Promise<RoadRatingA
   const { data, error } = await treaty.api['road-ratings'][wayId].get();
   if (error) throw new Error(errorMessage(error, 'Načtení hodnocení cesty selhalo'));
   return data ?? null;
+}
+
+export async function fetchRoadRatingComments(
+  wayId: number,
+  offset: number,
+): Promise<{ comments: RoadRatingComment[]; hasMore: boolean }> {
+  const { data, error } = await treaty.api['road-ratings'][wayId].comments.get({
+    $query: { offset: String(offset) },
+  });
+  if (error) throw new Error('Načtení komentářů selhalo');
+  return {
+    comments: data.comments.map((comment) => ({
+      ...comment,
+      subtypes: comment.subtypes as RoadRatingSubtype[],
+    })),
+    hasMore: data.hasMore,
+  };
 }
 
 export async function saveRoadRating(input: {

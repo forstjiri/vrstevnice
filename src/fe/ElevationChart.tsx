@@ -726,6 +726,7 @@ export default function ElevationChart() {
   }
 
   function onChartClick(e: MouseEvent) {
+    e.stopPropagation();
     const r = route();
     if (!r?.elevationProfile?.length) return;
 

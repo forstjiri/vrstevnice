@@ -3,7 +3,7 @@ import {
 } from 'solid-js';
 import { Button } from '@kobalte/core/button';
 import { Dialog } from '@kobalte/core/dialog';
-import type { RoadRatingSubtype, RoadRatingType } from '@vrstevnice/shared';
+import type { RoadRatingSubtype, RoadRatingType, RoadRatingComment } from '@vrstevnice/shared';
 import {
   error as plannerError, planner, regenerateRoute, setError as setPlannerError,
 } from './appStore';
@@ -13,6 +13,7 @@ import {
   refreshRoadRatings,
   roadRatingSelection,
   saveRoadRating,
+  fetchRoadRatingComments,
 } from './roadRatingsStore';
 
 const reasons: Record<RoadRatingType, { value: RoadRatingSubtype; label: string }[]> = {
@@ -41,6 +42,10 @@ export default function RoadRatingModal() {
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal<string | null>(null);
+  const [commentsOpen, setCommentsOpen] = createSignal(false);
+  const [comments, setComments] = createSignal<RoadRatingComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = createSignal(false);
+  const [commentsMore, setCommentsMore] = createSignal(false);
   let successCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
   createEffect(() => {
@@ -56,6 +61,9 @@ export default function RoadRatingModal() {
     setError(null);
     setSuccess(null);
     setPending(false);
+    setCommentsOpen(false);
+    setComments([]);
+    setCommentsMore(false);
   });
 
   onCleanup(() => {
@@ -66,6 +74,19 @@ export default function RoadRatingModal() {
     setType(next);
     setSubtypes([]);
     setError(null);
+  }
+
+  async function loadComments(reset = false) {
+    const selection = roadRatingSelection();
+    if (!selection || commentsLoading()) return;
+    setCommentsLoading(true);
+    try {
+      const result = await fetchRoadRatingComments(selection.wayId, reset ? 0 : comments().length);
+      setComments(reset ? result.comments : [...comments(), ...result.comments]);
+      setCommentsMore(result.hasMore);
+    } finally {
+      setCommentsLoading(false);
+    }
   }
 
   function toggleReason(reason: RoadRatingSubtype) {
@@ -160,7 +181,50 @@ export default function RoadRatingModal() {
           <Dialog.Description class="road-rating-road">
             {roadRatingSelection()?.name ?? 'Vybraná cesta'}
           </Dialog.Description>
-          <p class="road-rating-note">Ovlivní aktuální i budoucí plánování</p>
+           <p class="road-rating-note">Ovlivní aktuální i budoucí plánování</p>
+
+          <div class="road-rating-summary">
+            <div>
+              {typeLabel(roadRatingSelection()?.type)} · {roadRatingSelection()?.counts.total} hlasů
+            </div>
+            <div>{Object.entries(roadRatingSelection()?.counts.subtypes ?? {})
+              .filter(([, count]) => count > 0)
+              .map(([key, count]) => `${subtypeLabel(key as RoadRatingSubtype)} ${count}`)
+              .join(' · ')}
+            </div>
+          </div>
+
+          <Show when={(roadRatingSelection()?.commentsCount ?? 0) > 0}>
+          <button class="road-rating-comments-toggle" type="button" onClick={() => {
+            const next = !commentsOpen();
+            setCommentsOpen(next);
+            if (next && comments().length === 0) loadComments(true);
+          }}>
+            {commentsOpen() ? '▾' : '▸'} Komentáře
+          </button>
+          <Show when={commentsOpen()}>
+            <div class="road-rating-comments">
+              <Show when={!commentsLoading() || comments().length > 0}>
+                <For each={comments()}>{(item) => (
+                  <article class="road-rating-comment-item">
+                    <strong>{typeLabel(item.type)}</strong>
+                    <span>{item.subtypes.map(subtypeLabel).join(' · ')}</span>
+                    <p>{item.comment}</p>
+                  </article>
+                )}</For>
+              </Show>
+              <Show when={commentsLoading()}><p>Načítám komentáře…</p></Show>
+              <Show when={!commentsLoading() && commentsMore()}>
+                <Button class="btn btn-ghost" onClick={() => loadComments()}>
+                  Načíst dalších 5
+                </Button>
+              </Show>
+              <Show when={!commentsLoading() && comments().length === 0}>
+                <p>Žádné komentáře.</p>
+              </Show>
+            </div>
+          </Show>
+          </Show>
 
           <div class="road-rating-types" role="group" aria-label="Typ hodnocení">
             <Button
@@ -179,20 +243,6 @@ export default function RoadRatingModal() {
             >👎 Zkusit se vyhnout</Button>
           </div>
 
-          <label class="road-rating-comment-label" for="road-rating-comment">
-            Komentář <span>(volitelné)</span>
-          </label>
-          <textarea
-            id="road-rating-comment"
-            class="road-rating-comment"
-            maxlength="1000"
-            rows="3"
-            value={comment()}
-            disabled={pending() || Boolean(success())}
-            onInput={(event) => setComment(event.currentTarget.value)}
-            placeholder="Co by měli ostatní cyklisté vědět?"
-          />
-
           <div class="road-rating-reasons" role="group" aria-label="Důvody hodnocení">
             <For each={reasons[type()]}>{(reason) => (
               <Button
@@ -204,6 +254,20 @@ export default function RoadRatingModal() {
               >{reason.label}</Button>
             )}</For>
           </div>
+
+          <label class="road-rating-comment-label" for="road-rating-comment">
+            Komentář <span>(volitelné)</span>
+          </label>
+          <textarea
+              id="road-rating-comment"
+              class="road-rating-comment"
+              maxlength="1000"
+              rows="3"
+              value={comment()}
+              disabled={pending() || Boolean(success())}
+              onInput={(event) => setComment(event.currentTarget.value)}
+              placeholder="Co by měli ostatní cyklisté vědět?"
+          />
 
           <Show when={error()}>{(message) => (
             <p class="road-rating-error" role="alert">{message()}</p>
@@ -239,4 +303,20 @@ export default function RoadRatingModal() {
       </Dialog.Portal>
     </Dialog>
   );
+}
+
+function typeLabel(type: RoadRatingType | null | undefined): string {
+  return type === 'prefer' ? '👍 Upřednostnit' : '👎 Vyhnout se';
+}
+
+function subtypeLabel(subtype: RoadRatingSubtype): string {
+  const labels: Record<RoadRatingSubtype, string> = {
+    nice: '✨ Pěkná',
+    safe: '🛡️ Bezpečná',
+    fast: '⚡ Rychlá',
+    dangerous: '⚠️ Nebezpečná',
+    unpassable: '🚫 Nepřejezdná',
+    bad_terrain: '🌧️ Špatný terén',
+  };
+  return labels[subtype];
 }

@@ -1,5 +1,5 @@
 # Chyby
-
+- zkusit že bereme ohled na hodnocení na trase
 - Při pohybu mapou mít uniformní detaily podle nejlepšího, ne že budou vidět v různých blocích různé detaily a prvky
 
 # Nápady

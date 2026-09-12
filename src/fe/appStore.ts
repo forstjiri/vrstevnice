@@ -101,6 +101,19 @@ export function removeStop(index: number) {
   setPlanner('stops', (prev) => prev.filter((_, i) => i !== index));
 }
 
+export function reorderStop(from: number, to: number) {
+  markStale();
+  setPlanner('stops', (prev) => {
+    if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) {
+      return prev;
+    }
+    const next = [...prev];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  });
+}
+
 export function moveStop(index: number, dir: -1 | 1) {
   markStale();
   setPlanner('stops', (prev) => {

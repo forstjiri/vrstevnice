@@ -4,6 +4,7 @@ import {
 } from 'drizzle-orm';
 import type {
   RoadRatingAggregate,
+  RoadRatingComment,
   RoadRatingSubtype,
   RoadRatingType,
   Stop,
@@ -233,6 +234,7 @@ function makeAggregate(
     counts: {
       total: ratings.length, prefer, demote, subtypes: subtypeCounts,
     },
+    commentsCount: ratings.filter((rating) => Boolean(rating.comment?.trim())).length,
     mine: mineRow
       ? {
         type: mineRow.type as RoadRatingType,
@@ -272,6 +274,33 @@ export async function getAggregateByWayId(
   const source = await readAggregateSource(group.wayId);
   if (!source || source.ratings.length === 0) return null;
   return makeAggregate(source.road, source.ratings, ip);
+}
+
+export async function getCommentsByWayId(
+  wayId: number,
+  offset: number,
+  limit = 5,
+): Promise<{ comments: RoadRatingComment[]; hasMore: boolean }> {
+  const group = resolveRoadGroup(wayId);
+  if (!group) return { comments: [], hasMore: false };
+  const rows = await db.select().from(roadRatings)
+    .where(and(
+      eq(roadRatings.wayId, group.wayId),
+      sql`comment IS NOT NULL AND trim(comment) <> ''`,
+    ))
+    .orderBy(sql`updated_at DESC`)
+    .limit(limit + 1)
+    .offset(offset)
+    .all();
+  return {
+    comments: rows.slice(0, limit).map((row) => ({
+      type: row.type as RoadRatingType,
+      subtypes: parseSubtypes(row.subtypes),
+      comment: row.comment!,
+      updatedAt: row.updatedAt,
+    })),
+    hasMore: rows.length > limit,
+  };
 }
 
 export async function saveRating(input: {

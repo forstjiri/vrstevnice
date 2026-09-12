@@ -27,6 +27,7 @@ import queryLocalPOIs from './pois';
 import {
   deleteRating,
   getAggregateByWayId,
+  getCommentsByWayId,
   getAggregatesInBbox,
   getRoadRatingFeaturesInBbox,
   getVotedRoadsInCorridor,
@@ -128,6 +129,7 @@ const roadRatingResponseSchema = t.Object({
       bad_terrain: t.Number(),
     }),
   }),
+  commentsCount: t.Number(),
   mine: t.Nullable(t.Object({
     type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
     subtypes: t.Array(t.Union([
@@ -318,6 +320,21 @@ export const app = new Elysia({ prefix: '/api' })
       response: t.Nullable(roadRatingResponseSchema),
     },
   )
+  .get('/road-ratings/:wayId/comments', async ({ params, query }) => (
+    getCommentsByWayId(params.wayId, Math.max(0, Number(query.offset) || 0))
+  ), {
+    params: t.Object({ wayId: t.Integer() }),
+    query: t.Object({ offset: t.Optional(t.String()) }),
+    response: t.Object({
+      comments: t.Array(t.Object({
+        type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
+        subtypes: t.Array(t.String()),
+        comment: t.String(),
+        updatedAt: t.String(),
+      })),
+      hasMore: t.Boolean(),
+    }),
+  })
 
   .post(
     '/road-ratings',

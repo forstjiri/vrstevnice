@@ -430,6 +430,9 @@ export default function Map() {
     openRoadRatingModal({
       wayId: aggregate.wayId,
       name: aggregate.name,
+      type: aggregate.type,
+      counts: aggregate.counts,
+      commentsCount: aggregate.commentsCount,
       mine: aggregate.mine,
     });
   }
@@ -1356,11 +1359,37 @@ export default function Map() {
           fetchRoadRatingByWayId(wayId).then((aggregate) => {
             if (destroyed || selectionRequest !== roadRatingSelectionRequest
               || !roadRatingMode()) return;
-            openRoadRatingModal({ ...selection, mine: aggregate?.mine ?? null });
+            openRoadRatingModal({
+              ...selection,
+              type: aggregate?.type ?? null,
+              counts: aggregate?.counts ?? {
+                total: 0,
+                prefer: 0,
+                demote: 0,
+                subtypes: {
+                  nice: 0, safe: 0, fast: 0, dangerous: 0, unpassable: 0, bad_terrain: 0,
+                },
+              },
+              commentsCount: aggregate?.commentsCount ?? 0,
+              mine: aggregate?.mine ?? null,
+            });
           }).catch(() => {
             if (destroyed || selectionRequest !== roadRatingSelectionRequest
               || !roadRatingMode()) return;
-            openRoadRatingModal({ ...selection, mine: null });
+            openRoadRatingModal({
+              ...selection,
+              type: null,
+              counts: {
+                total: 0,
+                prefer: 0,
+                demote: 0,
+                subtypes: {
+                  nice: 0, safe: 0, fast: 0, dangerous: 0, unpassable: 0, bad_terrain: 0,
+                },
+              },
+              commentsCount: 0,
+              mine: null,
+            });
           });
         }
         return;

@@ -1,5 +1,5 @@
 import {
-  createSignal, For, Show, onMount,
+  createSignal, createEffect, For, Show, onMount, onCleanup,
 } from 'solid-js';
 import * as maplibregl from 'maplibre-gl';
 import { Search } from '@kobalte/core/search';
@@ -17,6 +17,7 @@ import {
   planner,
   setStops,
   removeStop,
+  reorderStop,
   setRoute,
   clearRoute,
   setLoading,
@@ -38,6 +39,20 @@ import {
 
 export default function Stops() {
   const [results, setResults] = createSignal<GeocodeResult[]>([]);
+  const [dragIndex, setDragIndex] = createSignal<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
+
+  let pointerDragIndex: number | null = null;
+
+  function endDrag() {
+    const from = pointerDragIndex;
+    const target = dragOverIndex();
+    pointerDragIndex = null;
+    setDragIndex(null);
+    setDragOverIndex(null);
+    if (from === null || target === null || from === target) return;
+    reorderStop(from, target);
+  }
 
   function showResultPreview(result: GeocodeResult) {
     showSearchPreview(result.lat, result.lng);
@@ -174,6 +189,32 @@ export default function Stops() {
 
   const canCompute = () => planner.stops.length >= 2 && !loading();
 
+  // Auto-recalculate route whenever stops change (add/remove/move/reorder).
+  let firstStopsRun = true;
+  let recalcTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function runRecalc() {
+    if (loading()) {
+      recalcTimer = setTimeout(runRecalc, 500);
+      return;
+    }
+    if (planner.stops.length >= 2) {
+      calculateRoute();
+    } else if (planner.route) {
+      clearRoute();
+    }
+  }
+
+  createEffect(() => {
+    JSON.stringify(planner.stops);
+    if (firstStopsRun) {
+      firstStopsRun = false;
+      return;
+    }
+    if (recalcTimer) clearTimeout(recalcTimer);
+    recalcTimer = setTimeout(runRecalc, 400);
+  });
+
   async function gpsStopName(lat: number, lng: number): Promise<string> {
     const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     try {
@@ -193,6 +234,10 @@ export default function Stops() {
 
   // Register route calculator (once, after mount — not during render)
   onMount(() => setRegenerateFn(() => calculateRoute));
+
+  onCleanup(() => {
+    if (recalcTimer) clearTimeout(recalcTimer);
+  });
 
   return (
     <div class="sheet-content">
@@ -279,7 +324,34 @@ export default function Stops() {
               };
 
               return (
-                <div class="stop">
+                <div
+                  class="stop"
+                  data-stop-index={index()}
+                  classList={{
+                    'stop-dragging': dragIndex() === index(),
+                    'stop-drag-over': dragOverIndex() === index() && dragIndex() !== index(),
+                  }}
+                >
+                  <span
+                    class="stop-drag-handle"
+                    title="Přetáhnout pro změnu pořadí"
+                    onPointerDown={(e: PointerEvent) => {
+                      e.preventDefault();
+                      pointerDragIndex = index();
+                      setDragIndex(index());
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={(e: PointerEvent) => {
+                      if (pointerDragIndex === null) return;
+                      const row = document.elementFromPoint(e.clientX, e.clientY)
+                        ?.closest<HTMLElement>('.stop');
+                      if (!row) return;
+                      const target = Number(row.dataset.stopIndex);
+                      if (!Number.isNaN(target)) setDragOverIndex(target);
+                    }}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
+                  >⠿</span>
                   <span class={`stop-badge ${badgeClass()}`}>{index() + 1}</span>
                   <span class="stop-name">
                     <Show

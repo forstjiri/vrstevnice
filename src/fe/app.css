@@ -198,6 +198,29 @@ body {
 
 .stop:last-child { border-bottom: none; }
 
+.stop-drag-handle {
+  color: var(--color-text-muted);
+  cursor: grab;
+  font-size: 14px;
+  flex-shrink: 0;
+  user-select: none;
+  /* Allow touch dragging on the handle without scrolling the page */
+  touch-action: none;
+}
+
+.stop:active .stop-drag-handle {
+  cursor: grabbing;
+}
+
+.stop-dragging {
+  opacity: 0.4;
+}
+
+.stop-drag-over {
+  border-top: 2px solid var(--color-primary);
+  padding-top: 6px;
+}
+
 .stop-badge {
   width: 22px;
   height: 22px;
@@ -946,6 +969,40 @@ body {
   margin-top: 16px;
   font-weight: 600;
 }
+
+.road-rating-summary,
+.road-rating-comment-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.road-rating-comments-toggle {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.road-rating-comments {
+  display: grid;
+  gap: 8px;
+}
+
+.road-rating-comment-item span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.road-rating-comment-item p { margin: 2px 0 0; }
 
 .road-rating-comment-label span {
   color: var(--color-text-muted);

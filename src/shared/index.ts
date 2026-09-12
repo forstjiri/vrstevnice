@@ -189,7 +189,15 @@ export interface RoadRatingAggregate {
     demote: number;
     subtypes: Record<RoadRatingSubtype, number>;
   };
+  commentsCount: number;
   mine: { type: RoadRatingType; subtypes: RoadRatingSubtype[]; comment: string | null } | null;
+}
+
+export interface RoadRatingComment {
+  type: RoadRatingType;
+  subtypes: RoadRatingSubtype[];
+  comment: string;
+  updatedAt: string;
 }
 
 // --- Geo utilities ---
