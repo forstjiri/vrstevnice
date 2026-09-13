@@ -2,6 +2,16 @@
 
 Cyklistický plánovač tras s 3D terénem, vrstevnicemi, profilovým grafem a animací jízdy. Všechna data jsou lokální — žádné cloud API, žádné externí závislosti.
 
+<p>
+  <a href="media/main_planning.png"><img src="media/main_planning.png" width="200" alt="Hlavní plánování trasy"></a>
+  <a href="media/height_profile_graph.png"><img src="media/height_profile_graph.png" width="200" alt="Profilový graf"></a>
+  <a href="media/pubs_along_way.png"><img src="media/pubs_along_way.png" width="200" alt="Limonádová cesta"></a>
+  <a href="media/road_rating_overview.png"><img src="media/road_rating_overview.png" width="200" alt="Hodnocení cest"></a>
+  <a href="media/road_rating_modal.png"><img src="media/road_rating_modal.png" width="200" alt="Modal hodnocení cest"></a>
+  <video src="media/terain_shading_by_time.mp4" controls width="200" alt="Stínování terénu podle času"><a href="media/terain_shading_by_time.mp4">Video: stínování terénu podle času</a></video>
+  <video src="media/follow_road.mp4" controls width="200" alt="Animace jízdy po trase"><a href="media/follow_road.mp4">Video: animace jízdy po trase</a></video>
+</p>
+
 ## Nejzajímavější funkce
 
 ### Plánování tras
@@ -12,7 +22,7 @@ Cyklistický plánovač tras s 3D terénem, vrstevnicemi, profilovým grafem a a
   - *Cyklostezky* — upřednostňuje cesty s taggingem `cycleway`
   - *Limonádová cesta* — najde hospody, bary a restaurace podél trasy a přepočítá trasu přes ně
 
-- **Drag & drop zastávek** — tažením markerů na mapě upravíte souřadnice zastávky
+- **Drag & drop zastávek** — tažením markerů na mapě upravíte souřadnice zastávky, pořadí zastávek v seznamu lze také změnit tažením (trasa se automaticky přepočítá)
 - **GPX export** — stažení trasy jako GPX 1.1 s nadmořskou výškou
 
 ### 3D mapa
@@ -44,6 +54,12 @@ Cyklistický plánovač tras s 3D terénem, vrstevnicemi, profilovým grafem a a
 - **Autocomplete** — začněte psát a Photon nabízí návrhy s lokální orientací na střed mapy
 - **GPS souřadnice** — zadejte přímo do vyhledávacího pole (DD, DDM i DMS formát) — automaticky se rozpoznají a zreverse-geokódují
 - **Náhled na mapě** — při najetí na návrh se zobrazí dočasný modrý marker
+
+### Hodnocení cest
+
+- **Hodnocení cest** — v tomto režimu můžete kliknout na cestu na mapě a ohodnotit ji palcem nahoru nebo dolů s volitelným komentářem
+- **Komentáře ostatních** — u hodnocené cesty zobrazíte komentáře komunity a jejich počet
+- **Komunitní hodnocení** — po zapnutí volby se hodnocení zohlední při plánování trasy
 
 ### Inspect Mode
 
