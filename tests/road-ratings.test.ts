@@ -52,17 +52,17 @@ describe('road ratings core', () => {
     expect(validateSubtypes('demote', ['bad_terrain', 'bad_terrain'])).toBe(false);
   });
 
-  it('builds a closed buffered ring around a line', () => {
+  it('builds a closed buffered ring with butt caps and end insets', () => {
     const ring = buildBufferPolygon([[0, 0], [0.001, 0]], 15);
     expect(ring.length).toBeGreaterThanOrEqual(4);
     expect(ring[0]).toEqual(ring[ring.length - 1]);
     const lngs = ring.map(([lng]) => lng);
     const lats = ring.map(([, lat]) => lat);
-    expect(Math.min(...lngs)).toBeLessThan(0);
-    expect(Math.max(...lngs)).toBeGreaterThan(0.001);
+    // Butt caps + 12m end inset: polygon stays inside the line's endpoints
+    expect(Math.min(...lngs)).toBeCloseTo(12 / 111_320, 5);
+    expect(Math.max(...lngs)).toBeCloseTo(0.001 - 12 / 111_320, 5);
     expect(Math.min(...lats)).toBeCloseTo(-15 / 111_320, 5);
     expect(Math.max(...lats)).toBeCloseTo(15 / 111_320, 5);
-    expect(Math.max(...lats) - Math.min(...lats)).toBeGreaterThan(20 / 111_320);
   });
 
   it('groups roads by multiplier rounded to two decimals', () => {
@@ -87,23 +87,25 @@ describe('road ratings core', () => {
   it('enforces rating throttle minute and hourly boundaries', () => {
     let now = 0;
     const throttle = createRatingThrottle(() => now);
-    expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
-    expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
+    for (let i = 0; i < 5; i += 1) {
+      expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
+    }
     expect(throttle('ip')).toEqual({ ok: false, retryAfterSec: 60 });
 
     now = 30_000;
     expect(throttle('ip')).toEqual({ ok: false, retryAfterSec: 30 });
     now = 60_001;
-    expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
-    expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
+    for (let i = 0; i < 4; i += 1) {
+      expect(throttle('ip')).toEqual({ ok: true, retryAfterSec: 0 });
+    }
 
     now = 0;
     const hourlyThrottle = createRatingThrottle(() => now);
-    for (let i = 0; i < 20; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       now = i * 61_000;
       expect(hourlyThrottle('hourly')).toEqual({ ok: true, retryAfterSec: 0 });
     }
-    expect(hourlyThrottle('hourly')).toEqual({ ok: false, retryAfterSec: 2441 });
+    expect(hourlyThrottle('hourly')).toEqual({ ok: false, retryAfterSec: 1 });
   });
 
   it('chains geometry pieces in both directions and keeps disjoint pieces', () => {

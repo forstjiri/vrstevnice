@@ -532,7 +532,15 @@ export default function Map() {
 
   function syncDynamicLayers(m: maplibregl.Map) {
     try {
-      if (!m.isStyleLoaded()) return;
+      // Style may still be loading right after the map 'load' event — retry
+      // once idle instead of silently dropping the sync (e.g. persisted
+      // terrainOn after page reload would never activate 3D).
+      if (!m.isStyleLoaded()) {
+        m.once('idle', () => {
+          if (map === m) syncDynamicLayers(m);
+        });
+        return;
+      }
       const terrainVisible = mapControls.terrainOn && m.getZoom() >= MIN_TERRAIN_ZOOM;
       if (terrainVisible) {
         m.setTerrain({

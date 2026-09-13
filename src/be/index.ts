@@ -33,6 +33,7 @@ import {
   getVotedRoadsInCorridor,
   RoadGeometryNotFoundError,
   isRoadRatingRoadIndexUnavailable,
+  migrateRatedRoadGeometry,
   saveRating,
 } from './road-ratings';
 import {
@@ -821,5 +822,11 @@ export const app = new Elysia({ prefix: '/api' })
   })
 
   .listen(3002);
+
+migrateRatedRoadGeometry()
+  .then((migrated) => {
+    if (migrated > 0) console.log(`[road-ratings] migrated ${migrated} rated-road geometries`);
+  })
+  .catch(() => {});
 
 export type App = typeof app;

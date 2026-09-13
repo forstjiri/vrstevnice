@@ -5,6 +5,11 @@ import {
 } from '@vrstevnice/shared';
 import type { RoadRatingSubtype, RoadRatingType } from '@vrstevnice/shared';
 
+// Bump whenever the derivation of cached rated-road geometry changes
+// (buffer/cap logic, group chaining, anchors...). Rows with an older
+// version are rebuilt from the original OSM ways on BE startup.
+export const RATED_ROAD_GEOMETRY_VERSION = 2;
+
 export function medianOf(values: number[]): number {
   if (values.length === 0) return Number.NaN;
   const sorted = [...values].sort((a, b) => a - b);
@@ -47,7 +52,15 @@ function roundedPoint(lng: number, lat: number): [number, number] {
 
 export function buildBufferPolygon(
   line: [number, number][],
-  bufferMeters = 15,
+  // Kept small so that a rated way's polygon does not swallow neighboring
+  // ways running close/parallel to it (OSM segments are often just a few
+  // meters apart).
+  bufferMeters = 8,
+  // GraphHopper marks an edge as "in area" when the polygon merely
+  // INTERSECTS the edge geometry (CustomWeightingHelper.in). Ways sharing
+  // junction nodes with the rated way would get penalized if the polygon
+  // reached those nodes, so the buffer is inset from both line ends.
+  endInsetMeters = 12,
 ): [number, number][] {
   if (line.length === 0) return [];
   const earthMetersPerDegree = 111_320;
@@ -62,6 +75,39 @@ export function buildBufferPolygon(
     const [x, y] = toMeters(point);
     return [x - origin[0], y - origin[1]] as [number, number];
   });
+
+  // Trim both line ends by endInsetMeters so the polygon never reaches
+  // junction nodes shared with neighboring ways.
+  const cumDist: number[] = [0];
+  for (let i = 1; i < points.length; i += 1) {
+    const dx = points[i][0] - points[i - 1][0];
+    const dy = points[i][1] - points[i - 1][1];
+    cumDist.push(cumDist[i - 1] + Math.hypot(dx, dy));
+  }
+  const totalLength = cumDist[cumDist.length - 1];
+  if (points.length > 1 && totalLength > 2) {
+    const inset = Math.min(endInsetMeters, (totalLength - 2) / 2);
+    const pointAt = (target: number): [number, number] => {
+      for (let i = 1; i < points.length; i += 1) {
+        if (cumDist[i] >= target) {
+          const t = (target - cumDist[i - 1]) / (cumDist[i] - cumDist[i - 1] || 1);
+          return [
+            points[i - 1][0] + (points[i][0] - points[i - 1][0]) * t,
+            points[i - 1][1] + (points[i][1] - points[i - 1][1]) * t,
+          ];
+        }
+      }
+      return points[points.length - 1];
+    };
+    const trimmed: [number, number][] = [pointAt(inset)];
+    for (let i = 0; i < points.length; i += 1) {
+      if (cumDist[i] > inset && cumDist[i] < totalLength - inset) trimmed.push(points[i]);
+    }
+    trimmed.push(pointAt(totalLength - inset));
+    points.length = 0;
+    points.push(...trimmed);
+  }
+
   const directions: [number, number][] = points.map((point, index) => {
     const previous = points[Math.max(0, index - 1)];
     const next = points[Math.min(points.length - 1, index + 1)];
@@ -111,24 +157,12 @@ export function buildBufferPolygon(
     return ring;
   }
 
+  // Butt cap (no end arcs): the ring connects the left side directly to the
+  // right side at both endpoints. Semicircular caps would extend the polygon
+  // past shared junction nodes and penalize neighboring ways (e.g. another
+  // OSM segment of the same physical road) beyond the rated way itself.
   const ring = left.map(toLngLat);
-  const endAngle = Math.atan2(directions.at(-1)?.[1] ?? 0, directions.at(-1)?.[0] ?? 1);
-  for (let i = 1; i <= 4; i += 1) {
-    const angle = endAngle + Math.PI / 2 - (i * Math.PI) / 4;
-    ring.push(toLngLat([
-      points[points.length - 1][0] + Math.cos(angle) * bufferMeters,
-      points[points.length - 1][1] + Math.sin(angle) * bufferMeters,
-    ]));
-  }
   for (let i = right.length - 1; i >= 0; i -= 1) ring.push(toLngLat(right[i]));
-  const startAngle = Math.atan2(directions[0][1], directions[0][0]);
-  for (let i = 1; i <= 4; i += 1) {
-    const angle = startAngle - Math.PI / 2 - (i * Math.PI) / 4;
-    ring.push(toLngLat([
-      points[0][0] + Math.cos(angle) * bufferMeters,
-      points[0][1] + Math.sin(angle) * bufferMeters,
-    ]));
-  }
   ring.push(ring[0]);
   return ring;
 }
@@ -292,12 +326,12 @@ export function createRatingThrottle(
     const timestamps = (timestampsByIp.get(ip) ?? [])
       .filter((timestamp) => timestamp > currentTime - 3_600_000);
     const minuteTimestamps = timestamps.filter((timestamp) => timestamp > currentTime - 60_000);
-    if (minuteTimestamps.length >= 2 || timestamps.length >= 20) {
+    if (minuteTimestamps.length >= 5 || timestamps.length >= 60) {
       const candidates = [
-        minuteTimestamps.length >= 2
-          ? minuteTimestamps[minuteTimestamps.length - 2] + 60_000
+        minuteTimestamps.length >= 5
+          ? minuteTimestamps[minuteTimestamps.length - 4] + 60_000
           : Infinity,
-        timestamps.length >= 20 ? timestamps[0] + 3_600_000 : Infinity,
+        timestamps.length >= 60 ? timestamps[0] + 3_600_000 : Infinity,
       ];
       const retryAfterSec = Math.max(1, Math.ceil((Math.min(...candidates) - currentTime) / 1000));
       timestampsByIp.set(ip, timestamps);

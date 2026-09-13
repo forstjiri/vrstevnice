@@ -204,6 +204,7 @@ body {
   font-size: 14px;
   flex-shrink: 0;
   user-select: none;
+
   /* Allow touch dragging on the handle without scrolling the page */
   touch-action: none;
 }
@@ -391,9 +392,11 @@ body {
 
 /* ── Elevation chart ──────────────────── */
 
+/* Fixed height — height:100% falls back to content height when the parent
+   has no definite height, and then the canvas backing-store (dpr-scaled)
+   drives layout, causing an infinite ResizeObserver growth loop. */
 .elevation-chart-container {
-  height: 100%;
-  min-height: 200px;
+  height: clamp(200px, 32vh, 340px);
   position: relative;
   background: var(--color-surface);
 }
@@ -407,7 +410,7 @@ body {
 
 @media (pointer: coarse) {
   .elevation-chart-container {
-    min-height: 250px;
+    height: clamp(250px, 38vh, 400px);
   }
 }
 

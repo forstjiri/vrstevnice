@@ -18,6 +18,7 @@ import {
 import { resolve } from 'node:path';
 import {
   aggregateRatings, corridorBounds, medianOf, perUserMultiplier,
+  RATED_ROAD_GEOMETRY_VERSION,
 } from './road-ratings-core';
 import { db, ratedRoads, roadRatings } from './db';
 
@@ -303,6 +304,41 @@ export async function getCommentsByWayId(
   };
 }
 
+/**
+ * Rebuilds cached rated-road geometry whose derivation predates the current
+ * algorithm version (buffer/cap logic, group chaining, anchor computation).
+ * Original OSM ways are the source of truth; votes in `road_ratings` are
+ * never touched. Runs on BE startup.
+ */
+export async function migrateRatedRoadGeometry(): Promise<number> {
+  const stale = await db.select({ wayId: ratedRoads.wayId }).from(ratedRoads)
+    .where(sql`${ratedRoads.geometryVersion} < ${RATED_ROAD_GEOMETRY_VERSION}`)
+    .all();
+  let migrated = 0;
+  await Promise.all(stale.map(async ({ wayId }) => {
+    try {
+      const group = resolveRoadGroup(wayId);
+      if (!group) return;
+      const anchor = geometryAnchor(group.lines);
+      const geometry = group.lines.length === 1
+        ? { type: 'LineString', coordinates: group.lines[0] }
+        : { type: 'MultiLineString', coordinates: group.lines };
+      await db.update(ratedRoads)
+        .set({
+          geometry: JSON.stringify(geometry),
+          anchorLat: anchor[0],
+          anchorLng: anchor[1],
+          geometryVersion: RATED_ROAD_GEOMETRY_VERSION,
+        })
+        .where(eq(ratedRoads.wayId, wayId)).run();
+      migrated += 1;
+    } catch {
+      // Keep the row with its old version — retried on next startup
+    }
+  }));
+  return migrated;
+}
+
 export async function saveRating(input: {
   wayId: number;
   name?: string;
@@ -327,6 +363,7 @@ export async function saveRating(input: {
       geometry: JSON.stringify(geometry),
       anchorLat: anchor[0],
       anchorLng: anchor[1],
+      geometryVersion: RATED_ROAD_GEOMETRY_VERSION,
     }).run();
   } else if (input.name?.trim()) {
     await db.update(ratedRoads)

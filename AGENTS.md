@@ -158,7 +158,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **Planetiler + tileserver-gl-light:** one-time build step, ~684 MB mbtiles, 15 vector layers, z0-14
 - **POI pipeline two-stage:** Base route → local SQLite POI queries → reroute through extended stops
 - **Rate limiting:** elysia-rate-limit, soft-warn 60/min, hard-stop 300/min
-- **Road ratings:** write endpoints use a manual sliding-window limit of 2/min and 20/hour per IP. The first vote
+- **Road ratings:** write endpoints use a manual sliding-window limit of 5/min and 60/hour per IP. The first vote
   resolves a connected same-name group from exact original OSM ways in `data/road-rating-roads.sqlite`; no external
   API is used.
 - **Road-rating routing:** OSM way IDs cannot be referenced in GraphHopper custom-model expressions. Rated ways are

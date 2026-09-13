@@ -93,6 +93,7 @@ export const ratedRoads = sqliteTable('rated_roads', {
   anchorLat: real('anchor_lat').notNull(),
   anchorLng: real('anchor_lng').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  geometryVersion: integer('geometry_version').notNull().default(0),
 });
 
 export const roadRatings = sqliteTable('road_ratings', {
@@ -107,3 +108,4 @@ export const roadRatings = sqliteTable('road_ratings', {
 });
 
 ensureColumn('road_ratings', 'comment', 'TEXT');
+ensureColumn('rated_roads', 'geometry_version', 'INTEGER NOT NULL DEFAULT 0');
