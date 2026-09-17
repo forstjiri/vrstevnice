@@ -547,7 +547,14 @@ export default function Map() {
           source: 'terrain-dem',
           exaggeration: mapControls.terrainExaggeration,
         });
-      } else m.setTerrain(null);
+        // Allow tilting again (MapLibre default max pitch is 60)
+        if (m.getMaxPitch() === 0) m.setMaxPitch(60);
+      } else {
+        m.setTerrain(null);
+        // Disable tilting while 3D terrain is off — map stays top-down
+        m.setMaxPitch(0);
+        if (m.getPitch() > 0) m.easeTo({ pitch: 0, duration: 150 });
+      }
 
       if (m.getLayer('hillshade')) {
         m.setLayoutProperty(

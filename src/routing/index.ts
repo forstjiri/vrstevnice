@@ -5,9 +5,9 @@ import type {
   RoadClassSegment,
   RouteResponse,
   Stop,
-  SurfaceSegment,
+  SurfaceSegment, RoadRatingBucket,
 } from '@vrstevnice/shared';
-import { haversineMeters } from '@vrstevnice/shared';
+import { haversineMeters, isValidOsmWayId, MAX_ROAD_RATING_MODEL_MEMBER_IDS } from '@vrstevnice/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,7 +21,6 @@ export interface GHCustomModelRule {
 export interface GHCustomModel {
   priority: GHCustomModelRule[];
   distance_influence: number;
-  areas?: { type: 'FeatureCollection'; features: JsonValue[] };
 }
 
 export interface GHPoint {
@@ -102,7 +101,7 @@ export function buildCustomModel(
   elevationCoefficient: number,
   roadAvoidanceCoefficient: number,
   cyclewayCoefficient = 0,
-  roadRatingBuckets?: { multiplier: number; areaIds: string[] }[],
+  roadRatingBuckets?: RoadRatingBucket[],
 ): GHCustomModel {
   const roadRules: GHCustomModelRule[] = [
     {
@@ -170,12 +169,34 @@ export function buildCustomModel(
     70 + (1 - roadAvoidanceCoefficient) * 30 - cyclewayCoefficient * 30,
   );
 
-  const ratingRules = (roadRatingBuckets ?? [])
-    .filter((bucket) => bucket.areaIds.length > 0)
-    .map((bucket) => ({
-      if: bucket.areaIds.map((id) => `in_${id}`).join(' || '),
+  // Exact per-way community penalties via the osm_way_id encoded value —
+  // no polygon areas, no neighbor bleed. Malformed IDs are a data error:
+  // they must surface, not silently disappear from the model.
+  const ratingRules = (roadRatingBuckets ?? []).map((bucket) => {
+    const invalid = bucket.wayIds.filter((id) => !isValidOsmWayId(id));
+    if (invalid.length > 0) {
+      throw new Error(`Invalid OSM way IDs in rating bucket: ${invalid.join(', ')}`);
+    }
+    if (bucket.wayIds.length === 0) {
+      throw new Error('Rating bucket without any OSM way IDs');
+    }
+    if (!Number.isFinite(bucket.multiplier) || bucket.multiplier < 0.05 || bucket.multiplier > 1.7) {
+      throw new Error(`Invalid road-rating multiplier: ${bucket.multiplier}`);
+    }
+    return {
+      if: bucket.wayIds.map((id) => `osm_way_id == ${id}`).join(' || '),
       multiply_by: String(bucket.multiplier),
-    }));
+    };
+  });
+  const ratingMemberCount = ratingRules.reduce(
+    (count, _rule, index) => count + (roadRatingBuckets?.[index].wayIds.length ?? 0),
+    0,
+  );
+  if (ratingMemberCount > MAX_ROAD_RATING_MODEL_MEMBER_IDS) {
+    throw new Error(
+      `Road-rating custom model exceeds the ${MAX_ROAD_RATING_MODEL_MEMBER_IDS}-member limit`,
+    );
+  }
 
   return {
     priority: [

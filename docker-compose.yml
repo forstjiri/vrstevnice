@@ -1,6 +1,6 @@
 services:
   graphhopper:
-    image: israelhikingmap/graphhopper:latest
+    image: israelhikingmap/graphhopper@sha256:a63a6b2ddb4086fa0407fd7ae977d521ee5cf31835fe5bb3e56dd855a8556424
     container_name: vrstevnice-gh
     restart: unless-stopped
     ports:
@@ -16,7 +16,7 @@ services:
       - "-i"
       - "/data/czech-republic-latest.osm.pbf"
       - "-o"
-      - "/data/graph-cache"
+      - "/data/graph-cache-osmwayid"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8989/health"]
       interval: 30s

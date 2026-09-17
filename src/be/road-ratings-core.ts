@@ -2,13 +2,13 @@ import {
   ROAD_RATING_DEMOTE_SUBTYPES,
   ROAD_RATING_PREFER_SUBTYPES,
   ROAD_RATING_SUBTYPE_MULTIPLIERS,
+  isValidOsmWayId,
 } from '@vrstevnice/shared';
-import type { RoadRatingSubtype, RoadRatingType } from '@vrstevnice/shared';
-
-// Bump whenever the derivation of cached rated-road geometry changes
-// (buffer/cap logic, group chaining, anchors...). Rows with an older
-// version are rebuilt from the original OSM ways on BE startup.
-export const RATED_ROAD_GEOMETRY_VERSION = 2;
+import type {
+  RoadRatingBucket,
+  RoadRatingSubtype,
+  RoadRatingType,
+} from '@vrstevnice/shared';
 
 export function medianOf(values: number[]): number {
   if (values.length === 0) return Number.NaN;
@@ -46,180 +46,154 @@ export function validateSubtypes(
     );
 }
 
-function roundedPoint(lng: number, lat: number): [number, number] {
-  return [Number(lng.toFixed(6)), Number(lat.toFixed(6))];
-}
-
-export function buildBufferPolygon(
-  line: [number, number][],
-  // Kept small so that a rated way's polygon does not swallow neighboring
-  // ways running close/parallel to it (OSM segments are often just a few
-  // meters apart).
-  bufferMeters = 8,
-  // GraphHopper marks an edge as "in area" when the polygon merely
-  // INTERSECTS the edge geometry (CustomWeightingHelper.in). Ways sharing
-  // junction nodes with the rated way would get penalized if the polygon
-  // reached those nodes, so the buffer is inset from both line ends.
-  endInsetMeters = 12,
-): [number, number][] {
-  if (line.length === 0) return [];
-  const earthMetersPerDegree = 111_320;
-  const midpointLat = line.reduce((sum, [, lat]) => sum + lat, 0) / line.length;
-  const cosLat = Math.max(0.01, Math.cos((midpointLat * Math.PI) / 180));
-  const toMeters = ([lng, lat]: [number, number]): [number, number] => [
-    lng * earthMetersPerDegree * cosLat,
-    lat * earthMetersPerDegree,
-  ];
-  const origin = toMeters(line[0]);
-  const points = line.map((point) => {
-    const [x, y] = toMeters(point);
-    return [x - origin[0], y - origin[1]] as [number, number];
-  });
-
-  // Trim both line ends by endInsetMeters so the polygon never reaches
-  // junction nodes shared with neighboring ways.
-  const cumDist: number[] = [0];
-  for (let i = 1; i < points.length; i += 1) {
-    const dx = points[i][0] - points[i - 1][0];
-    const dy = points[i][1] - points[i - 1][1];
-    cumDist.push(cumDist[i - 1] + Math.hypot(dx, dy));
-  }
-  const totalLength = cumDist[cumDist.length - 1];
-  if (points.length > 1 && totalLength > 2) {
-    const inset = Math.min(endInsetMeters, (totalLength - 2) / 2);
-    const pointAt = (target: number): [number, number] => {
-      for (let i = 1; i < points.length; i += 1) {
-        if (cumDist[i] >= target) {
-          const t = (target - cumDist[i - 1]) / (cumDist[i] - cumDist[i - 1] || 1);
-          return [
-            points[i - 1][0] + (points[i][0] - points[i - 1][0]) * t,
-            points[i - 1][1] + (points[i][1] - points[i - 1][1]) * t,
-          ];
-        }
-      }
-      return points[points.length - 1];
-    };
-    const trimmed: [number, number][] = [pointAt(inset)];
-    for (let i = 0; i < points.length; i += 1) {
-      if (cumDist[i] > inset && cumDist[i] < totalLength - inset) trimmed.push(points[i]);
-    }
-    trimmed.push(pointAt(totalLength - inset));
-    points.length = 0;
-    points.push(...trimmed);
-  }
-
-  const directions: [number, number][] = points.map((point, index) => {
-    const previous = points[Math.max(0, index - 1)];
-    const next = points[Math.min(points.length - 1, index + 1)];
-    const previousDx = point[0] - previous[0];
-    const previousDy = point[1] - previous[1];
-    const nextDx = next[0] - point[0];
-    const nextDy = next[1] - point[1];
-    const previousLength = Math.hypot(previousDx, previousDy);
-    const nextLength = Math.hypot(nextDx, nextDy);
-    const dx = (previousLength > 0 ? previousDx / previousLength : 0)
-      + (nextLength > 0 ? nextDx / nextLength : 0);
-    const dy = (previousLength > 0 ? previousDy / previousLength : 0)
-      + (nextLength > 0 ? nextDy / nextLength : 0);
-    const length = Math.hypot(dx, dy);
-    return length > 0 ? [dx / length, dy / length] : [1, 0];
-  });
-  const left: [number, number][] = directions.map(([dx, dy], index) => {
-    const nx = -dy;
-    const ny = dx;
-    return [
-      points[index][0] + nx * bufferMeters,
-      points[index][1] + ny * bufferMeters,
-    ];
-  });
-  const right: [number, number][] = directions.map(([dx, dy], index) => {
-    const nx = -dy;
-    const ny = dx;
-    return [
-      points[index][0] - nx * bufferMeters,
-      points[index][1] - ny * bufferMeters,
-    ];
-  });
-  const toLngLat = ([x, y]: [number, number]): [number, number] => roundedPoint(
-    line[0][0] + x / (earthMetersPerDegree * cosLat),
-    line[0][1] + y / earthMetersPerDegree,
-  );
-
-  if (points.length === 1) {
-    const ring: [number, number][] = [];
-    for (let i = 0; i <= 8; i += 1) {
-      const angle = (i / 8) * Math.PI * 2;
-      ring.push(toLngLat([
-        points[0][0] + Math.cos(angle) * bufferMeters,
-        points[0][1] + Math.sin(angle) * bufferMeters,
-      ]));
-    }
-    return ring;
-  }
-
-  // Butt cap (no end arcs): the ring connects the left side directly to the
-  // right side at both endpoints. Semicircular caps would extend the polygon
-  // past shared junction nodes and penalize neighboring ways (e.g. another
-  // OSM segment of the same physical road) beyond the rated way itself.
-  const ring = left.map(toLngLat);
-  for (let i = right.length - 1; i >= 0; i -= 1) ring.push(toLngLat(right[i]));
-  ring.push(ring[0]);
-  return ring;
-}
-
 export function bucketizeRoads(
-  roads: { wayId: number; multiplier: number }[],
-): { multiplier: number; wayIds: number[] }[] {
-  const buckets = new Map<number, number[]>();
-  roads.forEach(({ wayId, multiplier }) => {
-    const rounded = Math.round(multiplier * 100) / 100;
-    const wayIds = buckets.get(rounded) ?? [];
-    wayIds.push(wayId);
-    buckets.set(rounded, wayIds);
+  roads: VotedRoadMembers[],
+): RoadRatingBucket[] {
+  // Invariant: each OSM way belongs to exactly ONE bucket. Overlapping group
+  // membership is a data conflict (broken grouping/migration), not something
+  // to resolve by policy — reject it loudly.
+  const ownership = new Map<number, { owner: number }>();
+  roads.forEach((road) => {
+    const rounded = Math.round(road.multiplier * 100) / 100;
+    if (!Number.isFinite(road.multiplier)) {
+      throw new Error(`Non-finite multiplier for rated road ${road.wayId}`);
+    }
+    const memberIds = normalizedMemberIds(road.memberIds);
+    if (memberIds.length === 0) {
+      throw new Error(`Rated road ${road.wayId} has no persisted member way IDs`);
+    }
+    memberIds.forEach((wayId) => {
+      if (!isValidOsmWayId(wayId)) {
+        throw new Error(`Invalid OSM way ID ${wayId} in group ${road.wayId}`);
+      }
+      const previous = ownership.get(wayId);
+      if (previous) {
+        throw new Error(
+          `Membership conflict: OSM way ${wayId} owned by rated roads `
+          + `${previous.owner} and ${road.wayId}`,
+        );
+      }
+      ownership.set(wayId, { owner: road.wayId });
+    });
   });
-  return [...buckets.entries()].map(([multiplier, wayIds]) => ({ multiplier, wayIds }));
+  const buckets = new Map<number, number[]>();
+  roads.forEach((road) => {
+    const multiplier = Math.round(road.multiplier * 100) / 100;
+    const wayIds = buckets.get(multiplier) ?? [];
+    wayIds.push(...normalizedMemberIds(road.memberIds));
+    buckets.set(multiplier, wayIds);
+  });
+  return [...buckets.entries()].map(([multiplier, wayIds]) => ({
+    multiplier,
+    wayIds: wayIds.sort((a, b) => a - b),
+  }));
 }
 
-export function chainGeometryPieces(pieces: [number, number][][]): [number, number][][] {
-  const endpointKey = (point: [number, number]) => `${point[0].toFixed(6)},${point[1].toFixed(6)}`;
-  const remaining = pieces.map((piece) => [...piece]);
-  const chains: [number, number][][] = [];
-  while (remaining.length > 0) {
-    const chain = remaining.shift()!;
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (let i = 0; i < remaining.length; i += 1) {
-        const candidate = remaining[i];
-        const start = endpointKey(chain[0]);
-        const end = endpointKey(chain[chain.length - 1]);
-        const joinsEndForward = endpointKey(candidate[0]) === end;
-        const joinsEndBackward = endpointKey(candidate[candidate.length - 1]) === end;
-        const joinsStartBackward = endpointKey(candidate[candidate.length - 1]) === start;
-        const joinsStartForward = endpointKey(candidate[0]) === start;
-        const joinsChain = joinsEndForward
-          || joinsEndBackward
-          || joinsStartBackward
-          || joinsStartForward;
-        if (joinsEndForward) {
-          chain.push(...candidate.slice(1));
-        } else if (joinsEndBackward) {
-          chain.push(...candidate.slice(0, -1).reverse());
-        } else if (joinsStartBackward) {
-          chain.unshift(...candidate.slice(0, -1));
-        } else if (joinsStartForward) {
-          chain.unshift(...candidate.slice(1).reverse());
-        }
-        if (joinsChain) {
-          remaining.splice(i, 1);
-          changed = true;
-          break;
-        }
-      }
+// ── Membership backfill planning (pure — applied by road-ratings.ts) ──
+
+export interface MemberBackfillRow {
+  wayId: number;
+  name: string | null;
+  geometry: string;
+  anchorLat: number;
+  anchorLng: number;
+}
+
+export interface ResolvedGroupIds {
+  wayId: number;
+  memberIds: number[];
+  name?: string | null;
+  geometry?: string;
+  anchorLat?: number;
+  anchorLng?: number;
+}
+
+export interface MemberBackfillPlan {
+  /** (Re)write complete membership for these rated roads. */
+  memberWrites: { ratedWayId: number; memberIds: number[] }[];
+  /**
+   * Representative changed: move cached row + votes from `fromWayId` to
+   * `toWayId` (target row is created by copying when it does not exist).
+   */
+  rekeys: { fromWayId: number; toWayId: number }[];
+  /** Target row already exists with its own votes — needs manual review. */
+  conflicts: { wayId: number; targetWayId: number }[];
+  /** Rated road no longer resolvable in the original-way index. */
+  unresolved: number[];
+  /** Resolved current index data, kept non-enumerable for plan consumers. */
+  resolvedGroups?: Map<number, ResolvedGroupIds>;
+}
+
+function normalizedMemberIds(memberIds: number[]): number[] {
+  return [...new Set(memberIds)].sort((a, b) => a - b);
+}
+
+export function planMemberBackfill(
+  rows: MemberBackfillRow[],
+  existingMembers: Map<number, number[]>,
+  resolveGroup: (wayId: number) => ResolvedGroupIds | null,
+): MemberBackfillPlan {
+  const plan: MemberBackfillPlan = {
+    memberWrites: [],
+    rekeys: [],
+    conflicts: [],
+    unresolved: [],
+  };
+  const rowIds = new Set(rows.map((row) => row.wayId));
+  const canonical = new Map<number, ResolvedGroupIds>();
+  rows.forEach((row) => {
+    const group = resolveGroup(row.wayId);
+    if (!group) {
+      plan.unresolved.push(row.wayId);
+      return;
     }
-    chains.push(chain);
-  }
-  return chains;
+    // Invalid member IDs would poison routing rules — abort this group loudly.
+    const memberIds = normalizedMemberIds(group.memberIds);
+    if (!isValidOsmWayId(group.wayId) || memberIds.length === 0 || !memberIds.every(isValidOsmWayId)) {
+      plan.unresolved.push(row.wayId);
+      return;
+    }
+    canonical.set(row.wayId, { ...group, memberIds });
+  });
+  // Reject ambiguous convergence BEFORE planning writes: several rows
+  // resolving to the same new representative cannot be auto-merged.
+  const targetCounts = new Map<number, number>();
+  canonical.forEach((group, rowWayId) => {
+    if (group.wayId !== rowWayId) {
+      targetCounts.set(group.wayId, (targetCounts.get(group.wayId) ?? 0) + 1);
+    }
+  });
+
+  rows.forEach((row) => {
+    const group = canonical.get(row.wayId);
+    if (!group) return;
+    // Representative changed and the target row does not exist yet → rekey,
+    // unless another row converges on the same target (ambiguous split/merge).
+    if (group.wayId !== row.wayId && !rowIds.has(group.wayId)) {
+      if ((targetCounts.get(group.wayId) ?? 0) > 1) {
+        plan.conflicts.push({ wayId: row.wayId, targetWayId: group.wayId });
+        return;
+      }
+      plan.rekeys.push({ fromWayId: row.wayId, toWayId: group.wayId });
+      plan.memberWrites.push({ ratedWayId: group.wayId, memberIds: group.memberIds });
+      return;
+    }
+    // Representative changed and target exists with its own row → conflict.
+    if (group.wayId !== row.wayId) {
+      plan.conflicts.push({ wayId: row.wayId, targetWayId: group.wayId });
+      return;
+    }
+    // Same representative: refresh membership when missing or stale.
+    const current = existingMembers.get(row.wayId);
+    const same = current !== undefined
+      && current.length === group.memberIds.length
+      && normalizedMemberIds(current).every((id, index) => id === group.memberIds[index]);
+    if (!same) {
+      plan.memberWrites.push({ ratedWayId: row.wayId, memberIds: group.memberIds });
+    }
+  });
+  Object.defineProperty(plan, 'resolvedGroups', { value: canonical, enumerable: false });
+  return plan;
 }
 
 export function corridorBounds(
@@ -247,70 +221,16 @@ export function corridorBounds(
   };
 }
 
-export interface AreasFeatureCollection {
-  featureCollection: {
-    type: 'FeatureCollection';
-    features: {
-      type: 'Feature';
-      id: string;
-      properties: Record<string, never>;
-      geometry: { type: 'Polygon'; coordinates: number[][][] };
-    }[];
-  };
-  areaToWayId: Map<string, number>;
-}
-
-export interface VotedRoadGeometry {
+export interface VotedRoadMembers {
   wayId: number;
   multiplier: number;
-  geometry: [number, number][][];
+  memberIds: number[];
 }
 
-export interface RoadRatingModelParts {
-  areas: AreasFeatureCollection['featureCollection'];
-  buckets: { multiplier: number; areaIds: string[] }[];
-}
-
-export function buildAreasFeatureCollection(
-  polygonsByWayId: Map<number, [number, number][][]>,
-  idPrefix = 'rr',
-): AreasFeatureCollection {
-  const features: AreasFeatureCollection['featureCollection']['features'] = [];
-  const areaToWayId = new Map<string, number>();
-  polygonsByWayId.forEach((rings, wayId) => {
-    rings.forEach((ring, subIndex) => {
-      const id = `${idPrefix}${wayId}_${subIndex}`;
-      features.push({
-        type: 'Feature',
-        id,
-        properties: {},
-        geometry: { type: 'Polygon', coordinates: [ring] },
-      });
-      areaToWayId.set(id, wayId);
-    });
-  });
-  return { featureCollection: { type: 'FeatureCollection', features }, areaToWayId };
-}
-
-export function buildRoadRatingModelParts(
-  roads: VotedRoadGeometry[],
-): RoadRatingModelParts {
-  const polygonsByWayId = new Map<number, [number, number][][]>();
-  roads.forEach((road) => {
-    const rings = road.geometry
-      .map((line) => buildBufferPolygon(line))
-      .filter((ring) => ring.length >= 4);
-    if (rings.length > 0) polygonsByWayId.set(road.wayId, rings);
-  });
-  const areas = buildAreasFeatureCollection(polygonsByWayId);
-  const buckets = bucketizeRoads(roads).map((bucket) => ({
-    multiplier: bucket.multiplier,
-    areaIds: [...areas.areaToWayId.entries()]
-      .filter(([, wayId]) => bucket.wayIds.includes(wayId))
-      .map(([areaId]) => areaId),
-  })).filter((bucket) => bucket.areaIds.length > 0);
-  return { areas: areas.featureCollection, buckets };
-}
+/** Community penalty bucket: all OSM ways sharing one aggregate multiplier.
+ *  Canonical definition lives in @vrstevnice/shared; this re-export keeps
+ *  backend-internal call sites on the shared type. */
+export type { RoadRatingBucket };
 
 export interface RatingThrottleResult {
   ok: boolean;

@@ -25,6 +25,7 @@ interface RoadGroup {
   wayId: number;
   name: string | null;
   lines: [number, number][][];
+  memberIds: number[];
 }
 
 function pseudoRandom(index: number): number {
@@ -39,7 +40,9 @@ function parseLine(geometry: string): [number, number][] {
 function resolveGroup(index: Database, row: IndexedRoad): RoadGroup | null {
   const selectedLine = parseLine(row.geometry);
   if (selectedLine.length < 2) return null;
-  if (!row.name) return { wayId: row.osm_id, name: null, lines: [selectedLine] };
+  if (!row.name) {
+    return { wayId: row.osm_id, name: null, lines: [selectedLine], memberIds: [row.osm_id] };
+  }
   const sameNamed = index.query(
     'SELECT osm_id, name, geometry FROM roads WHERE name = ?',
   ).all(row.name) as IndexedRoad[];
@@ -54,6 +57,7 @@ function resolveGroup(index: Database, row: IndexedRoad): RoadGroup | null {
     wayId: Math.min(...members.map((road) => road.osmId)),
     name: row.name,
     lines: members.map((road) => road.coordinates),
+    memberIds: members.map((road) => road.osmId).sort((a, b) => a - b),
   };
 }
 
@@ -90,9 +94,11 @@ function vote(index: number): { type: 'prefer' | 'demote'; subtypes: string[]; m
   };
 }
 
-const index = new Database(ROAD_INDEX_PATH, { readonly: true });
-const app = new Database(APP_DB_PATH);
-const candidates = index.query(`
+export function seedRoadRatingsMnisek(app: Database, index: Database): {
+  roads: { wayId: number; name: string | null }[];
+  users: number;
+} {
+  const candidates = index.query(`
   SELECT roads.osm_id, roads.name, roads.geometry
   FROM roads_rtree
   JOIN roads ON roads.osm_id = roads_rtree.osm_id
@@ -100,23 +106,27 @@ const candidates = index.query(`
     AND roads_rtree.max_lat >= ? AND roads_rtree.min_lat <= ?
 `).all(BBOX.minLng, BBOX.maxLng, BBOX.minLat, BBOX.maxLat) as IndexedRoad[];
 
-const groups = new Map<number, RoadGroup>();
-candidates.sort((left, right) => pseudoRandom(left.osm_id) - pseudoRandom(right.osm_id)).forEach((row) => {
-  if (groups.size >= ROAD_COUNT) return;
-  const group = resolveGroup(index, row);
-  if (group) groups.set(group.wayId, group);
-});
-if (groups.size < ROAD_COUNT) throw new Error(`Only found ${groups.size} road groups in Mníšek`);
+  const groups = new Map<number, RoadGroup>();
+  candidates.sort((left, right) => pseudoRandom(left.osm_id) - pseudoRandom(right.osm_id)).forEach((row) => {
+    if (groups.size >= ROAD_COUNT) return;
+    const group = resolveGroup(index, row);
+    if (group) groups.set(group.wayId, group);
+  });
+  if (groups.size < ROAD_COUNT) throw new Error(`Only found ${groups.size} road groups in Mníšek`);
 
-app.exec('BEGIN');
-try {
+  app.exec('BEGIN');
+  try {
   app.query('DELETE FROM road_ratings WHERE ip LIKE ?').run(`${SEED_IP_PREFIX}%`);
   app.query(`
     DELETE FROM rated_roads
     WHERE way_id NOT IN (SELECT DISTINCT way_id FROM road_ratings)
   `).run();
+  app.query(`
+    DELETE FROM rated_road_members
+    WHERE rated_way_id NOT IN (SELECT way_id FROM rated_roads)
+  `).run();
 
-  [...groups.values()].forEach((group, roadIndex) => {
+    [...groups.values()].forEach((group, roadIndex) => {
     const [lat, lng] = anchor(group.lines);
     const geometry = group.lines.length === 1
       ? { type: 'LineString', coordinates: group.lines[0] }
@@ -131,6 +141,16 @@ try {
         anchor_lng = excluded.anchor_lng
     `).run(group.wayId, group.name, JSON.stringify(geometry), lat, lng);
 
+    // Persist complete group membership for exact osm_way_id routing rules
+    app.query('DELETE FROM rated_road_members WHERE rated_way_id = ?').run(group.wayId);
+    [...new Set(group.memberIds)].forEach((osmWayId) => {
+      app.query(`
+        INSERT INTO rated_road_members (rated_way_id, osm_way_id)
+        VALUES (?, ?)
+        ON CONFLICT(rated_way_id, osm_way_id) DO NOTHING
+      `).run(group.wayId, osmWayId);
+    });
+
     const voteCount = 1 + Math.floor(pseudoRandom(roadIndex + 100) * USER_COUNT);
     for (let userIndex = 0; userIndex < voteCount; userIndex += 1) {
       const rating = vote(roadIndex * USER_COUNT + userIndex);
@@ -142,18 +162,29 @@ try {
         `${SEED_IP_PREFIX}${userIndex + 1}`,
         rating.type,
         JSON.stringify(rating.subtypes),
-        rating.comment,
         rating.multiplier,
+        rating.comment,
       );
     }
-  });
-  app.exec('COMMIT');
-} catch (error) {
-  app.exec('ROLLBACK');
-  throw error;
+    });
+    app.exec('COMMIT');
+  } catch (error) {
+    app.exec('ROLLBACK');
+    throw error;
+  }
+  return {
+    roads: [...groups.values()].map((group) => ({ wayId: group.wayId, name: group.name })),
+    users: USER_COUNT,
+  };
 }
 
-console.log(JSON.stringify({
-  roads: [...groups.values()].map((group) => ({ wayId: group.wayId, name: group.name })),
-  users: USER_COUNT,
-}, null, 2));
+if (import.meta.main) {
+  const index = new Database(ROAD_INDEX_PATH, { readonly: true });
+  const app = new Database(APP_DB_PATH);
+  try {
+    console.log(JSON.stringify(seedRoadRatingsMnisek(app, index), null, 2));
+  } finally {
+    app.close();
+    index.close();
+  }
+}

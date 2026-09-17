@@ -144,6 +144,26 @@ export interface OSMRoadWay {
 }
 
 /**
+ * Valid OSM way ID for GraphHopper routing: positive safe integer fitting
+ * GH's 31-bit `osm_way_id` encoded value. The parser throws on overflow at
+ * import time; this guard keeps runtime inputs aligned with that limit.
+ */
+export const OSM_WAY_ID_MAX = 2 ** 31 - 1;
+
+export function isValidOsmWayId(value: number): value is number {
+  return Number.isSafeInteger(value) && value > 0 && value <= OSM_WAY_ID_MAX;
+}
+
+/** Community penalty bucket: all OSM ways sharing one aggregate multiplier. */
+export interface RoadRatingBucket {
+  multiplier: number;
+  wayIds: number[];
+}
+
+/** Conservative cap measured to keep the generated GH custom-model payload well below its limits. */
+export const MAX_ROAD_RATING_MODEL_MEMBER_IDS = 500;
+
+/**
  * A named street may consist of several OSM ways. Join only members that
  * share the exact name and an endpoint, so equal street names in other towns
  * never become one rating target. Unnamed ways deliberately stay independent.

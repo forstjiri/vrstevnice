@@ -107,8 +107,8 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
   deleting a rating recalculates only when an active route and this opt-in are both enabled.
 - **Bubbles**: rated roads show aggregate and per-subtype counts while rating mode is active at zoom ≥ 12.
 - **Identity and storage**: v1 identity is the requesting IP. A rating targets one connected same-name street group
-  (or one unnamed OSM way); `rated_roads` stores its cached geometry and anchor data, while `road_ratings` stores
-  votes with a unique `(way_id, ip)` upsert.
+  (or one unnamed OSM way). `rated_roads` stores its cached geometry and anchor data; `rated_road_members` stores the
+  complete resolved OSM membership; and `road_ratings` stores votes with a unique `(way_id, ip)` upsert.
 
 ### Map
 
@@ -161,10 +161,16 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **Road ratings:** write endpoints use a manual sliding-window limit of 5/min and 60/hour per IP. The first vote
   resolves a connected same-name group from exact original OSM ways in `data/road-rating-roads.sqlite`; no external
   API is used.
-- **Road-rating routing:** OSM way IDs cannot be referenced in GraphHopper custom-model expressions. Rated ways are
-  buffered into closed `[lng, lat]` Polygon areas inside `custom_model.areas`; `in_<id>` rules use median-aggregated
-  multipliers. Only rated roads anchored in the stops bbox plus 10 km corridor are used, capped at 200, and the
-  same areas/rules are applied to both ascent-guard queries.
+- **Road-rating routing:** exact per-way penalties via the `osm_way_id` encoded value in custom-model priority rules
+  (e.g. `{"if": "osm_way_id == 123", "multiply_by": "0.2"}` with median-aggregated multipliers). Group membership
+  (all OSM way IDs of a rated connected same-name group) is persisted in `rated_road_members` and must exist before
+  routing; BE backfills it from the original OSM road index at startup. Backfill/save preflight is fail-closed: invalid
+  or unresolved groups, representative rekey collisions, overlapping member ownership, invalid multipliers, and model
+  member-limit violations reject the operation without partial writes or routing rules. `osm_way_id` must be listed in
+  `graph.encoded_values` **before** graph import—configuring it alone does not alter an existing graph. Test GH drops
+  its volume before import; production Compose imports into `/data/graph-cache-osmwayid`. Only rated-road anchors in
+  the stops bbox plus a 10 km corridor are considered (at most 200 groups); the same exact-ID rules are applied to
+  both ascent-guard queries.
 - **Data sources:**
   - Vector tiles: `data/cz.mbtiles` (OpenMapTiles, z0–14, ~684 MB)
   - Terrain tiles: `data/cz-terrain.mbtiles` (terrain-rgb, DMR 5G z0–14)
@@ -191,7 +197,12 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
 ### GraphHopper
 
-- Docker image: `israelhikingmap/graphhopper:latest` — community fork with pre-built SRTM
+- Production and test Compose pin GraphHopper to
+  `israelhikingmap/graphhopper@sha256:a63a6b2ddb4086fa0407fd7ae977d521ee5cf31835fe5bb3e56dd855a8556424`.
+  The production command imports to `/data/graph-cache-osmwayid`; `docker/graphhopper-config.yml` includes
+  `osm_way_id` in `graph.encoded_values`. These three items, plus an import performed after the encoded-value change,
+  are the provenance evidence for exact-way routing. Do not treat an old graph cache as compatible merely because the
+  config file has changed.
 - GH 12.0 requires `import.osm.ignored_highways: ''` in config
 - Custom model file name must not be named like built-in profiles (bike.json, car.json)
 - `points_encoded: false` → GeoJSON structure `{ type: "LineString", coordinates: [[lon, lat, ele], ...] }`
@@ -249,7 +260,11 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
 ### Testing
 
-- Road ratings core: run `pnpm vitest run tests/road-ratings.test.ts` for the targeted pure-unit suite.
+- Road ratings core: `pnpm vitest run tests/road-ratings.test.ts`.
+- Road-rating SQLite persistence and migration suite (must run under Bun):
+  `bun test tests/road-ratings-persistence.test.ts`.
+- Exact GraphHopper encoded-way integration: `pnpm vitest run tests/routing/osm-way-id.integration.test.ts` (uses the
+  disposable GH test container on port 8988). `pnpm test` runs the Bun persistence suite before the Vitest suite.
 - Test GH container on port 8988 (production GH on 8989)
 - Without slope encodings with noop elevation provider — GH throws IllegalArgumentException
 - Docker volume mount filename must exactly match GH config custom_model_files reference
@@ -268,6 +283,17 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - Never transpile to old JS — always use modern ES modules
 - Python venvs: `data/.venv-extract` (osmium), data/ is entirely gitignored
 
+### Road-rating deployment and backup
+
+- The persisted application database is `data/data.db`; on the deployment script's default target it is
+  `/opt/vrstevnice/data/data.db`. `rsync` deliberately excludes `data.db*`, so code sync does not replace it. There
+  is no automated backup destination in `scripts/deploy.sh`; back up that database path (including SQLite sidecars, if
+  present) before a production migration or manual data operation.
+- Deployment must use the digest-pinned image and a graph imported with the exact production config above. The current
+  deploy script's image-transfer/cache checks still refer to `graphhopper:latest` and `graph-cache`, so they are not
+  provenance evidence for the digest-pinned `graph-cache-osmwayid` graph. Verify or correct that operational path
+  before relying on it for this feature.
+
 ## Important files
 
 | File | Purpose |
@@ -279,7 +305,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | `src/be/db.ts` | Drizzle schema + Bun SQLite (`data/data.db`) |
 | `src/be/pois.ts` | Local SQLite POI query with bbox pre-filter + haversine post-filter |
 | `src/be/road-ratings.ts` | Road-rating SQLite service and original OSM-way spatial index |
-| `src/be/road-ratings-core.ts` | Pure road-rating aggregation, buffering, chaining, throttle, and area helpers |
+| `src/be/road-ratings-core.ts` | Pure road-rating aggregation, exact-ID rule construction, membership planning, and throttle helpers |
 | `src/routing/index.ts` | GraphHopper Custom Model API, POI pipeline, road_class/surface/road_environment details |
 | `src/fe/App.tsx` | SolidJS context provider, Eden treaty client |
 | `src/fe/Stops.tsx` | Stop management + sliders (Kobalte Search/Slider/Button) |

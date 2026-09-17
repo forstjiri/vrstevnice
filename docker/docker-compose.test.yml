@@ -11,7 +11,9 @@
 
 services:
   graphhopper:
-    image: israelhikingmap/graphhopper:latest
+    # Keep the test engine identical to the production engine.  In particular,
+    # osm_way_id support is an import-time property of the graph.
+    image: israelhikingmap/graphhopper@sha256:a63a6b2ddb4086fa0407fd7ae977d521ee5cf31835fe5bb3e56dd855a8556424
     container_name: vrstevnice-gh-test
     ports:
       - "8988:8989"

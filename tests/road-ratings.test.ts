@@ -5,14 +5,12 @@ import { connectedRoadWayGroup } from '../src/shared';
 // The pure backend unit is intentionally imported directly to avoid starting Elysia.
 import {
   aggregateRatings,
-  buildBufferPolygon,
-  buildRoadRatingModelParts,
   bucketizeRoads,
-  chainGeometryPieces,
   corridorBounds,
   createRatingThrottle,
   medianOf,
   perUserMultiplier,
+  planMemberBackfill,
   validateSubtypes,
 } from '../src/be/road-ratings-core';
 
@@ -52,29 +50,132 @@ describe('road ratings core', () => {
     expect(validateSubtypes('demote', ['bad_terrain', 'bad_terrain'])).toBe(false);
   });
 
-  it('builds a closed buffered ring with butt caps and end insets', () => {
-    const ring = buildBufferPolygon([[0, 0], [0.001, 0]], 15);
-    expect(ring.length).toBeGreaterThanOrEqual(4);
-    expect(ring[0]).toEqual(ring[ring.length - 1]);
-    const lngs = ring.map(([lng]) => lng);
-    const lats = ring.map(([, lat]) => lat);
-    // Butt caps + 12m end inset: polygon stays inside the line's endpoints
-    expect(Math.min(...lngs)).toBeCloseTo(12 / 111_320, 5);
-    expect(Math.max(...lngs)).toBeCloseTo(0.001 - 12 / 111_320, 5);
-    expect(Math.min(...lats)).toBeCloseTo(-15 / 111_320, 5);
-    expect(Math.max(...lats)).toBeCloseTo(15 / 111_320, 5);
-  });
-
-  it('groups roads by multiplier rounded to two decimals', () => {
+  it('buckets disjoint roads by multiplier and rejects every cross-group overlap', () => {
     expect(bucketizeRoads([
-      { wayId: 1, multiplier: 1.234 },
-      { wayId: 2, multiplier: 1.235 },
-      { wayId: 3, multiplier: 0.2 },
+      { wayId: 1, multiplier: 1.234, memberIds: [1, 2] },
+      { wayId: 3, multiplier: 0.2, memberIds: [3] },
     ])).toEqual([
-      { multiplier: 1.23, wayIds: [1] },
-      { multiplier: 1.24, wayIds: [2] },
+      { multiplier: 1.23, wayIds: [1, 2] },
       { multiplier: 0.2, wayIds: [3] },
     ]);
+    // Ownership is exclusive even when both groups round to the same model
+    // multiplier; never silently merge two persisted groups.
+    expect(() => bucketizeRoads([
+      { wayId: 1, multiplier: 1.234, memberIds: [1, 2] },
+      { wayId: 2, multiplier: 1.234, memberIds: [2] },
+    ])).toThrow(/Membership conflict/);
+    expect(() => bucketizeRoads([
+      { wayId: 1, multiplier: Number.NaN, memberIds: [1] },
+    ])).toThrow(/Non-finite multiplier/);
+    expect(() => bucketizeRoads([
+      { wayId: 1, multiplier: 1, memberIds: [-5] },
+    ])).toThrow(/Invalid OSM way ID/);
+  });
+
+  it('plans membership backfill: writes, rekeys, conflicts, unresolved', () => {
+    const rows = [
+      {
+        wayId: 10, name: 'A', geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+      {
+        wayId: 20, name: 'B', geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+      {
+        wayId: 30, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+      {
+        wayId: 40, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+    ];
+    const groups = new Map<number, { wayId: number; memberIds: number[] } | null>([
+      // Stale membership → refresh
+      [10, { wayId: 10, memberIds: [10, 11] }],
+      // Representative changed to an ID without its own row → rekey
+      [20, { wayId: 21, memberIds: [20, 21] }],
+      // Representative changed to an ID that already exists → conflict
+      [30, { wayId: 40, memberIds: [30, 40] }],
+      // Missing from index → unresolved
+      [40, null],
+    ]);
+    const plan = planMemberBackfill(
+      rows,
+      new Map([[10, [10]]]),
+      (wayId) => groups.get(wayId) ?? null,
+    );
+    expect(plan.memberWrites).toEqual([
+      { ratedWayId: 10, memberIds: [10, 11] },
+      { ratedWayId: 21, memberIds: [20, 21] },
+    ]);
+    expect(plan.rekeys).toEqual([{ fromWayId: 20, toWayId: 21 }]);
+    expect(plan.conflicts).toEqual([{ wayId: 30, targetWayId: 40 }]);
+    expect(plan.unresolved).toEqual([40]);
+  });
+
+  it('flags converging rekeys as conflicts before any write', () => {
+    const rows = [
+      {
+        wayId: 50, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+      {
+        wayId: 60, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      },
+    ];
+    const plan = planMemberBackfill(
+      rows,
+      new Map(),
+      (wayId) => ({ wayId: 99, memberIds: [wayId, 99] }),
+    );
+    // Both rows re-resolve to the same new representative — an ambiguous
+    // merge that must NOT be planned as two rekeys onto one target.
+    expect(plan.rekeys).toEqual([]);
+    expect(plan.conflicts).toEqual([
+      { wayId: 50, targetWayId: 99 },
+      { wayId: 60, targetWayId: 99 },
+    ]);
+  });
+
+  it('rejects invalid member IDs during planning', () => {
+    const plan = planMemberBackfill(
+      [{
+        wayId: 5, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      }],
+      new Map(),
+      () => ({ wayId: 5, memberIds: [5, -1] }),
+    );
+    expect(plan.unresolved).toEqual([5]);
+  });
+
+  it('plans no-op when membership is complete and current', () => {
+    const plan = planMemberBackfill(
+      [{
+        wayId: 5, name: null, geometry: '{}', anchorLat: 1, anchorLng: 2,
+      }],
+      new Map([[5, [5, 6]]]),
+      () => ({ wayId: 5, memberIds: [5, 6] }),
+    );
+    expect(plan).toEqual({
+      memberWrites: [], rekeys: [], conflicts: [], unresolved: [],
+    });
+  });
+
+  it('emits exact osm_way_id rules; malformed bucket input is a hard error', () => {
+    const model = buildCustomModel(0, 0, 0, [
+      { multiplier: 0.2, wayIds: [495432578, 70857079] },
+      { multiplier: 1.5, wayIds: [42] },
+    ]);
+    const ratingRules = model.priority.filter((rule) => (rule.if ?? '').includes('osm_way_id'));
+    expect(ratingRules).toEqual([
+      { if: 'osm_way_id == 495432578 || osm_way_id == 70857079', multiply_by: '0.2' },
+      { if: 'osm_way_id == 42', multiply_by: '1.5' },
+    ]);
+    expect('areas' in model).toBe(false);
+    // Invalid IDs no longer disappear silently — they fail model construction.
+    expect(() => buildCustomModel(0, 0, 0, [
+      { multiplier: 1.5, wayIds: [42, -7] },
+    ])).toThrow(/Invalid OSM way IDs/);
+    expect(() => buildCustomModel(0, 0, 0, [
+      { multiplier: 1.5, wayIds: [] },
+    ])).toThrow(/without any OSM way IDs/);
   });
 
   it('pads corridor bounds by meters', () => {
@@ -106,34 +207,5 @@ describe('road ratings core', () => {
       expect(hourlyThrottle('hourly')).toEqual({ ok: true, retryAfterSec: 0 });
     }
     expect(hourlyThrottle('hourly')).toEqual({ ok: false, retryAfterSec: 1 });
-  });
-
-  it('chains geometry pieces in both directions and keeps disjoint pieces', () => {
-    expect(chainGeometryPieces([
-      [[0, 0], [1, 0]],
-      [[1, 0], [2, 0]],
-      [[4, 0], [3, 0]],
-      [[2, 0], [3, 0]],
-      [[10, 0], [11, 0]],
-    ])).toEqual([
-      [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],
-      [[10, 0], [11, 0]],
-    ]);
-  });
-
-  it('keeps area IDs and custom-model rule IDs in sync', () => {
-    const parts = buildRoadRatingModelParts([
-      { wayId: 10, multiplier: 1.5, geometry: [[[14, 50], [14.001, 50]]] },
-      { wayId: 20, multiplier: 0.2, geometry: [[[14.002, 50], [14.003, 50]]] },
-    ]);
-    const featureIds = new Set(parts.areas.features.map((feature) => feature.id));
-    parts.buckets.forEach((bucket) => {
-      bucket.areaIds.forEach((areaId) => expect(featureIds.has(areaId)).toBe(true));
-    });
-    const model = buildCustomModel(0, 0, 0, parts.buckets);
-    const ruleAreaIds = model.priority.flatMap((rule) => [
-      ...rule.if.matchAll(/in_([^\s|]+)/g),
-    ].map((match) => match[1]));
-    ruleAreaIds.forEach((areaId) => expect(featureIds.has(areaId)).toBe(true));
   });
 });

@@ -2,7 +2,7 @@
  * GraphHopper Docker container lifecycle helpers for integration tests.
  *
  * Manages the GH test container (defined in docker/docker-compose.test.yml):
- * - startGH(): build + start container, poll /health until 200
+ * - startGH(): discard any previous graph, start container, poll /health until 200
  * - stopGH(): tear down container + volumes
  * - waitForGH(): poll /health with timeout and progress logging
  * - isGHRunning(): check container status
@@ -33,22 +33,24 @@ function compose(...args: string[]): string {
 /**
  * Start the GH test container and wait for it to become healthy.
  * Polls /health every 2s with a 60s timeout.
- * Idempotent: if the container is already running and healthy, returns immediately.
+ * Always removes the test volume before starting. GraphHopper encoded values are
+ * fixed at import time, so reusing a graph imported before `osm_way_id` was added
+ * would make an exact-way integration test a false positive/negative.
  *
  * @throws Error if container fails to start or health check times out
  */
 export async function startGH(timeoutMs = 60_000): Promise<void> {
-  // Idempotent: if already running and healthy, skip
-  if (isGHRunning()) {
-    try {
-      const res = await fetch(`${GRAPHHOPPER_URL}/health`);
-      if (res.ok) {
-        console.log('[gh-lifecycle] GH container already running and healthy ✓');
-        return;
-      }
-    } catch {
-      // Container exists but not healthy — continue with full start
-    }
+  console.log(`[gh-lifecycle] Removing any stale GH test graph via ${COMPOSE_FILE}...`);
+  try {
+    execSync(compose('down', '-v', '--remove-orphans'), {
+      stdio: 'pipe',
+      timeout: 30_000,
+      cwd: process.cwd(),
+    });
+  } catch (err) {
+    // `down` can fail when nothing has been created yet. The subsequent up is
+    // authoritative and reports a useful error if Docker is unavailable.
+    console.log(`[gh-lifecycle] stale graph cleanup warning: ${(err as Error).message}`);
   }
 
   console.log(`[gh-lifecycle] Starting GH container via ${COMPOSE_FILE}...`);

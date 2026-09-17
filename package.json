@@ -8,7 +8,7 @@
     "lint:css": "stylelint \"src/**/*.css\" --ignore-pattern \"src/fe/dist/**\"",
     "lint:css:fix": "stylelint \"src/**/*.css\" --ignore-pattern \"src/fe/dist/**\" --fix",
     "typecheck": "tsc --build",
-    "dev": "pnpm -r --parallel dev",
+  "dev": "pnpm -r --parallel dev",
     "dev:be": "pnpm --filter @vrstevnice/be dev",
     "dev:fe": "pnpm --filter @vrstevnice/fe dev",
     "prod:fe": "pnpm --filter @vrstevnice/fe build",

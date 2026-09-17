@@ -1,13 +1,12 @@
-import { Elysia, t } from 'elysia';
+import { Elysia, t, status as httpStatus } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import logixlysia from 'logixlysia';
 import { rateLimit } from 'elysia-rate-limit';
 import type {
   GeocodeResult,
-  JsonValue,
   PhotonResponse,
   POILocation,
-  RoadRatingAggregate,
+  RoadRatingAggregate, RoadRatingBucket,
 } from '@vrstevnice/shared';
 import { mapPhotonFeature, detectAndParseGPS } from '@vrstevnice/shared';
 import {
@@ -33,11 +32,11 @@ import {
   getVotedRoadsInCorridor,
   RoadGeometryNotFoundError,
   isRoadRatingRoadIndexUnavailable,
-  migrateRatedRoadGeometry,
+  backfillRatedRoadMembers,
   saveRating,
 } from './road-ratings';
 import {
-  buildRoadRatingModelParts,
+  bucketizeRoads,
   createRatingThrottle,
   validateSubtypes,
 } from './road-ratings-core';
@@ -597,27 +596,37 @@ export const app = new Elysia({ prefix: '/api' })
         'Route request',
       );
 
-      let roadRatingBuckets: { multiplier: number; areaIds: string[] }[] = [];
-      let roadRatingAreas: { type: 'FeatureCollection'; features: JsonValue[] } | undefined;
+      let roadRatingBuckets: RoadRatingBucket[] = [];
       if (useRoadRatings) {
+        // Community routing is opt-in: never silently substitute an unrated
+        // route when its persisted data, database, or model preparation fails.
         try {
           const votedRoads = await getVotedRoadsInCorridor(stops);
-          const modelParts = buildRoadRatingModelParts(votedRoads);
-          roadRatingAreas = modelParts.areas;
-          roadRatingBuckets = modelParts.buckets;
+          roadRatingBuckets = bucketizeRoads(votedRoads);
           pino.debug({ roadCount: votedRoads.length }, 'Community road ratings loaded');
         } catch (ratingErr) {
-          pino.warn({ error: (ratingErr as Error).message }, 'Community road ratings unavailable');
+          const message = ratingErr instanceof Error ? ratingErr.message : String(ratingErr);
+          pino.error({ error: message }, 'Community ratings unavailable');
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
+          throw httpStatus(422, { message: `Chyba dat hodnocení cest: ${message}` });
         }
       }
 
-      const customModel = buildCustomModel(
-        elevationCoefficient,
-        roadAvoidanceCoefficient,
-        cyclewayCoefficient,
-        roadRatingBuckets,
-      );
-      if (roadRatingAreas) customModel.areas = roadRatingAreas;
+      let customModel: ReturnType<typeof buildCustomModel>;
+      try {
+        customModel = buildCustomModel(
+          elevationCoefficient,
+          roadAvoidanceCoefficient,
+          cyclewayCoefficient,
+          roadRatingBuckets,
+        );
+      } catch (ratingErr) {
+        if (!useRoadRatings) throw ratingErr;
+        const message = ratingErr instanceof Error ? ratingErr.message : String(ratingErr);
+        pino.error({ error: message }, 'Community ratings model failed');
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw httpStatus(422, { message: `Chyba modelu hodnocení cest: ${message}` });
+      }
       pino.debug({ customModel }, 'Custom model built');
 
       // Stage 1: Compute route (with post-hoc ascent guard when elevation avoidance is active)
@@ -634,7 +643,6 @@ export const app = new Elysia({ prefix: '/api' })
           cyclewayCoefficient,
           roadRatingBuckets,
         );
-        if (roadRatingAreas) baseModel.areas = roadRatingAreas;
         const [elevResult, baseResult] = await Promise.all([
           fetchRouteFromGH(stops, customModel),
           fetchRouteFromGH(stops, baseModel),
@@ -819,14 +827,19 @@ export const app = new Elysia({ prefix: '/api' })
         headers: { 'Content-Type': 'text/plain' },
       });
     }
-  })
+  });
 
-  .listen(3002);
+// Membership backfill MUST complete before the server accepts routing
+// requests — exact osm_way_id rules depend on persisted member IDs.
+{
+  const result = backfillRatedRoadMembers();
+  if (result.memberWrites > 0 || result.rekeys > 0) {
+    console.log(
+      `[road-ratings] backfill: ${result.memberWrites} membership writes, ${result.rekeys} rekeys`,
+    );
+  }
+}
 
-migrateRatedRoadGeometry()
-  .then((migrated) => {
-    if (migrated > 0) console.log(`[road-ratings] migrated ${migrated} rated-road geometries`);
-  })
-  .catch(() => {});
+app.listen(3002);
 
 export type App = typeof app;

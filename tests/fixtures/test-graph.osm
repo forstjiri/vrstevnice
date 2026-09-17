@@ -71,6 +71,25 @@
     <tag k="highway" v="cycleway"/>
     <tag k="surface" v="paving_stones"/>
   </node>
+  <!-- Exact-way isolation nodes must remain before every way for OSM import. -->
+  <node id="100" lat="50.120000" lon="14.440000">
+    <tag k="name" v="Exact_Start"/>
+  </node>
+  <node id="101" lat="50.124000" lon="14.440000">
+    <tag k="name" v="Exact_Junction"/>
+  </node>
+  <node id="102" lat="50.124800" lon="14.440000">
+    <tag k="name" v="Exact_TargetEnd"/>
+  </node>
+  <node id="103" lat="50.132000" lon="14.440000">
+    <tag k="name" v="Exact_End"/>
+  </node>
+  <node id="104" lat="50.124000" lon="14.440700">
+    <tag k="name" v="Exact_Parallel1"/>
+  </node>
+  <node id="105" lat="50.128000" lon="14.440700">
+    <tag k="name" v="Exact_Parallel2"/>
+  </node>
 
   <!-- ===== Ways ===== -->
   <way id="15">
@@ -192,5 +211,17 @@
     <tag k="highway" v="unclassified"/>
     <tag k="name" v="X_BC_3"/>
   </way>
+
+  <!-- ===== Exact-way isolation fixture =====
+       Two deliberately close, parallel alternatives.  They meet at Junction;
+       1001 is a short, independently-rated middle segment on the direct branch.
+       Penalizing it must leave the common approach and the neighbouring branch
+       usable rather than buffering/penalizing the entire junction. -->
+  <way id="1000"><nd ref="100"/><nd ref="101"/><tag k="highway" v="unclassified"/><tag k="name" v="Shared approach"/></way>
+  <way id="1001"><nd ref="101"/><nd ref="102"/><tag k="highway" v="unclassified"/><tag k="name" v="Short rated segment"/></way>
+  <way id="1002"><nd ref="102"/><nd ref="103"/><tag k="highway" v="unclassified"/><tag k="name" v="Direct continuation"/></way>
+  <way id="1010"><nd ref="101"/><nd ref="104"/><tag k="highway" v="unclassified"/><tag k="name" v="Close parallel"/></way>
+  <way id="1011"><nd ref="104"/><nd ref="105"/><tag k="highway" v="unclassified"/><tag k="name" v="Close parallel"/></way>
+  <way id="1012"><nd ref="105"/><nd ref="103"/><tag k="highway" v="unclassified"/><tag k="name" v="Close parallel"/></way>
 
 </osm>

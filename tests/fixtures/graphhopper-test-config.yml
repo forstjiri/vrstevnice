@@ -28,10 +28,12 @@ graphhopper:
   #### Encoded Values ####
   # Required for custom model rules at runtime
   # Note: average_slope/max_slope removed — they require elevation provider
+  # osm_way_id: exact per-edge OSM way identity for community road ratings
   graph.encoded_values: |
     road_class, road_environment, surface, cycleway, bike_network,
     bike_access, bike_average_speed, bike_priority, bike_road_access,
-    car_access, car_average_speed, foot_access, country, roundabout, max_speed, ferry_speed
+    car_access, car_average_speed, foot_access, country, roundabout, max_speed, ferry_speed,
+    osm_way_id
 
   #### Elevation ####
   # No elevation provider for test graph (no DEM data available)
