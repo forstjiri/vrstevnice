@@ -11,7 +11,6 @@
   - zobrazit slider s ikonkama od zelený k červený a body silnice gravel... a čárou, od 5 hodnocení
 
 # Long term nápady
-- PMTiles místo geojson 
 - MapLibre GL JS v6 (říct že chceme named importy místo *)
 - Martin místo tileserver - odstranění maplibre-contour + fe kod (opencode session migrace)
 - čas výjezdu co bude brát v úvahu otevření hospod

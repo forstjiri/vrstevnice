@@ -84,8 +84,11 @@ pnpm dev                 # BE na :3002, FE na :5173
 bash scripts/generate-tiles.sh          # OpenMapTiles CZ + přesné OSM cesty pro hodnocení
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb
 pnpm import-pois                        # SQLite POI databáze z OSM PBF (pivnice, bary, restaurace)
-pnpm extract-routes                     # KČT cyklostezky z OSM
+pnpm generate-route-tiles               # cyklotrasy, turistické trasy a rozcestníky z OSM PBF
 ```
+
+Příkaz potřebuje `uv`, Python 3, Docker a `data/czech-republic-latest.osm.pbf`.
+Výsledkem je `data/routes-overlay.mbtiles`; extrahované prvky se předávají Tippecanoe proudem, bez ukládání GeoJSON mezisouborů.
 
 ### Testování
 

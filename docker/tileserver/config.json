@@ -20,6 +20,9 @@
     },
     "cz-terrain": {
       "mbtiles": "cz-terrain.mbtiles"
+    },
+    "routes-overlay": {
+      "mbtiles": "routes-overlay.mbtiles"
     }
   }
 }

@@ -82,9 +82,14 @@ fi
 
 # Local data files
 info "Local data files"
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite data/hikingroutes.geojson data/guideposts.geojson; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cz-pois.sqlite data/road-rating-roads.sqlite; do
   [[ -f "$f" ]] || die "Chybí $f — spusť nejdřív setup skripty lokálně"
 done
+
+ROUTE_OVERLAY="data/routes-overlay.mbtiles"
+[[ -s "$ROUTE_OVERLAY" ]] || die "Chybí $ROUTE_OVERLAY — vytvoř jej příkazem pnpm generate-route-tiles"
+ok "routes-overlay.mbtiles je připraven"
+
 ok "Datové soubory přítomny"
 
 # Summary
@@ -170,7 +175,7 @@ ok "Kód synchronizován"
 if [[ "$CODE_ONLY" == false ]]; then
   phase "DATA SYNC"
 
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite data/hikingroutes.geojson data/guideposts.geojson; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/routes-overlay.mbtiles data/cz-pois.sqlite data/road-rating-roads.sqlite; do
     fname=$(basename "$f")
     info "$fname"
 

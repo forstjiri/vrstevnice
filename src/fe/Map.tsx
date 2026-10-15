@@ -213,8 +213,8 @@ function getHillshadePaint(
 }
 
 // ── Hiking trails (KČT) + guideposts ──────────────────────────────────────
-// Data are lazily fetched on first toggle-on (~tens of MB), sources and
-// layers are added once, later toggles only flip layer visibility.
+// Vector tiles are fetched for the visible map area; layers are added once,
+// and later toggles only flip layer visibility.
 
 const HIKING_LAYER_IDS = [
   'hiking-routes', 'hiking-guideposts', 'hiking-guideposts-labels',
@@ -230,7 +230,6 @@ const HIKING_TRAIL_COLOR_MATCH = [
 ] satisfies maplibregl.ExpressionSpecification;
 
 let hikingLayersReady = false;
-let hikingLayersLoading: Promise<void> | null = null;
 let hikingPopup: maplibregl.Popup | null = null;
 let hikingLoadGeneration = 0;
 
@@ -242,100 +241,72 @@ function escapeHtml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
-async function ensureHikingLayers(m: maplibregl.Map): Promise<void> {
+function ensureHikingLayers(m: maplibregl.Map): void {
   if (hikingLayersReady) return;
-  if (!hikingLayersLoading) {
-    hikingLayersLoading = Promise.all([
-      fetch('/api/hikingroutes').then((res) => {
-        if (!res.ok) throw new Error(`hikingroutes HTTP ${res.status}`);
-        return res.json() as Promise<FeatureCollection>;
-      }),
-      fetch('/api/guideposts').then((res) => {
-        if (!res.ok) throw new Error(`guideposts HTTP ${res.status}`);
-        return res.json() as Promise<FeatureCollection>;
-      }),
-    ]).then(([routes, guideposts]) => {
-      m.addSource('hikingroutes', {
-        type: 'geojson',
-        data: routes,
-        tolerance: 0.0005,
-        buffer: 1,
-        maxzoom: 14,
-      });
-      m.addSource('guideposts', {
-        type: 'geojson',
-        data: guideposts,
-        buffer: 0,
-        maxzoom: 14,
-      });
 
-      // KČT trails: SOLID lines (no dasharray) in the marking colour.
-      m.addLayer(
-        {
-          id: 'hiking-routes',
-          type: 'line',
-          source: 'hikingroutes',
-          minzoom: 9,
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': HIKING_TRAIL_COLOR_MATCH,
-            'line-width': [
-              'interpolate', ['linear'], ['zoom'],
-              10, 1.6,
-              13, 2.4,
-              16, 4,
-            ],
-            'line-opacity': 0.9,
-          },
-        },
-        'road_major_label',
-      );
+  // KČT trails: SOLID lines (no dasharray) in the marking colour.
+  m.addLayer(
+    {
+      id: 'hiking-routes',
+      type: 'line',
+      source: 'routes-overlay',
+      'source-layer': 'hikingroutes',
+      minzoom: 9,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': HIKING_TRAIL_COLOR_MATCH,
+        'line-width': [
+          'interpolate', ['linear'], ['zoom'],
+          10, 1.6,
+          13, 2.4,
+          16, 4,
+        ],
+        'line-opacity': 0.9,
+      },
+    },
+    'road_major_label',
+  );
 
-      m.addLayer(
-        {
-          id: 'hiking-guideposts',
-          type: 'circle',
-          source: 'guideposts',
-          minzoom: 13,
-          paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 5.5],
-            'circle-color': '#ffffff',
-            'circle-stroke-color': '#4a4a4a',
-            'circle-stroke-width': 1.2,
-          },
-        },
-        'road_major_label',
-      );
+  m.addLayer(
+    {
+      id: 'hiking-guideposts',
+      type: 'circle',
+      source: 'routes-overlay',
+      'source-layer': 'guideposts',
+      minzoom: 13,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 5.5],
+        'circle-color': '#ffffff',
+        'circle-stroke-color': '#4a4a4a',
+        'circle-stroke-width': 1.2,
+      },
+    },
+    'road_major_label',
+  );
 
-      m.addLayer(
-        {
-          id: 'hiking-guideposts-labels',
-          type: 'symbol',
-          source: 'guideposts',
-          minzoom: 15,
-          layout: {
-            'text-field': ['coalesce', ['get', 'name'], 'Rozcestník'],
-            'text-size': 11,
-            'text-offset': [0, 1.1],
-            'text-anchor': 'top',
-          },
-          paint: {
-            'text-color': '#333333',
-            'text-halo-color': '#ffffff',
-            'text-halo-width': 1.5,
-          },
-        },
-        'road_major_label',
-      );
+  m.addLayer(
+    {
+      id: 'hiking-guideposts-labels',
+      type: 'symbol',
+      source: 'routes-overlay',
+      'source-layer': 'guideposts',
+      minzoom: 15,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name'], 'Rozcestník'],
+        'text-size': 11,
+        'text-offset': [0, 1.1],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': '#333333',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.5,
+      },
+    },
+    'road_major_label',
+  );
 
-      hikingLayersReady = true;
-    }).catch((error: Error) => {
-      // Allow a retry on the next toggle — e.g. data not extracted yet.
-      hikingLayersLoading = null;
-      throw error;
-    });
-  }
-  await hikingLayersLoading;
+  hikingLayersReady = true;
 }
 
 function setHikingLayersVisibility(m: maplibregl.Map, visible: boolean): void {
@@ -1018,9 +989,15 @@ export default function Map() {
     m.addControl(locationControl);
 
     m.on('load', () => {
-      setMapReady(true);
       // @ts-ignore debug
       window.__map = m;
+
+      m.addSource('routes-overlay', {
+        type: 'vector',
+        tiles: ['/data/routes-overlay/{z}/{x}/{y}.pbf'],
+        minzoom: 9,
+        maxzoom: 14,
+      });
 
       // Guidepost popup: name + coloured chips of trails passing through.
       m.on('click', 'hiking-guideposts', (e) => {
@@ -1481,49 +1458,37 @@ export default function Map() {
         );
       } catch {}
 
-      // Load KČT cycle routes overlay
-      fetch('/api/cycleroutes')
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json();
-        })
-        .then((geojson) => {
-          m.addSource('cycleroutes', {
-            type: 'geojson',
-            data: geojson,
-            tolerance: 0.0005,
-            buffer: 1,
-            maxzoom: 14,
-          });
+      CYCLE_ROUTE_STYLES.forEach((layer) => {
+        const filter = layer.network === 'other'
+          ? [
+            'all',
+            ['!=', ['get', 'network'], 'ncn'],
+            ['!=', ['get', 'network'], 'rcn'],
+            ['!=', ['get', 'network'], 'lcn'],
+          ]
+          : ['==', ['get', 'network'], layer.network];
+        m.addLayer(
+          {
+            id: layer.id,
+            type: 'line',
+            source: 'routes-overlay',
+            'source-layer': 'cycleroutes',
+            minzoom: 10,
+            filter: filter as maplibregl.FilterSpecification,
+            paint: {
+              'line-color': layer.color,
+              'line-width': layer.width,
+              'line-dasharray': [3, 2],
+              'line-opacity': 0.7,
+            },
+          },
+          'road_major_label',
+        );
+      });
 
-          CYCLE_ROUTE_STYLES.forEach((layer) => {
-            const filter = layer.network === 'other'
-              ? [
-                'all',
-                ['!=', ['get', 'network'], 'ncn'],
-                ['!=', ['get', 'network'], 'rcn'],
-                ['!=', ['get', 'network'], 'lcn'],
-              ]
-              : ['==', ['get', 'network'], layer.network];
-            m.addLayer(
-              {
-                id: layer.id,
-                type: 'line',
-                source: 'cycleroutes',
-                minzoom: 10,
-                filter: filter as maplibregl.FilterSpecification,
-                paint: {
-                  'line-color': layer.color,
-                  'line-width': layer.width,
-                  'line-dasharray': [3, 2],
-                  'line-opacity': 0.7,
-                },
-              },
-              'road_major_label',
-            );
-          });
-        })
-        .catch(() => {});
+      // Effects gated by mapReady may add layers from sources created above.
+      // Mark the map ready only after all load-time sources and layers exist.
+      setMapReady(true);
     });
 
     // Context menu handling
@@ -2095,7 +2060,6 @@ export default function Map() {
     hikingLoadGeneration += 1;
     setHikingLoading(false);
     hikingLayersReady = false;
-    hikingLayersLoading = null;
     map?.remove();
   });
 
@@ -2145,18 +2109,11 @@ export default function Map() {
       return;
     }
     setHikingLoading(true);
-    ensureHikingLayers(m)
-      .then(async () => {
-        // Toggle may have been switched off while data were still loading.
-        if (generation === hikingLoadGeneration && map === m && mapControls.hikingTrailsOn) {
-          setHikingLayersVisibility(m, true);
-          await waitForMapRender(m);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (generation === hikingLoadGeneration) setHikingLoading(false);
-      });
+    ensureHikingLayers(m);
+    setHikingLayersVisibility(m, true);
+    waitForMapRender(m).finally(() => {
+      if (generation === hikingLoadGeneration) setHikingLoading(false);
+    });
   });
 
   createEffect(() => {

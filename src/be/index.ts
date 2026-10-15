@@ -18,7 +18,7 @@ import {
   deduplicatePOIs,
 } from '@vrstevnice/routing';
 import { resolve } from 'node:path';
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile } from 'node:fs/promises';
 import { Buffer } from 'node:buffer';
 import { db, routes } from './db';
 import { computeShadowProfile, hasTerrainData, readTerrainTile } from './terrain';
@@ -809,61 +809,7 @@ export const app = new Elysia({ prefix: '/api' })
     },
   )
 
-  .get('/history', async () => db.select().from(routes).orderBy(routes.createdAt).all())
-
-  .get('/cycleroutes', async () => {
-    const filePath = resolve(PROJECT_ROOT, 'data', 'cycleroutes.geojson');
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      return new Response(data, {
-        headers: {
-          'Content-Type': 'application/geo+json',
-          'Cache-Control': 'public, max-age=86400',
-        },
-      });
-    } catch {
-      return new Response('Cycle routes data not found. Run pnpm extract-routes first.', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain' },
-      });
-    }
-  })
-
-  .get('/hikingroutes', async () => {
-    const filePath = resolve(PROJECT_ROOT, 'data', 'hikingroutes.geojson');
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      return new Response(data, {
-        headers: {
-          'Content-Type': 'application/geo+json',
-          'Cache-Control': 'public, max-age=86400',
-        },
-      });
-    } catch {
-      return new Response('Hiking routes data not found. Run pnpm extract-hiking-routes first.', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain' },
-      });
-    }
-  })
-
-  .get('/guideposts', async () => {
-    const filePath = resolve(PROJECT_ROOT, 'data', 'guideposts.geojson');
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      return new Response(data, {
-        headers: {
-          'Content-Type': 'application/geo+json',
-          'Cache-Control': 'public, max-age=86400',
-        },
-      });
-    } catch {
-      return new Response('Guideposts data not found. Run pnpm extract-hiking-routes first.', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain' },
-      });
-    }
-  });
+  .get('/history', async () => db.select().from(routes).orderBy(routes.createdAt).all());
 
 // Membership backfill MUST complete before the server accepts routing
 // requests — exact osm_way_id rules depend on persisted member IDs.

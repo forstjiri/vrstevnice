@@ -33,8 +33,7 @@ One-time setup (after first clone):
 ```bash
 bash scripts/generate-tiles.sh          # vector tiles + original OSM road-way index for ratings
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb tiles
-pnpm extract-routes                   # cycle routes from OSM (requires Python + osmium)
-pnpm extract-hiking-routes            # KČT hiking routes + guideposts from OSM (requires Python + osmium)
+pnpm generate-route-tiles             # cycle/hiking overlays + guideposts MBTiles from OSM PBF (requires uv, Python, Docker)
 pnpm import-pois                      # SQLite POI DB from OSM PBF
 ```
 
@@ -78,9 +77,6 @@ data/              mbtiles, GeoJSON, DEM data, SQLite DB (gitignored)
 | GET | `/api/geocode` | Place search (Photon) + reverse GPS geocoding |
 | POST | `/api/route` | Route calculation (GraphHopper + optional POI pipeline + optional shadow profile) |
 | GET | `/api/history` | Route history from SQLite |
-| GET | `/api/cycleroutes` | GeoJSON of cycle routes |
-| GET | `/api/hikingroutes` | GeoJSON of KČT hiking routes (four-colour palette) |
-| GET | `/api/guideposts` | GeoJSON of guideposts with trail colour sets |
 | GET | `/api/terrain/:z/:x/:y` | Terrain tile proxy with 404 fallback (transparent PNG) |
 | GET | `/api/road-rating-roads?bbox=minLng,minLat,maxLng,maxLat` | Original OSM road ways in viewport for rating interaction |
 | GET | `/api/road-ratings?bbox=minLng,minLat,maxLng,maxLat` | Aggregated rated roads in viewport |
@@ -118,10 +114,11 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **3D terrain** (Exaggeration slider) + **hillshade** (solar lighting from date/time + map center)
 - **Contour lines** from DEM data via maplibre-contour protocol
 - **Cycling styling**: highways/primary roads dimmed, forest tracks widened (`cycle-path-widen` layer, minzoom 12)
-- **KČT cycle routes**: colored overlay from cycleroutes.geojson (~48 MB, future: vector tiles)
+- **KČT cycle routes**: colored overlay from `routes-overlay.mbtiles` vector tiles; only visible map tiles are fetched
 - **Turistické trasy ČR**: 🥾 top-right toggle; KČT hiking routes as SOLID lines in marking colour from
-  hikingroutes.geojson + guidepost markers (guideposts.geojson) with trail-colour chips in a click popup.
-  Both layers lazy-load (~60–90 MB) on first toggle-on; later toggles only flip layer visibility.
+  `routes-overlay.mbtiles` + guidepost markers with trail-colour chips in a click popup.
+  The cycle and hiking layers share tiles, so visible tiles can include hiking features before the hiking toggle is enabled;
+  the toggle controls rendering, while later toggles only change layer visibility.
 - **Transit layers**: railways, train stops, bus stops
 - **Inspect mode**: shows layer ID, source-layer, zoom, GPS, relevant OSM tags
 - **Context menu**: add stop, open Mapy.cz
@@ -180,7 +177,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **Data sources:**
   - Vector tiles: `data/cz.mbtiles` (OpenMapTiles, z0–14, ~684 MB)
   - Terrain tiles: `data/cz-terrain.mbtiles` (terrain-rgb, DMR 5G z0–14)
-  - Cycle routes: `data/cycleroutes.geojson` (~48 MB, 3510 features)
+  - Cycle and hiking routes + guideposts: `data/routes-overlay.mbtiles` (generated from the OSM PBF through a two-pass Python extractor and NDJSON stream to Tippecanoe)
   - Road ratings: `data/road-rating-roads.sqlite` (original OSM highway ways with R-tree viewport index)
   - POIs: `data/cz-pois.sqlite` (~20k amenity nodes: pubs, bars, restaurants, cafes, biergartens)
 - **Zero external API calls** (all data local)
@@ -315,7 +312,7 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | File | Purpose |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | `src/shared/index.ts` | Shared TypeScript interfaces (Stop, GeocodeResult, RouteResponse, RouteRequest) |
-| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /cycleroutes, /terrain |
+| `src/be/index.ts` | Elysia server — /geocode, /route, /history, /terrain |
 | `src/be/geocode.ts` | Photon geocoder mapping (coordinate swap!) |
 | `src/be/gps.ts` | GPS parsing (DD/DDM/DMS formats) |
 | `src/be/db.ts` | Drizzle schema + Bun SQLite (`data/data.db`) |
@@ -336,4 +333,4 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 | `docker-compose.yml` | GH + Photon + tileserver services |
 | `scripts/generate-terrain-tiles-dmr5g.py` | Generate terrain-rgb mbtiles from ČÚZK DMR 5G |
 | `scripts/import-pois.py` | Extract amenity nodes from OSM PBF into SQLite POI database |
-| `scripts/extract_bicycle_routes.py` | Extract cycle route relations from OSM PBF into GeoJSON |
+| `scripts/extract_route_overlay.py` | Extract cycle/hiking relations + guideposts from OSM PBF as layered NDJSON for Tippecanoe |
