@@ -27,6 +27,7 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/vrstevnice}"
 GH_HEAP="${GH_HEAP:-1500m}"
 BE_PORT="${BE_PORT:-3002}"
 COMPOSE_PROJECT="vrstevnice"
+GH_CACHE_DIR="graph-cache-osmwayid"
 
 CODE_ONLY=false
 TRANSFER_PHOTON=false
@@ -81,7 +82,7 @@ fi
 
 # Local data files
 info "Local data files"
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite; do
   [[ -f "$f" ]] || die "Chybí $f — spusť nejdřív setup skripty lokálně"
 done
 ok "Datové soubory přítomny"
@@ -169,7 +170,7 @@ ok "Kód synchronizován"
 if [[ "$CODE_ONLY" == false ]]; then
   phase "DATA SYNC"
 
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite; do
     fname=$(basename "$f")
     info "$fname"
 
@@ -193,35 +194,46 @@ fi
 if [[ "$CODE_ONLY" == false ]]; then
   phase "DOCKER IMAGE + VOLUMES"
 
-  # GH image — must match local graph-cache version!
+  GH_VOL="${COMPOSE_PROJECT}_gh-data"
+  PHOTON_VOL="${COMPOSE_PROJECT}_photon-data"
+  # Volumes must exist before `up` — the generated override marks them external.
+  runc "docker volume create $GH_VOL >/dev/null 2>&1"
+  runc "docker volume create $PHOTON_VOL >/dev/null 2>&1"
+
+  # Use the digest-pinned image from Compose, not an unrelated latest tag.
   info "GraphHopper Docker image"
-  GH_IMAGE_ON_REMOTE=$(runc 'docker images -q israelhikingmap/graphhopper:latest 2>/dev/null | head -1')
-  if [[ -n "$GH_IMAGE_ON_REMOTE" ]]; then
+  GH_IMAGE=$(docker compose -p "$COMPOSE_PROJECT" config --images graphhopper)
+  if runc "docker image inspect '$GH_IMAGE' >/dev/null 2>&1"; then
     ok "GH image už na serveru"
   else
-    warn "Přenáším GH image (verze musí sedět s graph-cache)..."
-    docker save israelhikingmap/graphhopper:latest | runc 'docker load >/dev/null 2>&1'
-    ok "GH image přenesen"
+    info "Stahuji $GH_IMAGE"
+    runc "docker pull '$GH_IMAGE'"
+    ok "GH image připraven"
   fi
 
-  # gh-data volume — graph-cache
-  info "GraphHopper graph-cache volume"
-  GH_VOL="${COMPOSE_PROJECT}_gh-data"
-  GH_CACHE_EXISTS=$(runc "docker run --rm -v ${GH_VOL}:/d alpine sh -c 'test -d /d/graph-cache && echo yes || echo no' 2>/dev/null" || echo "no")
+  # Encoded values are fixed at import time; the legacy graph-cache is not compatible.
+  info "GraphHopper $GH_CACHE_DIR volume"
+  GH_CACHE_CHECK="test -s /d/$GH_CACHE_DIR/edges && test -s /d/$GH_CACHE_DIR/properties && grep -aq osm_way_id /d/$GH_CACHE_DIR/properties"
+  GH_CACHE_EXISTS=$(runc "docker run --rm -v ${GH_VOL}:/d:ro alpine sh -c '$GH_CACHE_CHECK && echo yes || echo no' 2>/dev/null" || echo "no")
   if [[ "$GH_CACHE_EXISTS" == "yes" ]]; then
-    ok "graph-cache volume už populovaný"
+    ok "$GH_CACHE_DIR s osm_way_id už přítomný"
   else
-    warn "Přenáším graph-cache..."
-    runc "docker volume create $GH_VOL >/dev/null 2>&1"
-    docker run --rm -v vrstevnice_gh-data:/d alpine tar c -C /d . 2>/dev/null \
-      | runc "docker run --rm -i -v ${GH_VOL}:/d alpine tar x -C /d 2>/dev/null"
-    ok "graph-cache přenesen"
+    docker run --rm -v "${GH_VOL}:/d:ro" alpine sh -c "$GH_CACHE_CHECK" \
+      || die "Lokální $GH_CACHE_DIR s osm_way_id chybí — nejdřív importuj aktuální GH graf"
+    warn "Přenáším $GH_CACHE_DIR..."
+    runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT stop graphhopper || true"
+    runc "docker run --rm -v ${GH_VOL}:/d alpine sh -c 'rm -rf /d/$GH_CACHE_DIR'"
+    docker run --rm -v "${GH_VOL}:/d:ro" alpine tar c -C /d "$GH_CACHE_DIR" \
+      | runc "docker run --rm -i -v ${GH_VOL}:/d alpine tar x -C /d"
+    runc "docker run --rm -v ${GH_VOL}:/d:ro alpine sh -c '$GH_CACHE_CHECK'" \
+      || die "Přenesený $GH_CACHE_DIR není kompletní"
+    ok "$GH_CACHE_DIR přenesen"
   fi
 
   # photon-data volume — CZ Photon database
   info "Photon CZ database volume"
-  PHOTON_VOL="${COMPOSE_PROJECT}_photon-data"
-  PHOTON_DB_EXISTS=$(runc "docker run --rm -v ${PHOTON_VOL}:/d alpine sh -c 'test -f /d/photon_data.lock && echo yes || echo no' 2>/dev/null" || echo "no")
+  # photon-docker initializes its ES-like store into photon_data/node_1
+  PHOTON_DB_EXISTS=$(runc "docker run --rm -v ${PHOTON_VOL}:/d:ro alpine sh -c 'test -d /d/photon_data/node_1 && echo yes || echo no' 2>/dev/null" || echo "no")
   if [[ "$PHOTON_DB_EXISTS" == "yes" ]]; then
     ok "photon-data volume už populované"
   else
@@ -231,10 +243,15 @@ if [[ "$CODE_ONLY" == false ]]; then
       [[ "$transfer_choice" =~ ^[yY]$ ]] && TRANSFER_PHOTON=true
     fi
     if [[ "$TRANSFER_PHOTON" == true ]]; then
+      docker run --rm -v "${PHOTON_VOL}:/d:ro" alpine sh -c 'test -d /d/photon_data/node_1' \
+        || die "Lokální Photon databáze ve volume $PHOTON_VOL chybí — nejdřív ji nahraj lokálně"
       warn "Přenáším Photon CZ databázi..."
-      runc "docker volume create $PHOTON_VOL >/dev/null 2>&1"
-      docker run --rm -v vrstevnice_photon-data:/d alpine tar c -C /d . 2>/dev/null \
-        | runc "docker run --rm -i -v ${PHOTON_VOL}:/d alpine tar x -C /d 2>/dev/null"
+      runc "cd $REMOTE_DIR && docker compose -p $COMPOSE_PROJECT stop photon || true"
+      runc "docker run --rm -v ${PHOTON_VOL}:/d alpine sh -c 'rm -rf /d/photon_data'"
+      docker run --rm -v "${COMPOSE_PROJECT}_photon-data:/d:ro" alpine tar c -C /d . \
+        | runc "docker run --rm -i -v ${PHOTON_VOL}:/d alpine tar x -C /d"
+      runc "docker run --rm -v ${PHOTON_VOL}:/d:ro alpine sh -c 'test -d /d/photon_data/node_1'" \
+        || die "Přenesená Photon databáze není kompletní"
       ok "photon-data přeneseno"
     else
       ok "Přeskočeno — Photon DB se přenese při prvním spuštění (trvá ~5 min)"
@@ -258,13 +275,21 @@ services:
       JAVA_OPTS: \"-Xmx${GH_HEAP} -Xms${GH_XMS}\"
   tileserver:
     command: [--config, /config/config.json, --public_url, https://howevil.eu]
+volumes:
+  gh-data:
+    external: true
+    name: ${COMPOSE_PROJECT}_gh-data
+  photon-data:
+    external: true
+    name: ${COMPOSE_PROJECT}_photon-data
 EOFOVERRIDE"
-ok "override vytvořen (-Xmx${GH_HEAP} -Xms${GH_XMS}, tileserver public_url)"
+ok "override vytvořen (-Xmx${GH_HEAP} -Xms${GH_XMS}, tileserver public_url, externí volumeny)"
 
 info "Dummy OSM PBF stub (GH mount fix)"
 # Docker compose mountuje data/czech-republic-latest.osm.pbf jako file.
-# Pokud neexistuje, Docker vytvoří dir → mount selže. Graph-cache už má všechno.
-runc "rm -rf $REMOTE_DIR/data/czech-republic-latest.osm.pbf; touch $REMOTE_DIR/data/czech-republic-latest.osm.pbf"
+# Pokud neexistuje, Docker vytvoří dir → mount selže. Existující PBF nikdy nemaž.
+runc "test ! -d $REMOTE_DIR/data/czech-republic-latest.osm.pbf && touch $REMOTE_DIR/data/czech-republic-latest.osm.pbf" \
+  || die "OSM mount je adresář — oprav $REMOTE_DIR/data/czech-republic-latest.osm.pbf"
 ok "stub vytvořen"
 
 info "systemd služba pro BE"
@@ -372,7 +397,7 @@ info "FE served"
 if runc "curl -sf --max-time 5 http://localhost:$BE_PORT/" >/dev/null 2>&1; then
   ok "FE HTML OK"
 else
-  warn "FE HTML — ještě se стартuje?"
+  warn "FE HTML — ještě se startuje?"
   FAIL=1
 fi
 
@@ -425,8 +450,6 @@ echo "╔═══════════════════════�
 echo "║                    DEPLOY DOKONČEN                         ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 
-# Get server IP for display
-SERVER_IP="${REMOTE#*@}"
 echo "║                                                              ║"
 printf "║  \033[1;32mOtevři v prohlížeči:\033[0m  https://howevil.eu                  ║\n"
 echo "║                                                              ║"
@@ -452,6 +475,7 @@ echo "╚═══════════════════════�
 if [[ "$FAIL" -gt 0 ]]; then
   echo ""
   warn "Některé checky selhaly — možná služby ještě startují. Zkus za 30s refresh."
+  exit 1
 fi
 
 echo ""

@@ -56,7 +56,8 @@ services:
     working_dir: /config
     command: [--config, /config/config.json]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      # tileserver-gl-light image has no curl — it is a Node app, use node fetch
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/', {signal: AbortSignal.timeout(5000)}).then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5
