@@ -54,7 +54,6 @@ export function bucketizeRoads(
   // to resolve by policy — reject it loudly.
   const ownership = new Map<number, { owner: number }>();
   roads.forEach((road) => {
-    const rounded = Math.round(road.multiplier * 100) / 100;
     if (!Number.isFinite(road.multiplier)) {
       throw new Error(`Non-finite multiplier for rated road ${road.wayId}`);
     }
@@ -149,7 +148,11 @@ export function planMemberBackfill(
     }
     // Invalid member IDs would poison routing rules — abort this group loudly.
     const memberIds = normalizedMemberIds(group.memberIds);
-    if (!isValidOsmWayId(group.wayId) || memberIds.length === 0 || !memberIds.every(isValidOsmWayId)) {
+    if (
+      !isValidOsmWayId(group.wayId)
+      || memberIds.length === 0
+      || !memberIds.every(isValidOsmWayId)
+    ) {
       plan.unresolved.push(row.wayId);
       return;
     }

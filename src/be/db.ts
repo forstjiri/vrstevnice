@@ -19,8 +19,12 @@ const sqlite = new Database(resolve(DATA_DIR, 'data.db'));
 
 function enableForeignKeys(sqliteHandle: Database): void {
   sqliteHandle.exec('PRAGMA foreign_keys = ON');
-  const enabled = sqliteHandle.query('PRAGMA foreign_keys').get() as { foreign_keys?: number } | null;
-  if (enabled?.foreign_keys !== 1) throw new Error('SQLite foreign key enforcement could not be enabled');
+  const enabled = sqliteHandle.query('PRAGMA foreign_keys').get() as
+    | { foreign_keys?: number }
+    | null;
+  if (enabled?.foreign_keys !== 1) {
+    throw new Error('SQLite foreign key enforcement could not be enabled');
+  }
 }
 
 function ensureColumn(sqliteHandle: Database, table: string, column: string, definition: string) {
@@ -91,40 +95,85 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
 
   /** Audit legacy rows before atomically enforcing FK and global ownership constraints. */
   const enforceRoadRatingConstraints = () => {
-  const violations = sqliteHandle.query(`
-    SELECT 'orphan_rating' AS kind, rr.way_id AS value FROM road_ratings rr LEFT JOIN rated_roads r ON r.way_id = rr.way_id WHERE r.way_id IS NULL
-    UNION ALL SELECT 'orphan_member', m.osm_way_id FROM rated_road_members m LEFT JOIN rated_roads r ON r.way_id = m.rated_way_id WHERE r.way_id IS NULL
-    UNION ALL SELECT 'overlapping_member', osm_way_id FROM rated_road_members GROUP BY osm_way_id HAVING count(DISTINCT rated_way_id) > 1
+    const violations = sqliteHandle.query(`
+    SELECT 'orphan_rating' AS kind, rr.way_id AS value
+    FROM road_ratings rr
+    LEFT JOIN rated_roads r ON r.way_id = rr.way_id
+    WHERE r.way_id IS NULL
+    UNION ALL SELECT 'orphan_member', m.osm_way_id
+    FROM rated_road_members m
+    LEFT JOIN rated_roads r ON r.way_id = m.rated_way_id
+    WHERE r.way_id IS NULL
+    UNION ALL SELECT 'overlapping_member', osm_way_id
+    FROM rated_road_members
+    GROUP BY osm_way_id
+    HAVING count(DISTINCT rated_way_id) > 1
   `).all();
-  if (violations.length) throw new Error(`Road-rating migration audit failed: ${JSON.stringify(violations)}`);
-  const definition = sqliteHandle.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rated_road_members'").get() as { sql?: string } | null;
-  const ratingsDefinition = sqliteHandle.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'road_ratings'").get() as { sql?: string } | null;
-   if (
-     definition?.sql?.includes('REFERENCES rated_roads') && definition.sql.includes('UNIQUE (osm_way_id)')
-     && ratingsDefinition?.sql?.includes('REFERENCES rated_roads')
-   ) {
-     ensureColumn(sqliteHandle, 'road_ratings', 'comment', 'TEXT');
-     return;
-   }
-   sqliteHandle.transaction(() => {
-     // Deferred checks let the replacement tables be populated and renamed
-     // while FK enforcement remains enabled for this connection.
-     sqliteHandle.exec('PRAGMA defer_foreign_keys = ON');
-     ensureColumn(sqliteHandle, 'road_ratings', 'comment', 'TEXT');
-     sqliteHandle.exec(`
-       CREATE TABLE rated_roads_new (way_id INTEGER PRIMARY KEY, name TEXT, geometry TEXT NOT NULL, anchor_lat REAL NOT NULL, anchor_lng REAL NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
-      CREATE TABLE rated_road_members_new (rated_way_id INTEGER NOT NULL REFERENCES rated_roads_new(way_id) ON DELETE CASCADE, osm_way_id INTEGER NOT NULL, UNIQUE (rated_way_id, osm_way_id), UNIQUE (osm_way_id));
-      CREATE TABLE road_ratings_new (id INTEGER PRIMARY KEY AUTOINCREMENT, way_id INTEGER NOT NULL REFERENCES rated_roads_new(way_id) ON DELETE CASCADE, ip TEXT NOT NULL, type TEXT NOT NULL, subtypes TEXT NOT NULL, multiplier REAL NOT NULL, comment TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (way_id, ip));
-      INSERT INTO rated_roads_new SELECT way_id, name, geometry, anchor_lat, anchor_lng, created_at FROM rated_roads;
-      INSERT INTO rated_road_members_new SELECT rated_way_id, osm_way_id FROM rated_road_members;
-      INSERT INTO road_ratings_new SELECT id, way_id, ip, type, subtypes, multiplier, comment, updated_at FROM road_ratings;
-       DROP TABLE road_ratings; DROP TABLE rated_road_members; DROP TABLE rated_roads;
-       ALTER TABLE rated_roads_new RENAME TO rated_roads; ALTER TABLE rated_road_members_new RENAME TO rated_road_members; ALTER TABLE road_ratings_new RENAME TO road_ratings;
-     `);
-   })();
-   const fkErrors = sqliteHandle.query('PRAGMA foreign_key_check').all();
-   if (fkErrors.length) throw new Error(`Road-rating foreign-key check failed: ${JSON.stringify(fkErrors)}`);
-   };
+    if (violations.length) {
+      throw new Error(`Road-rating migration audit failed: ${JSON.stringify(violations)}`);
+    }
+    const definition = sqliteHandle.query(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rated_road_members'",
+    ).get() as { sql?: string } | null;
+    const ratingsDefinition = sqliteHandle.query(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'road_ratings'",
+    ).get() as { sql?: string } | null;
+    if (
+      definition?.sql?.includes('REFERENCES rated_roads')
+      && definition.sql.includes('UNIQUE (osm_way_id)')
+      && ratingsDefinition?.sql?.includes('REFERENCES rated_roads')
+    ) {
+      ensureColumn(sqliteHandle, 'road_ratings', 'comment', 'TEXT');
+      return;
+    }
+    sqliteHandle.transaction(() => {
+      // Deferred checks let the replacement tables be populated and renamed
+      // while FK enforcement remains enabled for this connection.
+      sqliteHandle.exec('PRAGMA defer_foreign_keys = ON');
+      ensureColumn(sqliteHandle, 'road_ratings', 'comment', 'TEXT');
+      sqliteHandle.exec(`
+       CREATE TABLE rated_roads_new (
+         way_id INTEGER PRIMARY KEY,
+         name TEXT,
+         geometry TEXT NOT NULL,
+         anchor_lat REAL NOT NULL,
+         anchor_lng REAL NOT NULL,
+         created_at TEXT NOT NULL DEFAULT (datetime('now'))
+       );
+       CREATE TABLE rated_road_members_new (
+         rated_way_id INTEGER NOT NULL REFERENCES rated_roads_new(way_id) ON DELETE CASCADE,
+         osm_way_id INTEGER NOT NULL,
+         UNIQUE (rated_way_id, osm_way_id),
+         UNIQUE (osm_way_id)
+       );
+       CREATE TABLE road_ratings_new (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         way_id INTEGER NOT NULL REFERENCES rated_roads_new(way_id) ON DELETE CASCADE,
+         ip TEXT NOT NULL,
+         type TEXT NOT NULL,
+         subtypes TEXT NOT NULL,
+         multiplier REAL NOT NULL,
+         comment TEXT,
+         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+         UNIQUE (way_id, ip)
+       );
+       INSERT INTO rated_roads_new
+         SELECT way_id, name, geometry, anchor_lat, anchor_lng, created_at FROM rated_roads;
+       INSERT INTO rated_road_members_new
+         SELECT rated_way_id, osm_way_id FROM rated_road_members;
+       INSERT INTO road_ratings_new
+         SELECT id, way_id, ip, type, subtypes, multiplier, comment, updated_at FROM road_ratings;
+        DROP TABLE road_ratings; DROP TABLE rated_road_members; DROP TABLE rated_roads;
+        ALTER TABLE rated_roads_new RENAME TO rated_roads;
+        ALTER TABLE rated_road_members_new RENAME TO rated_road_members;
+        ALTER TABLE road_ratings_new RENAME TO road_ratings;
+      `);
+    })();
+    const fkErrors = sqliteHandle.query('PRAGMA foreign_key_check').all();
+    if (fkErrors.length) {
+      throw new Error(`Road-rating foreign-key check failed: ${JSON.stringify(fkErrors)}`);
+    }
+  };
 
   enforceRoadRatingConstraints();
 
@@ -132,9 +181,11 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
   const column = sqliteHandle.query(
     "SELECT 1 FROM pragma_table_info('rated_roads') WHERE name = 'geometry_version'",
   ).get();
-  if (column) sqliteHandle.transaction(() => {
-    sqliteHandle.exec('ALTER TABLE rated_roads DROP COLUMN geometry_version');
-  })();
+  if (column) {
+    sqliteHandle.transaction(() => {
+      sqliteHandle.exec('ALTER TABLE rated_roads DROP COLUMN geometry_version');
+    })();
+  }
   enableForeignKeys(sqliteHandle);
 }
 

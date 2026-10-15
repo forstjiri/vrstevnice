@@ -9,7 +9,7 @@ import type {
   RoadRatingSubtype,
   RoadRatingType,
   Stop,
-  OSMRoadWay, RoadRatingBucket,
+  OSMRoadWay,
 } from '@vrstevnice/shared';
 import {
   connectedRoadWayGroup,
@@ -349,9 +349,14 @@ export function applyMemberBackfill(
       const source = byId.get(fromWayId);
       if (!source) throw new Error(`Rekey source row missing: ${fromWayId}`);
       const resolved = plan.resolvedGroups?.get(fromWayId);
-      if (!resolved?.geometry || !Number.isFinite(resolved.anchorLat) || !Number.isFinite(resolved.anchorLng)) {
+      if (
+        !resolved?.geometry
+        || !Number.isFinite(resolved.anchorLat)
+        || !Number.isFinite(resolved.anchorLng)
+      ) {
         throw new RoadRatingIntegrityError([{
-          code: 'invalid_group', wayId: fromWayId,
+          code: 'invalid_group',
+          wayId: fromWayId,
           action: 'Resolve the road group from the road index before rekeying it.',
         }]);
       }
@@ -390,20 +395,28 @@ export function applyMemberBackfill(
     // anchor even when membership itself is unchanged.
     plan.resolvedGroups?.forEach((resolved, sourceWayId) => {
       if (resolved.wayId !== sourceWayId) return;
-      if (!resolved.geometry || !Number.isFinite(resolved.anchorLat) || !Number.isFinite(resolved.anchorLng)) {
+      if (
+        !resolved.geometry
+        || !Number.isFinite(resolved.anchorLat)
+        || !Number.isFinite(resolved.anchorLng)
+      ) {
         throw new RoadRatingIntegrityError([{
-          code: 'invalid_group', wayId: sourceWayId,
+          code: 'invalid_group',
+          wayId: sourceWayId,
           action: 'Resolve geometry and anchors from the road index before backfilling.',
         }]);
       }
-      sqlite.query(`UPDATE rated_roads SET name = ?, geometry = ?, anchor_lat = ?, anchor_lng = ? WHERE way_id = ?`)
-        .run(
-          resolved.name ?? null,
-          resolved.geometry,
-          resolved.anchorLat as number,
-          resolved.anchorLng as number,
-          sourceWayId,
-        );
+      sqlite.query(`
+        UPDATE rated_roads
+        SET name = ?, geometry = ?, anchor_lat = ?, anchor_lng = ?
+        WHERE way_id = ?
+      `).run(
+        resolved.name ?? null,
+        resolved.geometry,
+        resolved.anchorLat as number,
+        resolved.anchorLng as number,
+        sourceWayId,
+      );
     });
     if (failDuringApply) failDuringApply();
   })();
@@ -427,10 +440,15 @@ export function backfillRatedRoadMembersFor(
   unresolved: number[];
 } {
   return sqlite.transaction(() => {
-    const rows = sqlite.query('SELECT way_id wayId, name, geometry, anchor_lat anchorLat, anchor_lng anchorLng FROM rated_roads')
-      .all() as MemberBackfillRow[];
+    const rows = sqlite.query(`
+      SELECT way_id wayId, name, geometry,
+             anchor_lat anchorLat, anchor_lng anchorLng
+      FROM rated_roads
+    `).all() as MemberBackfillRow[];
     const existingMembers = new Map<number, number[]>();
-    (sqlite.query('SELECT rated_way_id ratedWayId, osm_way_id osmWayId FROM rated_road_members').all() as {
+    (sqlite.query(
+      'SELECT rated_way_id ratedWayId, osm_way_id osmWayId FROM rated_road_members',
+    ).all() as {
       ratedWayId: number; osmWayId: number;
     }[]).forEach((member) => existingMembers.set(member.ratedWayId, [
       ...(existingMembers.get(member.ratedWayId) ?? []), member.osmWayId,
@@ -439,7 +457,11 @@ export function backfillRatedRoadMembersFor(
     const plan = planMemberBackfill(rows, existingMembers, (wayId) => {
       const group = resolveGroupForWay(wayId);
       if (!group) return null;
-      if (!isValidOsmWayId(group.wayId) || group.memberIds.length === 0 || !group.memberIds.every(isValidOsmWayId)) {
+      if (
+        !isValidOsmWayId(group.wayId)
+        || group.memberIds.length === 0
+        || !group.memberIds.every(isValidOsmWayId)
+      ) {
         invalid.add(wayId);
         return null;
       }
@@ -448,43 +470,62 @@ export function backfillRatedRoadMembersFor(
     const diagnostics: RoadRatingIntegrityError['diagnostics'] = [
       ...plan.unresolved.map((wayId) => ({
         code: invalid.has(wayId) ? 'invalid_group' as const : 'unresolved_group' as const,
-        wayId, action: invalid.has(wayId)
+        wayId,
+        action: invalid.has(wayId)
           ? 'Repair invalid OSM member IDs in the road index.'
           : 'Restore this rated road in the road-rating index or remove its rating.',
       })),
       ...plan.conflicts.map(({ wayId, targetWayId }) => ({
-        code: 'rekey_conflict' as const, wayId, targetWayId,
+        code: 'rekey_conflict' as const,
+        wayId,
+        targetWayId,
         action: 'Manually merge or remove one of the conflicting rated-road groups.',
       })),
     ];
     const ownership = new Map<number, number>();
     const plannedMembers = new Map(existingMembers);
-    plan.memberWrites.forEach(({ ratedWayId, memberIds }) => plannedMembers.set(ratedWayId, memberIds));
+    plan.memberWrites.forEach(({ ratedWayId, memberIds }) => {
+      plannedMembers.set(ratedWayId, memberIds);
+    });
     plan.rekeys.forEach(({ fromWayId, toWayId }) => {
       const resolvedMembers = plan.resolvedGroups?.get(fromWayId)?.memberIds;
-      if (!resolvedMembers) diagnostics.push({
-        code: 'invalid_group', wayId: fromWayId,
-        action: 'Resolve target membership before rekeying this rated-road group.',
-      });
-      else {
+      if (!resolvedMembers) {
+        diagnostics.push({
+          code: 'invalid_group',
+          wayId: fromWayId,
+          action: 'Resolve target membership before rekeying this rated-road group.',
+        });
+      } else {
         plannedMembers.set(toWayId, resolvedMembers);
         plannedMembers.delete(fromWayId);
       }
     });
-    plannedMembers.forEach((memberIds, ratedWayId) => [...new Set(memberIds)].forEach((osmWayId) => {
-      const ownerWayId = ownership.get(osmWayId);
-      if (ownerWayId !== undefined && ownerWayId !== ratedWayId) diagnostics.push({
-        code: 'membership_conflict', osmWayId, ownerWayId, wayId: ratedWayId,
-        action: 'Assign each OSM way to exactly one rated-road group.',
+    plannedMembers.forEach((memberIds, ratedWayId) => {
+      [...new Set(memberIds)].forEach((osmWayId) => {
+        const ownerWayId = ownership.get(osmWayId);
+        if (ownerWayId !== undefined && ownerWayId !== ratedWayId) {
+          diagnostics.push({
+            code: 'membership_conflict',
+            osmWayId,
+            ownerWayId,
+            wayId: ratedWayId,
+            action: 'Assign each OSM way to exactly one rated-road group.',
+          });
+        }
+        ownership.set(osmWayId, ratedWayId);
       });
-      ownership.set(osmWayId, ratedWayId);
-    }));
+    });
     // All resolution and ownership preflight completes before any mutation.
     if (diagnostics.length > 0) throw new RoadRatingIntegrityError(diagnostics);
     // Apply even when memberships are current: resolved geometry/anchors must
     // be refreshed for same-representative groups.
     applyMemberBackfill(sqlite, plan, rows);
-    return { memberWrites: plan.memberWrites.length, rekeys: plan.rekeys.length, conflicts: [], unresolved: [] };
+    return {
+      memberWrites: plan.memberWrites.length,
+      rekeys: plan.rekeys.length,
+      conflicts: [],
+      unresolved: [],
+    };
   })();
 }
 
@@ -496,7 +537,9 @@ export function backfillRatedRoadMembers(): {
 } {
   return backfillRatedRoadMembersFor(rawSqlite, (wayId) => {
     const group = resolveRoadGroup(wayId);
-    return group ? { wayId: group.wayId, memberIds: group.memberIds, ...resolvedRoadCache(group) } : null;
+    return group
+      ? { wayId: group.wayId, memberIds: group.memberIds, ...resolvedRoadCache(group) }
+      : null;
   });
 }
 
@@ -547,9 +590,14 @@ export function applySaveRating(
   const multiplier = perUserMultiplier(input.type, input.subtypes);
   sqlite.transaction(() => {
     const memberIds = [...new Set(group.memberIds)].sort((a, b) => a - b);
-    if (!isValidOsmWayId(group.wayId) || memberIds.length === 0 || !memberIds.every(isValidOsmWayId)) {
+    if (
+      !isValidOsmWayId(group.wayId)
+      || memberIds.length === 0
+      || !memberIds.every(isValidOsmWayId)
+    ) {
       throw new RoadRatingIntegrityError([{
-        code: 'invalid_group', wayId: group.wayId,
+        code: 'invalid_group',
+        wayId: group.wayId,
         action: 'Resolve a complete valid group from the road index before saving.',
       }]);
     }
@@ -557,10 +605,15 @@ export function applySaveRating(
       SELECT rated_way_id AS ratedWayId, osm_way_id AS osmWayId FROM rated_road_members
       WHERE osm_way_id IN (${memberIds.map(() => '?').join(',')}) AND rated_way_id <> ?
     `).all(...memberIds, group.wayId) as { ratedWayId: number; osmWayId: number }[];
-    if (ownershipConflicts.length > 0) throw new RoadRatingIntegrityError(ownershipConflicts.map((conflict) => ({
-      code: 'membership_conflict', wayId: group.wayId, ownerWayId: conflict.ratedWayId,
-      osmWayId: conflict.osmWayId, action: 'Remove or merge the existing rated-road group first.',
-    })));
+    if (ownershipConflicts.length > 0) {
+      throw new RoadRatingIntegrityError(ownershipConflicts.map((conflict) => ({
+        code: 'membership_conflict',
+        wayId: group.wayId,
+        ownerWayId: conflict.ratedWayId,
+        osmWayId: conflict.osmWayId,
+        action: 'Remove or merge the existing rated-road group first.',
+      })));
+    }
     sqlite.query(`
       INSERT INTO rated_roads (way_id, name, geometry, anchor_lat, anchor_lng)
       VALUES (?, ?, ?, ?, ?)
@@ -682,24 +735,31 @@ export async function getVotedRoadsInCorridor(
     if (!memberIds || memberIds.length === 0) {
       throw new RatedRoadMembershipError(road.wayId);
     }
-      const multipliers = wayRatings.map((rating) => rating.multiplier);
-      if (multipliers.some((multiplier) => !Number.isFinite(multiplier) || multiplier < 0.05 || multiplier > 1.7)) {
-        throw new RoadRatingIntegrityError([{
-          code: 'invalid_multiplier', wayId: road.wayId,
-          action: 'Repair persisted rating multipliers to the supported 0.05–1.7 range.',
-        }]);
-      }
-      return [{
+    const multipliers = wayRatings.map((rating) => rating.multiplier);
+    const invalidMultiplier = (multiplier: number) => !Number.isFinite(multiplier)
+      || multiplier < 0.05
+      || multiplier > 1.7;
+    if (multipliers.some(invalidMultiplier)) {
+      throw new RoadRatingIntegrityError([{
+        code: 'invalid_multiplier',
         wayId: road.wayId,
-        multiplier: medianOf(multipliers),
-        memberIds,
-      }];
-    });
+        action: 'Repair persisted rating multipliers to the supported 0.05–1.7 range.',
+      }]);
+    }
+    return [{
+      wayId: road.wayId,
+      multiplier: medianOf(multipliers),
+      memberIds,
+    }];
+  });
   const memberCount = result.reduce((total, road) => total + road.memberIds.length, 0);
   if (memberCount > MAX_ROAD_RATING_MODEL_MEMBER_IDS) {
     throw new RoadRatingIntegrityError([{
       code: 'model_limit',
-      action: `Reduce corridor rating membership below the ${MAX_ROAD_RATING_MODEL_MEMBER_IDS}-way custom-model limit.`,
+      action: [
+        'Reduce corridor rating membership below the',
+        `${MAX_ROAD_RATING_MODEL_MEMBER_IDS}-way custom-model limit.`,
+      ].join(' '),
     }]);
   }
   return result;

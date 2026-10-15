@@ -7,7 +7,9 @@ import type {
   Stop,
   SurfaceSegment, RoadRatingBucket,
 } from '@vrstevnice/shared';
-import { haversineMeters, isValidOsmWayId, MAX_ROAD_RATING_MODEL_MEMBER_IDS } from '@vrstevnice/shared';
+import {
+  haversineMeters, isValidOsmWayId, MAX_ROAD_RATING_MODEL_MEMBER_IDS,
+} from '@vrstevnice/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,7 +182,11 @@ export function buildCustomModel(
     if (bucket.wayIds.length === 0) {
       throw new Error('Rating bucket without any OSM way IDs');
     }
-    if (!Number.isFinite(bucket.multiplier) || bucket.multiplier < 0.05 || bucket.multiplier > 1.7) {
+    if (
+      !Number.isFinite(bucket.multiplier)
+      || bucket.multiplier < 0.05
+      || bucket.multiplier > 1.7
+    ) {
       throw new Error(`Invalid road-rating multiplier: ${bucket.multiplier}`);
     }
     return {

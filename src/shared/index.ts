@@ -160,7 +160,7 @@ export interface RoadRatingBucket {
   wayIds: number[];
 }
 
-/** Conservative cap measured to keep the generated GH custom-model payload well below its limits. */
+/** Conservative cap keeping the generated GH custom-model payload well below its limits. */
 export const MAX_ROAD_RATING_MODEL_MEMBER_IDS = 500;
 
 /**
