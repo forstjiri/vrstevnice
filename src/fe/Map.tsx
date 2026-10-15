@@ -865,13 +865,19 @@ export default function Map() {
 
   onMount(() => {
     try {
+      const savedCamera = mapCamera();
+      // A stale persisted world-level zoom should not override the initial Czech view.
+      const cameraToRestore = savedCamera && savedCamera.zoom >= 3 ? savedCamera : null;
+      if (savedCamera && !cameraToRestore) setMapCamera(null);
       map = new maplibregl.Map({
         container,
         style: `${TILESERVER_URL}/styles/basic/style.json?v=2`,
-        center: mapCamera() ? [mapCamera()!.lon, mapCamera()!.lat] : [15.47, 49.82], // [lng, lat]
-        zoom: mapCamera()?.zoom ?? 7,
-        bearing: mapCamera()?.bearing ?? 0,
-        pitch: mapCamera()?.pitch ?? 0,
+        center: cameraToRestore
+          ? [cameraToRestore.lon, cameraToRestore.lat]
+          : [15.47, 49.82], // [lng, lat]
+        zoom: cameraToRestore?.zoom ?? 7,
+        bearing: cameraToRestore?.bearing ?? 0,
+        pitch: cameraToRestore?.pitch ?? 0,
         attributionControl: {
           compact: true,
           customAttribution: buildMapLegend(),
