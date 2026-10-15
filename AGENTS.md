@@ -34,6 +34,7 @@ One-time setup (after first clone):
 bash scripts/generate-tiles.sh          # vector tiles + original OSM road-way index for ratings
 python3 scripts/generate-terrain-tiles-dmr5g.py --output data/cz-terrain.mbtiles  # DMR 5G terrain-rgb tiles
 pnpm extract-routes                   # cycle routes from OSM (requires Python + osmium)
+pnpm extract-hiking-routes            # KČT hiking routes + guideposts from OSM (requires Python + osmium)
 pnpm import-pois                      # SQLite POI DB from OSM PBF
 ```
 
@@ -78,6 +79,8 @@ data/              mbtiles, GeoJSON, DEM data, SQLite DB (gitignored)
 | POST | `/api/route` | Route calculation (GraphHopper + optional POI pipeline + optional shadow profile) |
 | GET | `/api/history` | Route history from SQLite |
 | GET | `/api/cycleroutes` | GeoJSON of cycle routes |
+| GET | `/api/hikingroutes` | GeoJSON of KČT hiking routes (four-colour palette) |
+| GET | `/api/guideposts` | GeoJSON of guideposts with trail colour sets |
 | GET | `/api/terrain/:z/:x/:y` | Terrain tile proxy with 404 fallback (transparent PNG) |
 | GET | `/api/road-rating-roads?bbox=minLng,minLat,maxLng,maxLat` | Original OSM road ways in viewport for rating interaction |
 | GET | `/api/road-ratings?bbox=minLng,minLat,maxLng,maxLat` | Aggregated rated roads in viewport |
@@ -116,6 +119,9 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 - **Contour lines** from DEM data via maplibre-contour protocol
 - **Cycling styling**: highways/primary roads dimmed, forest tracks widened (`cycle-path-widen` layer, minzoom 12)
 - **KČT cycle routes**: colored overlay from cycleroutes.geojson (~48 MB, future: vector tiles)
+- **Turistické trasy ČR**: 🥾 top-right toggle; KČT hiking routes as SOLID lines in marking colour from
+  hikingroutes.geojson + guidepost markers (guideposts.geojson) with trail-colour chips in a click popup.
+  Both layers lazy-load (~60–90 MB) on first toggle-on; later toggles only flip layer visibility.
 - **Transit layers**: railways, train stops, bus stops
 - **Inspect mode**: shows layer ID, source-layer, zoom, GPS, relevant OSM tags
 - **Context menu**: add stop, open Mapy.cz

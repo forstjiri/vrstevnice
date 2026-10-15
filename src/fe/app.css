@@ -608,6 +608,31 @@ body {
   gap: 8px;
 }
 
+/* ── Guidepost popup (hiking trail junctions) ── */
+
+.guidepost-popup {
+  font: inherit;
+  min-width: 140px;
+}
+
+.guidepost-chips {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.guidepost-chip {
+  display: inline-block;
+  width: 14px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.guidepost-chips-empty {
+  font-size: 0.85em;
+  color: var(--color-text-muted, #888);
+}
+
 .map-top-right-row {
   display: flex;
   align-items: center;

@@ -44,7 +44,9 @@ import {
   buildMapLegend,
   buildRoadLayers,
   CYCLE_ROUTE_STYLES,
+  HIKING_TRAIL_COLORS,
   hideBaseRoadLayers,
+  type HikingTrailColor,
 } from './road-styles';
 import forestNoise1 from './assets/forest-noise-1.svg?url';
 import forestNoise2 from './assets/forest-noise-2.svg?url';
@@ -210,6 +212,154 @@ function getHillshadePaint(
   ] satisfies PaintUpdate[];
 }
 
+// ── Hiking trails (KČT) + guideposts ──────────────────────────────────────
+// Data are lazily fetched on first toggle-on (~tens of MB), sources and
+// layers are added once, later toggles only flip layer visibility.
+
+const HIKING_LAYER_IDS = [
+  'hiking-routes', 'hiking-guideposts', 'hiking-guideposts-labels',
+] as const;
+const HIKING_TRAIL_COLOR_MATCH = [
+  'match',
+  ['get', 'colour'],
+  'red', HIKING_TRAIL_COLORS.red,
+  'blue', HIKING_TRAIL_COLORS.blue,
+  'green', HIKING_TRAIL_COLORS.green,
+  'yellow', HIKING_TRAIL_COLORS.yellow,
+  '#ff8c00',
+] satisfies maplibregl.ExpressionSpecification;
+
+let hikingLayersReady = false;
+let hikingLayersLoading: Promise<void> | null = null;
+let hikingPopup: maplibregl.Popup | null = null;
+let hikingLoadGeneration = 0;
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+async function ensureHikingLayers(m: maplibregl.Map): Promise<void> {
+  if (hikingLayersReady) return;
+  if (!hikingLayersLoading) {
+    hikingLayersLoading = Promise.all([
+      fetch('/api/hikingroutes').then((res) => {
+        if (!res.ok) throw new Error(`hikingroutes HTTP ${res.status}`);
+        return res.json() as Promise<FeatureCollection>;
+      }),
+      fetch('/api/guideposts').then((res) => {
+        if (!res.ok) throw new Error(`guideposts HTTP ${res.status}`);
+        return res.json() as Promise<FeatureCollection>;
+      }),
+    ]).then(([routes, guideposts]) => {
+      m.addSource('hikingroutes', {
+        type: 'geojson',
+        data: routes,
+        tolerance: 0.0005,
+        buffer: 1,
+        maxzoom: 14,
+      });
+      m.addSource('guideposts', {
+        type: 'geojson',
+        data: guideposts,
+        buffer: 0,
+        maxzoom: 14,
+      });
+
+      // KČT trails: SOLID lines (no dasharray) in the marking colour.
+      m.addLayer(
+        {
+          id: 'hiking-routes',
+          type: 'line',
+          source: 'hikingroutes',
+          minzoom: 9,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': HIKING_TRAIL_COLOR_MATCH,
+            'line-width': [
+              'interpolate', ['linear'], ['zoom'],
+              10, 1.6,
+              13, 2.4,
+              16, 4,
+            ],
+            'line-opacity': 0.9,
+          },
+        },
+        'road_major_label',
+      );
+
+      m.addLayer(
+        {
+          id: 'hiking-guideposts',
+          type: 'circle',
+          source: 'guideposts',
+          minzoom: 13,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 16, 5.5],
+            'circle-color': '#ffffff',
+            'circle-stroke-color': '#4a4a4a',
+            'circle-stroke-width': 1.2,
+          },
+        },
+        'road_major_label',
+      );
+
+      m.addLayer(
+        {
+          id: 'hiking-guideposts-labels',
+          type: 'symbol',
+          source: 'guideposts',
+          minzoom: 15,
+          layout: {
+            'text-field': ['coalesce', ['get', 'name'], 'Rozcestník'],
+            'text-size': 11,
+            'text-offset': [0, 1.1],
+            'text-anchor': 'top',
+          },
+          paint: {
+            'text-color': '#333333',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.5,
+          },
+        },
+        'road_major_label',
+      );
+
+      hikingLayersReady = true;
+    }).catch((error: Error) => {
+      // Allow a retry on the next toggle — e.g. data not extracted yet.
+      hikingLayersLoading = null;
+      throw error;
+    });
+  }
+  await hikingLayersLoading;
+}
+
+function setHikingLayersVisibility(m: maplibregl.Map, visible: boolean): void {
+  HIKING_LAYER_IDS.forEach((id) => {
+    if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+}
+
+function waitForMapRender(m: maplibregl.Map): Promise<void> {
+  return new Promise((resolve) => {
+    let timeout: number;
+    const onRender = () => {
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    timeout = window.setTimeout(() => {
+      m.off('render', onRender);
+      resolve();
+    }, 2000);
+    m.once('render', onRender);
+    m.triggerRepaint();
+  });
+}
+
 /**
  * Build a context menu from a declarative items list.
  */
@@ -230,6 +380,7 @@ export default function Map() {
   let contoursReady = false;
   let userLocation: [number, number] | null = null;
   const [mapZoom, setMapZoom] = createSignal(7);
+  const [hikingLoading, setHikingLoading] = createSignal(false);
   const [inspectMode, setInspectMode] = createSignal(false);
   const [inspectInfo, setInspectInfo] = createSignal<{
     layerId: string;
@@ -864,6 +1015,52 @@ export default function Map() {
       setMapReady(true);
       // @ts-ignore debug
       window.__map = m;
+
+      // Guidepost popup: name + coloured chips of trails passing through.
+      m.on('click', 'hiking-guideposts', (e) => {
+        const feature = e.features?.[0];
+        if (!feature) return;
+        const props = feature.properties as {
+          name?: string | null;
+          ele?: string | null;
+          colours?: string | string[];
+        };
+        let rawColours: string[] = [];
+        if (Array.isArray(props.colours)) rawColours = props.colours;
+        else if (typeof props.colours === 'string') {
+          try {
+            const parsedColours = JSON.parse(props.colours) as string[];
+            if (Array.isArray(parsedColours)) rawColours = parsedColours;
+          } catch {
+            // Ignore malformed feature properties; the popup still shows its name.
+          }
+        }
+        const chips = rawColours
+          .filter((colour): colour is HikingTrailColor => colour in HIKING_TRAIL_COLORS)
+          .map((colour) => (
+            '<span class="guidepost-chip"'
+            + ` style="background:${HIKING_TRAIL_COLORS[colour]}"`
+            + ` title="${colour}"></span>`
+          ))
+          .join('');
+        const title = props.name ? escapeHtml(props.name) : 'Rozcestník';
+        const ele = props.ele ? ` · ${escapeHtml(props.ele)} m n. m.` : '';
+        const empty = '<span class="guidepost-chips-empty">bez značení</span>';
+        hikingPopup?.remove();
+        hikingPopup = new maplibregl.Popup({ closeButton: false, offset: 12 })
+          .setLngLat((feature.geometry as GeoJSON.Point).coordinates as [number, number])
+          .setHTML(
+            `<div class="guidepost-popup"><strong>${title}</strong>${ele}`
+            + `<div class="guidepost-chips">${chips || empty}</div></div>`,
+          )
+          .addTo(m);
+      });
+      m.on('mouseenter', 'hiking-guideposts', () => {
+        m.getCanvas().style.cursor = 'pointer';
+      });
+      m.on('mouseleave', 'hiking-guideposts', () => {
+        m.getCanvas().style.cursor = '';
+      });
 
       m.addSource('user-location', {
         type: 'geojson',
@@ -1887,6 +2084,12 @@ export default function Map() {
   onCleanup(() => {
     topRightSlot()?.remove();
     setTopRightSlot(null);
+    hikingPopup?.remove();
+    hikingPopup = null;
+    hikingLoadGeneration += 1;
+    setHikingLoading(false);
+    hikingLayersReady = false;
+    hikingLayersLoading = null;
     map?.remove();
   });
 
@@ -1920,6 +2123,34 @@ export default function Map() {
     if (!mapReady()) return;
     sunDateTime = effectiveSunDateTime();
     refreshHillshade();
+  });
+
+  createEffect(() => {
+    const on = mapControls.hikingTrailsOn;
+    const m = map;
+    if (!m || !mapReady()) return;
+    hikingLoadGeneration += 1;
+    const generation = hikingLoadGeneration;
+    if (!on) {
+      setHikingLoading(false);
+      hikingPopup?.remove();
+      hikingPopup = null;
+      setHikingLayersVisibility(m, false);
+      return;
+    }
+    setHikingLoading(true);
+    ensureHikingLayers(m)
+      .then(async () => {
+        // Toggle may have been switched off while data were still loading.
+        if (generation === hikingLoadGeneration && map === m && mapControls.hikingTrailsOn) {
+          setHikingLayersVisibility(m, true);
+          await waitForMapRender(m);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (generation === hikingLoadGeneration) setHikingLoading(false);
+      });
   });
 
   createEffect(() => {
@@ -2055,6 +2286,18 @@ export default function Map() {
                         🌗
                       </ToggleButton>
                     </Show>
+                    <ToggleButton
+                      class="btn-toggle btn-toggle-icon"
+                      pressed={mapControls.hikingTrailsOn}
+                      onChange={(p) => mapControlActions.setHikingTrailsOn(p)}
+                      title={hikingLoading() ? 'Načítám turistické trasy…' : 'Turistické trasy ČR'}
+                      aria-label="Turistické trasy ČR"
+                      aria-busy={hikingLoading()}
+                    >
+                      <Show when={hikingLoading()} fallback="🥾">
+                        <span class="hiking-trail-spinner" aria-hidden="true" />
+                      </Show>
+                    </ToggleButton>
                     <ToggleButton
                         class="btn-toggle btn-toggle-icon"
                         pressed={roadRatingMode()}

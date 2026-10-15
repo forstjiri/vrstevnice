@@ -82,7 +82,7 @@ fi
 
 # Local data files
 info "Local data files"
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite data/hikingroutes.geojson data/guideposts.geojson; do
   [[ -f "$f" ]] || die "Chybí $f — spusť nejdřív setup skripty lokálně"
 done
 ok "Datové soubory přítomny"
@@ -170,7 +170,7 @@ ok "Kód synchronizován"
 if [[ "$CODE_ONLY" == false ]]; then
   phase "DATA SYNC"
 
-for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite; do
+for f in data/cz.mbtiles data/cz-terrain.mbtiles data/cycleroutes.geojson data/cz-pois.sqlite data/road-rating-roads.sqlite data/hikingroutes.geojson data/guideposts.geojson; do
     fname=$(basename "$f")
     info "$fname"
 

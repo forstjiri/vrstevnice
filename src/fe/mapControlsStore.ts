@@ -15,6 +15,7 @@ const ctx = createRoot(() => {
       hillshadeOn: false,
       contoursOn: true,
       shadowRouteOn: false,
+      hikingTrailsOn: false,
       hillshadeIntensity: 0.8,
       terrainExaggeration: DEFAULT_TERRAIN_EXAGGERATION,
       sunDate: formatLocalDate(now),
@@ -78,6 +79,9 @@ export const mapControlActions = {
   },
   setShadowRouteOn(value: boolean) {
     setMapControls('shadowRouteOn', value);
+  },
+  setHikingTrailsOn(value: boolean) {
+    setMapControls('hikingTrailsOn', value);
   },
   setTerrainExaggeration(value: number) {
     setMapControls('terrainExaggeration', value);

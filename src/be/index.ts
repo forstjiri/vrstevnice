@@ -827,6 +827,42 @@ export const app = new Elysia({ prefix: '/api' })
         headers: { 'Content-Type': 'text/plain' },
       });
     }
+  })
+
+  .get('/hikingroutes', async () => {
+    const filePath = resolve(PROJECT_ROOT, 'data', 'hikingroutes.geojson');
+    try {
+      const data = await readFile(filePath, 'utf-8');
+      return new Response(data, {
+        headers: {
+          'Content-Type': 'application/geo+json',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    } catch {
+      return new Response('Hiking routes data not found. Run pnpm extract-hiking-routes first.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
+  })
+
+  .get('/guideposts', async () => {
+    const filePath = resolve(PROJECT_ROOT, 'data', 'guideposts.geojson');
+    try {
+      const data = await readFile(filePath, 'utf-8');
+      return new Response(data, {
+        headers: {
+          'Content-Type': 'application/geo+json',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    } catch {
+      return new Response('Guideposts data not found. Run pnpm extract-hiking-routes first.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
   });
 
 // Membership backfill MUST complete before the server accepts routing

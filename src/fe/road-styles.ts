@@ -188,6 +188,16 @@ export const CYCLE_ROUTE_STYLES: readonly CycleRouteStyle[] = [
   },
 ];
 
+/** KČT hiking trail palette — map-friendly saturated values keyed by `colour`. */
+export const HIKING_TRAIL_COLORS: Record<'red' | 'blue' | 'green' | 'yellow', string> = {
+  red: '#e11931',
+  blue: '#1c5dc4',
+  green: '#0f9d3c',
+  yellow: '#f0c419',
+};
+
+export type HikingTrailColor = keyof typeof HIKING_TRAIL_COLORS;
+
 export interface RoadLegendItem {
   label: string;
   line: StrokeStyle;

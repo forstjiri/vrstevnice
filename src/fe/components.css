@@ -250,6 +250,23 @@
   justify-content: center;
 }
 
+.hiking-trail-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentcolor;
+  border-left-color: transparent;
+  border-radius: 50%;
+  animation: hiking-trail-spin 700ms linear infinite;
+}
+
+@keyframes hiking-trail-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hiking-trail-spinner { animation-duration: 1.5s; }
+}
+
 .btn-toggle-label {
   width: 100%;
   justify-content: center;
