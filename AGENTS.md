@@ -260,11 +260,16 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
 
 ### Testing
 
+- Vitest runs two projects (`tests/vitest.config.ts`): `unit` (everything except Docker-dependent files) and
+  `graphhopper` (`tests/routing/smoke.test.ts`, `routing.test.ts`, `osm-way-id.integration.test.ts`) whose `globalSetup`
+  starts the GH container. Pure unit runs never boot Docker; inline projects do NOT inherit root `test.alias`/`globals`,
+  so shared options are spread into each project.
 - Road ratings core: `pnpm vitest run tests/road-ratings.test.ts`.
-- Road-rating SQLite persistence and migration suite (must run under Bun):
-  `bun test tests/road-ratings-persistence.test.ts`.
+- Road-rating SQLite persistence and migration suite (must run under Bun): `bun test ./tests/bun/road-ratings-persistence.bun.ts`
+  (the `./` prefix makes Bun treat it as a path). `pnpm test` runs it too, via a Vitest bridge
+  (`tests/road-ratings-persistence.vitest.test.ts` spawns `bun test`), so CI installs Bun (`oven-sh/setup-bun`).
 - Exact GraphHopper encoded-way integration: `pnpm vitest run tests/routing/osm-way-id.integration.test.ts` (uses the
-  disposable GH test container on port 8988). `pnpm test` runs the Bun persistence suite before the Vitest suite.
+  disposable GH test container on port 8988).
 - Test GH container on port 8988 (production GH on 8989)
 - Without slope encodings with noop elevation provider — GH throws IllegalArgumentException
 - Docker volume mount filename must exactly match GH config custom_model_files reference
@@ -289,10 +294,15 @@ Rate limiting: soft-warn 60 req/min, hard-stop 300 req/min per IP.
   `/opt/vrstevnice/data/data.db`. `rsync` deliberately excludes `data.db*`, so code sync does not replace it. There
   is no automated backup destination in `scripts/deploy.sh`; back up that database path (including SQLite sidecars, if
   present) before a production migration or manual data operation.
-- Deployment must use the digest-pinned image and a graph imported with the exact production config above. The current
-  deploy script's image-transfer/cache checks still refer to `graphhopper:latest` and `graph-cache`, so they are not
-  provenance evidence for the digest-pinned `graph-cache-osmwayid` graph. Verify or correct that operational path
-  before relying on it for this feature.
+- Deployment must use the digest-pinned image and a graph imported with the exact production config above. `scripts/deploy.sh`
+  enforces this: it reads the image reference from Compose (`docker compose config --images graphhopper`, the digest pin),
+  refuses to launch unless the remote `vrstevnice_gh-data` volume contains `graph-cache-osmwayid` with `osm_way_id` in
+  `properties`, transfers that graph from the local verified volume, and syncs `data/road-rating-roads.sqlite`. Treat a
+  deploy without these checks (older script versions) as not provenance evidence for exact-way routing.
+- `scripts/deploy.sh` generates a remote-only `docker-compose.override.yml` that marks `gh-data`/`photon-data` volumes as
+  external with explicit `vrstevnice_*` names; it creates both volumes before `docker compose up`. Missing volumes on a
+  fresh server fail with `external volume not found` — run the full deploy, not `compose up` directly. The tileserver
+  image (`maptiler/tileserver-gl-light`) ships no `curl`; its healthcheck uses `node -e fetch(...)` (docker-compose.yml).
 
 ## Important files
 
