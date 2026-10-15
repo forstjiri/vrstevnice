@@ -4,6 +4,9 @@
  * start/stop race between smoke.test.ts and routing.test.ts.
  *
  * Individual test files no longer call startGH/stopGH themselves.
+ *
+ * This file is only wired into the "graphhopper" Vitest project
+ * (see tests/vitest.config.ts), so pure unit runs never start Docker.
  */
 import { startGH, stopGH } from './helpers/gh-lifecycle';
 
