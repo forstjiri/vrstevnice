@@ -1,10 +1,14 @@
 import {
+  BIKE_TYPES,
+  isBikeType,
   ROAD_RATING_DEMOTE_SUBTYPES,
   ROAD_RATING_PREFER_SUBTYPES,
   ROAD_RATING_SUBTYPE_MULTIPLIERS,
   isValidOsmWayId,
 } from '@vrstevnice/shared';
 import type {
+  BikeType,
+  BikeRecommendationSummary,
   RoadRatingBucket,
   RoadRatingSubtype,
   RoadRatingType,
@@ -30,6 +34,54 @@ export function aggregateRatings(
   votes: { multiplier: number }[],
 ): { multiplier: number | null } {
   return { multiplier: votes.length > 0 ? medianOf(votes.map((vote) => vote.multiplier)) : null };
+}
+
+interface BikeRatingVote {
+  type: string;
+  minimumBike: BikeType | null;
+  multiplier: number;
+}
+
+export function validateMinimumBike(
+  type: RoadRatingType,
+  value: string | null | undefined,
+): boolean {
+  return type === 'prefer' ? isBikeType(value) : value == null;
+}
+
+export function summarizeBikeRecommendations(
+  votes: Pick<BikeRatingVote, 'type' | 'minimumBike'>[],
+): BikeRecommendationSummary {
+  const counts: Record<BikeType, number> = {
+    road: 0, gravel: 0, mtb: 0, freeride: 0,
+  };
+  const indices = votes.flatMap((vote) => {
+    if (vote.type !== 'prefer' || !isBikeType(vote.minimumBike)) return [];
+    counts[vote.minimumBike] += 1;
+    return [BIKE_TYPES.indexOf(vote.minimumBike)];
+  });
+  return {
+    total: indices.length,
+    minimum: indices.length > 0 ? BIKE_TYPES[Math.ceil(medianOf(indices))] : null,
+    counts,
+  };
+}
+
+/** Bike evidence starts at five explicit recommendations; legacy votes stay general. */
+export function bikeAwareMultiplier(votes: BikeRatingVote[], bikeType: BikeType): number {
+  const summary = summarizeBikeRecommendations(votes);
+  if (summary.total < 5) return medianOf(votes.map((vote) => vote.multiplier));
+  const selectedIndex = BIKE_TYPES.indexOf(bikeType);
+  const isUnsuitable = (vote: BikeRatingVote) => vote.type === 'prefer'
+    && isBikeType(vote.minimumBike) && BIKE_TYPES.indexOf(vote.minimumBike) > selectedIndex;
+  // Incompatible endorsements are neutral, never a boost for the selected bike.
+  const base = medianOf(votes.map((vote) => (isUnsuitable(vote) ? 1 : vote.multiplier)));
+  const agreement = votes.filter(isUnsuitable).length / summary.total;
+  if (agreement <= 0.5) return base;
+  // A strict majority must agree the selected bike is insufficient. Strong
+  // avoidance needs ten explicit votes and scales with their agreement.
+  const penalty = summary.total >= 10 ? 0.2 + (1 - agreement) * 0.6 : 0.8;
+  return Math.min(base, penalty);
 }
 
 export function validateSubtypes(

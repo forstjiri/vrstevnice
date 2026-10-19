@@ -1,10 +1,12 @@
 /* eslint-disable import-x/no-relative-packages */
 import { describe, expect, it } from 'vitest';
 import { buildCustomModel } from '../src/routing';
-import { connectedRoadWayGroup } from '../src/shared';
+import { BIKE_TYPES, connectedRoadWayGroup } from '../src/shared';
+import type { BikeType } from '../src/shared';
 // The pure backend unit is intentionally imported directly to avoid starting Elysia.
 import {
   aggregateRatings,
+  bikeAwareMultiplier,
   bucketizeRoads,
   corridorBounds,
   createRatingThrottle,
@@ -12,6 +14,8 @@ import {
   perUserMultiplier,
   planMemberBackfill,
   validateSubtypes,
+  validateMinimumBike,
+  summarizeBikeRecommendations,
 } from '../src/be/road-ratings-core';
 
 describe('road ratings core', () => {
@@ -48,6 +52,69 @@ describe('road ratings core', () => {
     expect(validateSubtypes('prefer', ['dangerous'])).toBe(false);
     expect(validateSubtypes('demote', [])).toBe(false);
     expect(validateSubtypes('demote', ['bad_terrain', 'bad_terrain'])).toBe(false);
+  });
+
+  const bikeVotes = (count: number, minimumBike: BikeType | null = 'mtb') => (
+    Array.from({ length: count }, () => ({ type: 'prefer', minimumBike, multiplier: 1.5 }))
+  );
+
+  it('requires a valid minimum bike for endorsements only', () => {
+    BIKE_TYPES.forEach((bike) => expect(validateMinimumBike('prefer', bike)).toBe(true));
+    expect(validateMinimumBike('prefer', undefined)).toBe(false);
+    expect(validateMinimumBike('prefer', 'scooter')).toBe(false);
+    expect(validateMinimumBike('demote', 'mtb')).toBe(false);
+    expect(validateMinimumBike('demote', undefined)).toBe(true);
+  });
+
+  it('displays every explicit recommendation and rounds a split median upward', () => {
+    expect(summarizeBikeRecommendations(bikeVotes(1))).toEqual({
+      total: 1,
+      minimum: 'mtb',
+      counts: {
+        road: 0, gravel: 0, mtb: 1, freeride: 0,
+      },
+    });
+    expect(summarizeBikeRecommendations([
+      ...bikeVotes(1, 'road'), ...bikeVotes(1, 'gravel'),
+      ...bikeVotes(4, null), { type: 'demote', minimumBike: 'freeride' },
+    ])).toEqual({
+      total: 2,
+      minimum: 'gravel',
+      counts: {
+        road: 1, gravel: 1, mtb: 0, freeride: 0,
+      },
+    });
+    expect(summarizeBikeRecommendations([]).minimum).toBeNull();
+  });
+
+  it('starts bike-specific avoidance at five and strong avoidance at ten recommendations', () => {
+    expect(bikeAwareMultiplier(bikeVotes(4), 'road')).toBe(1.5);
+    expect(bikeAwareMultiplier(bikeVotes(5), 'road')).toBe(0.8);
+    expect(bikeAwareMultiplier(bikeVotes(9), 'gravel')).toBe(0.8);
+    expect(bikeAwareMultiplier(bikeVotes(10), 'gravel')).toBe(0.2);
+    expect(bikeAwareMultiplier(bikeVotes(10), 'mtb')).toBe(1.5);
+    expect(bikeAwareMultiplier(bikeVotes(10), 'freeride')).toBe(1.5);
+  });
+
+  it('requires a strict majority and scales strong avoidance with its agreement', () => {
+    const split = [...bikeVotes(5, 'road'), ...bikeVotes(5, 'mtb')];
+    expect(bikeAwareMultiplier(split, 'road')).toBeGreaterThanOrEqual(1);
+    const majority = [...bikeVotes(4, 'road'), ...bikeVotes(6, 'mtb')];
+    expect(bikeAwareMultiplier(majority, 'road')).toBeCloseTo(0.44);
+    expect(bikeAwareMultiplier(majority, 'road')).toBeGreaterThan(
+      bikeAwareMultiplier(bikeVotes(10), 'road'),
+    );
+  });
+
+  it('preserves legacy and negative votes without manufacturing bike evidence', () => {
+    expect(bikeAwareMultiplier(bikeVotes(10, null), 'road')).toBe(1.5);
+    const negatives = Array.from({ length: 11 }, () => ({
+      type: 'demote', minimumBike: null, multiplier: 0.05,
+    }));
+    BIKE_TYPES.forEach((bike) => {
+      expect(bikeAwareMultiplier([...bikeVotes(10), ...negatives], bike)).toBe(0.05);
+    });
+    expect(bikeAwareMultiplier([...bikeVotes(4), ...bikeVotes(20, null)], 'road')).toBe(1.5);
   });
 
   it('buckets disjoint roads by multiplier and rejects every cross-group overlap', () => {

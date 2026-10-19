@@ -53,6 +53,7 @@ import forestNoise2 from './assets/forest-noise-2.svg?url';
 import forestNoise3 from './assets/forest-noise-3.svg?url';
 import forestNoise4 from './assets/forest-noise-4.svg?url';
 import RoadRatingModal from './RoadRatingModal';
+import { BIKE_LABELS } from './BikeTypeSlider';
 import {
   fetchRoadRatingByWayId,
   fetchRoadRatingRoads,
@@ -90,10 +91,6 @@ const contourTileUrl = demSource.contourProtocolUrl({
   levelKey: 'level',
   contourLayer: 'contours',
 });
-
-const ROAD_RATING_SUBTYPE_ICONS: Record<keyof RoadRatingAggregate['counts']['subtypes'], string> = {
-  nice: '✨', safe: '🛡️', fast: '⚡', dangerous: '⚠️', unpassable: '🚫', bad_terrain: '🌧️',
-};
 
 /**
  * Find bearing at a given distance along route geometry.
@@ -555,6 +552,7 @@ export default function Map() {
       type: aggregate.type,
       counts: aggregate.counts,
       commentsCount: aggregate.commentsCount,
+      bikeRecommendation: aggregate.bikeRecommendation,
       mine: aggregate.mine,
     });
   }
@@ -566,18 +564,15 @@ export default function Map() {
       element.type = 'button';
       element.className = 'road-rating-bubble';
       element.setAttribute('aria-label', `Hodnocení: ${aggregate.name ?? 'Vybraná cesta'}`);
-      const subtypeLine = Object.entries(aggregate.counts.subtypes)
-        .filter(([, count]) => count > 0)
-        .map(([subtype, count]) => (
-          `${ROAD_RATING_SUBTYPE_ICONS[
-            subtype as keyof typeof ROAD_RATING_SUBTYPE_ICONS
-          ]} ${count}`
-        ))
-        .join(' · ');
-      const countLine = `<span>👍 ${aggregate.counts.prefer} · 👎 ${aggregate.counts.demote}</span>`;
-      element.innerHTML = `${countLine}${
-        subtypeLine ? `<small>${subtypeLine}</small>` : ''
-      }`;
+      const counts = document.createElement('span');
+      counts.textContent = `👍 ${aggregate.counts.prefer} · 👎 ${aggregate.counts.demote}`;
+      element.append(counts);
+      const minimumBike = aggregate.bikeRecommendation.minimum;
+      if (minimumBike) {
+        const minimum = document.createElement('small');
+        minimum.textContent = `${BIKE_LABELS[minimumBike]}+`;
+        element.append(minimum);
+      }
       element.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1598,6 +1593,7 @@ export default function Map() {
                 },
               },
               commentsCount: aggregate?.commentsCount ?? 0,
+              bikeRecommendation: aggregate?.bikeRecommendation ?? null,
               mine: aggregate?.mine ?? null,
             });
           }).catch(() => {
@@ -1615,6 +1611,7 @@ export default function Map() {
                 },
               },
               commentsCount: 0,
+              bikeRecommendation: null,
               mine: null,
             });
           });

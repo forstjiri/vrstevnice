@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="#171717" stroke-linecap="round" stroke-linejoin="round">
+  <title>Silniční řídítka</title>
+  <path d="M11 35V43M53 35V43" stroke-width="3" />
+  <path d="M32 53V43C32 36 27 34 21 34H13C6 34 3 29 3 22 3 15 6 10 9 12 13 14 10 22 9 25 16 28 23 23 32 30 41 23 48 28 55 25 54 22 51 14 55 12 58 10 61 15 61 22 61 29 58 34 51 34H43C37 34 32 36 32 43" fill="#fff" stroke-width="2.5" />
+  <path d="M8 16 7 22M56 16 57 22M14 29H23M41 29H50" stroke-width="1.5" />
+  <circle cx="32" cy="48" r="2.5" fill="#171717" stroke="none" />
+</svg>

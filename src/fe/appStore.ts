@@ -1,5 +1,5 @@
 import { createRoot, createSignal } from 'solid-js';
-import type { Stop, RouteResponse } from '@vrstevnice/shared';
+import type { Stop, RouteResponse, BikeType } from '@vrstevnice/shared';
 import { persistedStore, persistedSignal } from './persist';
 
 declare global {
@@ -21,6 +21,9 @@ const ctx = createRoot(() => {
       cycleway: 0.9,
       showPOI: false,
       useRoadRatings: false,
+      // Keep the enum union through generic store inference, rather than widening to string.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      bikeType: 'gravel' as BikeType,
       route: null as RouteResponse | null,
     },
     {
@@ -148,6 +151,12 @@ export function setUseRoadRatings(v: boolean) {
   markStale();
   setPlanner('useRoadRatings', v);
   if (shouldRegenerate) regenerateRoute().catch(() => {});
+}
+
+export function setBikeType(v: BikeType) {
+  if (planner.bikeType === v) return;
+  markStale();
+  setPlanner('bikeType', v);
 }
 
 // ── Route actions ──

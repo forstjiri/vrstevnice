@@ -5,6 +5,7 @@ import {
   afterEach, describe, expect, it,
 } from 'vitest';
 import { seedRoadRatingsMnisek } from '../../scripts/seed-road-ratings-mnisek';
+import { BIKE_TYPES } from '../../src/shared';
 
 // db.ts initializes its live handle at module load. Redirect precisely that
 // handle before dynamically loading production persistence modules, while
@@ -28,6 +29,7 @@ const {
   applySaveRating,
   backfillRatedRoadMembersFor,
   getVotedRoadsInCorridor,
+  getAggregatesInBbox,
   RoadRatingIntegrityError,
 } = await import('../../src/be/road-ratings');
 const { rawSqlite } = await import('../../src/be/db');
@@ -115,6 +117,8 @@ describe('road-rating SQLite persistence', () => {
     expect(legacy.query(
       'SELECT comment FROM road_ratings WHERE way_id = 1',
     ).get()).toEqual({ comment: null });
+    expect(legacy.query('SELECT minimum_bike FROM road_ratings').get())
+      .toEqual({ minimum_bike: null });
     const upgraded = snapshot(legacy);
     initializeRoadRatingSchema(legacy);
     expect(snapshot(legacy)).toBe(upgraded);
@@ -205,7 +209,86 @@ describe('road-rating SQLite persistence', () => {
     sqlite: Database,
     group: { wayId: number; memberIds: number[]; name: string | null },
     vote: TestVote,
-  ) => applySaveRating(sqlite, group, vote, geometry, [50, 14]);
+  ) => applySaveRating(sqlite, group, {
+    ...vote, minimumBike: vote.type === 'prefer' ? 'road' : undefined,
+  }, geometry, [50, 14]);
+
+  it('persists every bike enum, upserts it, and clears it for negative votes', () => {
+    const sqlite = memory();
+    initializeRoadRatingSchema(sqlite);
+    const group = { wayId: 1, memberIds: [1, 2], name: 'A' };
+    BIKE_TYPES.forEach((minimumBike) => {
+      applySaveRating(sqlite, group, {
+        type: 'prefer', subtypes: ['nice'], minimumBike, ip: 'ip',
+      }, geometry, [50, 14]);
+      expect(sqlite.query('SELECT minimum_bike FROM road_ratings').all())
+        .toEqual([{ minimum_bike: minimumBike }]);
+    });
+    initializeRoadRatingSchema(sqlite);
+    expect(sqlite.query('SELECT minimum_bike FROM road_ratings').get())
+      .toEqual({ minimum_bike: 'freeride' });
+    expect(() => sqlite.exec("UPDATE road_ratings SET minimum_bike = 'scooter'"))
+      .toThrow(/CHECK constraint/);
+    const before = snapshot(sqlite);
+    expect(() => applySaveRating(sqlite, group, {
+      type: 'prefer', subtypes: ['nice'], ip: 'other',
+    }, geometry, [51, 15])).toThrow(/minimální kolo/);
+    expect(snapshot(sqlite)).toBe(before);
+    applySaveRating(sqlite, group, {
+      type: 'demote', subtypes: ['dangerous'], ip: 'ip',
+    }, geometry, [50, 14]);
+    expect(sqlite.query('SELECT minimum_bike FROM road_ratings').all())
+      .toEqual([{ minimum_bike: null }]);
+  });
+
+  it('upgrades an existing constrained schema without guessing bikes for old votes', () => {
+    const sqlite = memory();
+    initializeRoadRatingSchema(sqlite);
+    sqlite.exec('ALTER TABLE road_ratings DROP COLUMN minimum_bike');
+    sqlite.exec(`
+      INSERT INTO rated_roads (way_id, geometry, anchor_lat, anchor_lng)
+      VALUES (1, '{}', 50, 14);
+      INSERT INTO road_ratings (way_id, ip, type, subtypes, multiplier, comment)
+      VALUES (1, 'legacy', 'prefer', '["nice"]', 1.5, 'Keep me');
+    `);
+    initializeRoadRatingSchema(sqlite);
+    expect(rows(sqlite, 'road_ratings')).toMatchObject([{
+      ip: 'legacy', multiplier: 1.5, comment: 'Keep me', minimum_bike: null,
+    }]);
+    const upgraded = snapshot(sqlite);
+    initializeRoadRatingSchema(sqlite);
+    expect(snapshot(sqlite)).toBe(upgraded);
+  });
+
+  it.each([1, 4, 5, 9, 10])('displays and routes with %i persisted bike votes', async (count) => {
+    const clear = () => rawSqlite.exec(`
+      DELETE FROM road_ratings; DELETE FROM rated_road_members; DELETE FROM rated_roads;
+    `);
+    clear();
+    try {
+      const group = { wayId: 1, memberIds: [1, 2], name: 'A' };
+      const corridor = [{ name: 'A', lat: 50, lng: 14 }];
+      for (let index = 0; index < count; index += 1) {
+        applySaveRating(rawSqlite, group, {
+          type: 'prefer', subtypes: ['nice'], minimumBike: 'mtb', ip: `ip-${index}`,
+        }, geometry, [50, 14]);
+      }
+      const [aggregate] = await getAggregatesInBbox({
+        minLat: 49, maxLat: 51, minLng: 13, maxLng: 15,
+      }, 'ip-0');
+      expect(aggregate.bikeRecommendation).toMatchObject({
+        total: count, minimum: 'mtb', counts: { mtb: count },
+      });
+      expect(aggregate.mine?.minimumBike).toBe('mtb');
+      const [road] = await getVotedRoadsInCorridor(corridor, 200, 'road');
+      const expected = new Map([[1, 1.5], [4, 1.5], [5, 0.8], [9, 0.8], [10, 0.2]]);
+      expect(road).toEqual({ wayId: 1, memberIds: [1, 2], multiplier: expected.get(count) });
+      const [mtb] = await getVotedRoadsInCorridor(corridor, 200, 'mtb');
+      expect(mtb.multiplier).toBe(1.5);
+    } finally {
+      clear();
+    }
+  });
 
   it('refreshes stale members and cached data; keeps vote identity on rekey', () => {
     const sqlite = memory();
@@ -220,11 +303,15 @@ describe('road-rating SQLite persistence', () => {
       "UPDATE road_ratings SET updated_at = ? WHERE way_id = 10 AND ip = 'ip'",
     ).run('2001-02-03 04:05:06');
     const votesBefore = (rows(sqlite, 'road_ratings') as {
-      id: number; ip: string; comment: string | null; updated_at: string;
+      id: number;
+      ip: string;
+      comment: string | null;
+      updated_at: string;
+      minimum_bike: string | null;
     }[]).map(({
-      id, ip, comment, updated_at,
+      id, ip, comment, updated_at, minimum_bike,
     }) => ({
-      id, ip, comment, updated_at,
+      id, ip, comment, updated_at, minimum_bike,
     }));
     const result = backfillRatedRoadMembersFor(sqlite, (wayId) => (
       wayId === 10 ? resolved(11, [10, 11], { name: 'New', anchorLat: 51, anchorLng: 15 }) : null
@@ -237,11 +324,16 @@ describe('road-rating SQLite persistence', () => {
       { rated_way_id: 11, osm_way_id: 10 }, { rated_way_id: 11, osm_way_id: 11 },
     ]);
     expect((rows(sqlite, 'road_ratings') as {
-      id: number; ip: string; comment: string | null; updated_at: string; way_id: number;
+      id: number;
+      ip: string;
+      comment: string | null;
+      updated_at: string;
+      way_id: number;
+      minimum_bike: string | null;
     }[]).map(({
-      id, ip, comment, updated_at, way_id,
+      id, ip, comment, updated_at, way_id, minimum_bike,
     }) => ({
-      id, ip, comment, updated_at, way_id,
+      id, ip, comment, updated_at, way_id, minimum_bike,
     }))).toEqual(votesBefore.map((vote) => ({ ...vote, way_id: 11 })));
   });
 
@@ -251,7 +343,9 @@ describe('road-rating SQLite persistence', () => {
     applySaveRating(
       sqlite,
       { wayId: 10, memberIds: [10, 11], name: 'Old' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'ip' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'ip',
+      },
       geometry,
       [50, 14],
     );
@@ -279,7 +373,9 @@ describe('road-rating SQLite persistence', () => {
     const save = (wayId: number, ip: string) => applySaveRating(
       sqlite,
       { wayId, memberIds: [wayId], name: wayId === 1 ? 'A' : 'B' },
-      { type: 'prefer', subtypes: ['nice'], ip },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip,
+      },
       geometry,
       [50, 14],
     );
@@ -327,7 +423,9 @@ describe('road-rating SQLite persistence', () => {
     applySaveRating(
       sqlite,
       { wayId: 1, memberIds: [1], name: 'A' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'ip' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'ip',
+      },
       geometry,
       [50, 14],
     );
@@ -342,7 +440,9 @@ describe('road-rating SQLite persistence', () => {
     applySaveRating(
       sqlite,
       { wayId: 1, memberIds: [1], name: 'A' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'ip' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'ip',
+      },
       geometry,
       [50, 14],
     );
@@ -373,7 +473,9 @@ describe('road-rating SQLite persistence', () => {
     applySaveRating(
       sqlite,
       { wayId: 1, memberIds: [1], name: 'A' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'ip' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'ip',
+      },
       geometry,
       [50, 14],
     );
@@ -381,14 +483,18 @@ describe('road-rating SQLite persistence', () => {
     expect(() => applySaveRating(
       sqlite,
       { wayId: 2, memberIds: [1], name: 'B' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'other' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'other',
+      },
       geometry,
       [50, 14],
     )).toThrow(RoadRatingIntegrityError);
     expect(() => applySaveRating(
       sqlite,
       { wayId: -1, memberIds: [-1], name: 'Bad' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'other' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'other',
+      },
       geometry,
       [50, 14],
     )).toThrow(RoadRatingIntegrityError);
@@ -454,7 +560,7 @@ describe('road-rating SQLite persistence', () => {
         max_lat REAL
       );
     `);
-    for (let id = 1; id <= 8; id += 1) {
+    for (let id = 1; id <= 24; id += 1) {
       index.query('INSERT INTO roads VALUES (?, NULL, ?)').run(
         id,
         JSON.stringify({
@@ -467,17 +573,61 @@ describe('road-rating SQLite persistence', () => {
     applySaveRating(
       app,
       { wayId: 99, memberIds: [99], name: 'stale' },
-      { type: 'prefer', subtypes: ['nice'], ip: 'seed-mnisek-old' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'road', ip: 'seed-mnisek-old',
+      },
       geometry,
       [50, 14],
     );
-    expect(seedRoadRatingsMnisek(app, index).roads).toHaveLength(8);
+    applySaveRating(
+      app,
+      { wayId: 100, memberIds: [100], name: 'Real rating' },
+      {
+        type: 'prefer', subtypes: ['nice'], minimumBike: 'gravel', ip: 'real-user',
+      },
+      geometry,
+      [50, 14],
+    );
+    const realVote = app.query("SELECT * FROM road_ratings WHERE ip = 'real-user'").get();
+    const result = seedRoadRatingsMnisek(app, index);
+    expect(result.roads).toHaveLength(24);
+    expect(result).toMatchObject({ users: 30, votes: 436 });
     expect(app.query(
       'SELECT count(*) count FROM rated_roads WHERE way_id = 99',
     ).get()).toEqual({ count: 0 });
-    expect(app.query(
-      'SELECT multiplier, comment FROM road_ratings ORDER BY id LIMIT 1',
-    ).get()).toEqual({ multiplier: 0.2, comment: 'Příjemná cesta, minimum aut.' });
-    expect(app.query('SELECT count(*) count FROM rated_road_members').get()).toEqual({ count: 8 });
+    expect(app.query(`
+      SELECT multiplier, comment, minimum_bike FROM road_ratings
+      WHERE ip LIKE 'seed-mnisek-%' ORDER BY id LIMIT 1
+    `).get()).toEqual({
+      multiplier: 0.2, comment: 'Pozor na nebezpečný úsek a provoz.', minimum_bike: null,
+    });
+    expect(app.query('SELECT count(*) count FROM rated_road_members').get()).toEqual({ count: 25 });
+    expect(app.query(`
+      SELECT count(*) count FROM road_ratings
+      WHERE ip LIKE 'seed-mnisek-%' AND (
+        (type = 'prefer' AND minimum_bike IS NULL)
+        OR (type = 'demote' AND minimum_bike IS NOT NULL)
+      )
+    `).get()).toEqual({ count: 0 });
+    expect(app.query(`
+      SELECT DISTINCT minimum_bike FROM road_ratings
+      WHERE ip LIKE 'seed-mnisek-%' AND minimum_bike IS NOT NULL ORDER BY minimum_bike
+    `).all()).toEqual(
+      ['freeride', 'gravel', 'mtb', 'road'].map((bike) => ({ minimum_bike: bike })),
+    );
+    const evidence = app.query(`
+      SELECT sum(type = 'prefer') recommendations FROM road_ratings
+      WHERE ip LIKE 'seed-mnisek-%' GROUP BY way_id
+    `).all() as { recommendations: number }[];
+    expect(evidence.filter((road) => road.recommendations < 5)).toHaveLength(4);
+    expect(evidence.filter((road) => road.recommendations >= 5 && road.recommendations < 10))
+      .toHaveLength(4);
+    expect(evidence.filter((road) => road.recommendations >= 10)).toHaveLength(16);
+    expect(app.query("SELECT * FROM road_ratings WHERE ip = 'real-user'").get()).toEqual(realVote);
+    expect(seedRoadRatingsMnisek(app, index)).toEqual(result);
+    expect(app.query("SELECT count(*) count FROM road_ratings WHERE ip LIKE 'seed-mnisek-%'").get())
+      .toEqual({ count: 436 });
+    expect(app.query("SELECT * FROM road_ratings WHERE ip = 'real-user'").get()).toEqual(realVote);
+    expect(app.query('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 });

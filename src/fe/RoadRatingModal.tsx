@@ -3,7 +3,10 @@ import {
 } from 'solid-js';
 import { Button } from '@kobalte/core/button';
 import { Dialog } from '@kobalte/core/dialog';
-import type { RoadRatingSubtype, RoadRatingType, RoadRatingComment } from '@vrstevnice/shared';
+import type {
+  RoadRatingSubtype, RoadRatingType, RoadRatingComment, BikeType,
+} from '@vrstevnice/shared';
+import BikeTypeSlider, { BikeRecommendationScale } from './BikeTypeSlider';
 import {
   error as plannerError, planner, regenerateRoute, setError as setPlannerError,
 } from './appStore';
@@ -39,6 +42,7 @@ export default function RoadRatingModal() {
   const [type, setType] = createSignal<RoadRatingType>('prefer');
   const [subtypes, setSubtypes] = createSignal<RoadRatingSubtype[]>([]);
   const [comment, setComment] = createSignal('');
+  const [minimumBike, setMinimumBike] = createSignal<BikeType | null>(null);
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal<string | null>(null);
@@ -58,6 +62,7 @@ export default function RoadRatingModal() {
     setType(selection.mine?.type ?? 'prefer');
     setSubtypes(selection.mine?.subtypes ?? []);
     setComment(selection.mine?.comment ?? '');
+    setMinimumBike(selection.mine?.minimumBike ?? null);
     setError(null);
     setSuccess(null);
     setPending(false);
@@ -130,6 +135,10 @@ export default function RoadRatingModal() {
       setError('Vyberte alespoň jeden důvod.');
       return;
     }
+    if (type() === 'prefer' && minimumBike() == null) {
+      setError('Vyberte minimální doporučené kolo.');
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -139,6 +148,7 @@ export default function RoadRatingModal() {
         type: type(),
         subtypes: subtypes(),
         comment: comment().trim() || undefined,
+        minimumBike: type() === 'prefer' ? minimumBike() ?? undefined : undefined,
       });
       await afterChange(
         'Hodnocení uloženo.',
@@ -193,6 +203,10 @@ export default function RoadRatingModal() {
               .join(' · ')}
             </div>
           </div>
+
+          <Show when={roadRatingSelection()?.bikeRecommendation}>
+            {(summary) => <BikeRecommendationScale summary={summary()} />}
+          </Show>
 
           <Show when={(roadRatingSelection()?.commentsCount ?? 0) > 0}>
           <button class="road-rating-comments-toggle" type="button" onClick={() => {
@@ -254,6 +268,15 @@ export default function RoadRatingModal() {
               >{reason.label}</Button>
             )}</For>
           </div>
+
+          <Show when={type() === 'prefer'}>
+            <BikeTypeSlider
+              value={minimumBike()}
+              onChange={setMinimumBike}
+              label="Minimální doporučené kolo (povinné)"
+              disabled={pending() || Boolean(success())}
+            />
+          </Show>
 
           <label class="road-rating-comment-label" for="road-rating-comment">
             Komentář <span>(volitelné)</span>

@@ -970,6 +970,98 @@ body {
 
 /* ── Community road ratings ─────────────── */
 
+.bike-slider,
+.bike-recommendation {
+  margin: 16px 0;
+  font-size: 12px;
+}
+
+.bike-scale-track {
+  position: relative;
+  height: 5px;
+  margin: 18px 12.5% 12px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #22c55e, #eab308, #f97316, #ef4444);
+}
+
+.bike-scale-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.bike-scale-dot[data-bike="road"] { background: #22c55e; }
+.bike-scale-dot[data-bike="gravel"] { background: #eab308; }
+.bike-scale-dot[data-bike="mtb"] { background: #f97316; }
+.bike-scale-dot[data-bike="freeride"] { background: #ef4444; }
+
+.bike-scale-dot.selected {
+  width: 17px;
+  height: 17px;
+  box-shadow: 0 0 0 2px var(--color-text);
+}
+
+.bike-slider-thumb { top: -6px; }
+.bike-slider-thumb.unselected { opacity: 0.4; }
+
+@media (pointer: coarse) {
+  .bike-slider-thumb { top: -12px; }
+}
+
+.bike-scale-labels {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+
+.bike-scale-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 1px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: center;
+}
+
+button.bike-scale-choice { cursor: pointer; }
+
+.bike-icon {
+  display: block;
+  width: 76px;
+  max-width: 100%;
+  height: 48px;
+  object-fit: contain;
+}
+
+.bike-slider .bike-icon {
+  width: calc(76px * 2 / 3);
+  height: 32px;
+}
+
+.bike-scale-choice.selected {
+  border-color: currentcolor;
+  font-weight: 700;
+}
+
+.bike-scale-choice:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.bike-recommendation-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-muted);
+}
+
 .sheet-toggles .btn-toggle[data-pressed] {
   border-color: #2563eb;
   background: #dbeafe;

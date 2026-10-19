@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="#171717" stroke-linecap="round" stroke-linejoin="round">
+  <title>Gravel řídítka a přední plášť</title>
+  <path d="M27 6Q29 3 32 6 35 3 37 6M32 7V34" stroke-width="4" />
+  <path d="M12 13H52M12 11 4 29M52 11 60 29" stroke-width="4.5" />
+  <path d="m11 15-5 10m47-10 5 10" stroke="#fff" stroke-width="2" />
+  <path d="M26 61V49C26 30 38 30 38 49V61" stroke-width="2.5" />
+  <path d="M32 61V46" stroke-width="4.5" />
+  <path d="M31 47H33M31 50H33M31 53H33M31 56H33M31 59H33M30 11H34M30 16H34M30 20H34" stroke="#fff" stroke-width="1" />
+</svg>

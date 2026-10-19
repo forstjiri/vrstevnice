@@ -7,6 +7,8 @@
  * which can bleed to a close parallel or a shared endpoint.
  */
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { buildCustomModel, type GHCustomModel, type GHRouteRequest } from '@vrstevnice/routing';
 import type { JsonValue } from '@vrstevnice/shared';
 // eslint-disable-next-line import-x/no-relative-packages
@@ -77,6 +79,24 @@ function baseModel() {
 }
 
 describe('GraphHopper exact osm_way_id penalties', () => {
+  it('routes with persisted minimum-bike recommendations via the isolated Bun suite', () => {
+    const suite = fileURLToPath(new URL('../bun/road-rating-bike-routing.bun.ts', import.meta.url));
+    const bun = spawnSync('bun', ['test', suite], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+      env: { ...process.env, GRAPHHOPPER_URL },
+    });
+    if (bun.error) throw new Error(`Failed to spawn bike-routing tests: ${bun.error.message}`);
+    const output = `${bun.stdout}\n${bun.stderr}`;
+    if (bun.status !== 0) {
+      dumpGHLogs(50);
+      throw new Error(`Bike-routing suite failed (exit ${bun.status}):\n${output}`);
+    }
+    expect(output).toContain('0 fail');
+    console.log(output);
+  });
+
   it(
     'imports osm_way_id and changing only target way 15 selects the untouched alternative',
     async () => {

@@ -13,6 +13,7 @@ import type { SearchRootItemComponentProps } from '@kobalte/core/search';
 import treaty from './api';
 import { downloadGPX } from './gpx';
 import LabeledSlider from './LabeledSlider';
+import BikeTypeSlider from './BikeTypeSlider';
 import {
   planner,
   setStops,
@@ -30,6 +31,7 @@ import {
   setCycleway,
   setShowPOI,
   setUseRoadRatings,
+  setBikeType,
 } from './appStore';
 import { mapCamera } from './cameraStore';
 import {
@@ -172,6 +174,7 @@ export default function Stops() {
         cyclewayCoefficient: planner.cycleway,
         showPOI: planner.showPOI,
         useRoadRatings: planner.useRoadRatings,
+        bikeType: planner.bikeType,
         shadowDateTime: shadowRouteActive() ? effectiveSunDateTime() : undefined,
       };
       const { data, error: routeError } = await treaty.api.route.post(body);
@@ -432,6 +435,18 @@ export default function Stops() {
             👥 Brát ohled na komunitní hodnocení
           </ToggleButton>
         </div>
+
+        <Show when={planner.useRoadRatings}>
+          <BikeTypeSlider
+            value={planner.bikeType}
+            onChange={setBikeType}
+            onChangeEnd={() => {
+              if (planner.route) calculateRoute();
+            }}
+            label="Moje kolo"
+            disabled={loading()}
+          />
+        </Show>
 
         <LabeledSlider
           value={planner.elevation}

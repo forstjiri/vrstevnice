@@ -1,13 +1,18 @@
 import { Database } from 'bun:sqlite';
 import { resolve } from 'node:path';
-import { connectedRoadWayGroup, type OSMRoadWay } from '../src/shared';
+import {
+  BIKE_TYPES, connectedRoadWayGroup, ROAD_RATING_SUBTYPE_MULTIPLIERS,
+  type BikeType, type OSMRoadWay, type RoadRatingSubtype, type RoadRatingType,
+} from '../src/shared';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..');
 const APP_DB_PATH = resolve(PROJECT_ROOT, 'data', 'data.db');
 const ROAD_INDEX_PATH = resolve(PROJECT_ROOT, 'data', 'road-rating-roads.sqlite');
 const SEED_IP_PREFIX = 'seed-mnisek-';
-const USER_COUNT = 10;
-const ROAD_COUNT = 8;
+const USER_COUNT = 30;
+const ROAD_COUNT = 24;
+// Each tier covers all four bike types: sparse, weak, strong and mixed evidence.
+const VOTE_COUNTS = [4, 8, 15, 22, USER_COUNT, USER_COUNT];
 const BBOX = {
   minLng: 15.0,
   minLat: 50.80,
@@ -69,34 +74,55 @@ function anchor(lines: [number, number][][]): [number, number] {
   return [point[1], point[0]];
 }
 
-function vote(index: number): { type: 'prefer' | 'demote'; subtypes: string[]; multiplier: number; comment: string | null } {
-  const prefers = [['nice'], ['safe'], ['fast'], ['nice', 'safe'], ['nice', 'fast']];
-  const demotes = [['dangerous'], ['unpassable'], ['bad_terrain'], ['dangerous', 'bad_terrain']];
+function vote(index: number, roadIndex: number, userIndex: number): {
+  type: RoadRatingType;
+  subtypes: RoadRatingSubtype[];
+  multiplier: number;
+  comment: string;
+  minimumBike: BikeType | null;
+} {
+  const prefers: RoadRatingSubtype[][] = [
+    ['nice'], ['safe'], ['fast'], ['nice', 'safe'], ['nice', 'fast'],
+  ];
+  const demotes: RoadRatingSubtype[][] = [
+    ['dangerous'], ['unpassable'], ['bad_terrain'], ['dangerous', 'bad_terrain'],
+  ];
   const type = index % 3 === 0 ? 'demote' : 'prefer';
   const subtypes = type === 'prefer'
     ? prefers[index % prefers.length]
     : demotes[index % demotes.length];
-  const multipliers: Record<string, number> = {
-    nice: 1.5, safe: 1.7, fast: 1.4, dangerous: 0.2, unpassable: 0.05, bad_terrain: 0.4,
+  const mixed = roadIndex >= ROAD_COUNT - BIKE_TYPES.length;
+  const bikeIndex = mixed ? userIndex % BIKE_TYPES.length
+    : (roadIndex + (userIndex % 5 === 0 ? 1 : 0)) % BIKE_TYPES.length;
+  const minimumBike = type === 'prefer' ? BIKE_TYPES[bikeIndex] : null;
+  const bikeComments: Record<BikeType, string> = {
+    road: 'Hladký povrch, vhodné i pro silniční kolo.',
+    gravel: 'Šotolina a lehčí nerovnosti, doporučuji alespoň gravel.',
+    mtb: 'Kořeny a kameny, doporučuji alespoň MTB.',
+    freeride: 'Technicky náročný úsek, doporučuji freeride kolo.',
   };
-  const sorted = subtypes.map((subtype) => multipliers[subtype]).sort((a, b) => a - b);
+  const negativeComments: Partial<Record<RoadRatingSubtype, string>> = {
+    dangerous: 'Pozor na nebezpečný úsek a provoz.',
+    unpassable: 'Úsek je momentálně nepřejezdný.',
+    bad_terrain: 'Rozbitý povrch, zvlášť po dešti.',
+  };
+  const sorted = subtypes.map((subtype) => ROAD_RATING_SUBTYPE_MULTIPLIERS[subtype])
+    .sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return {
     type,
     subtypes,
     multiplier: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2,
-    comment: [
-      'Příjemná cesta, minimum aut.',
-      'Pozor na rozbitý povrch po dešti.',
-      'Bezpečná cyklotrasa s pěkným výhledem.',
-      'Krátký prudší úsek, jinak v pohodě.',
-    ][index % 4],
+    comment: minimumBike ? bikeComments[minimumBike]
+      : negativeComments[subtypes[0]] ?? 'Cestu nedoporučuji.',
+    minimumBike,
   };
 }
 
 export function seedRoadRatingsMnisek(app: Database, index: Database): {
   roads: { wayId: number; name: string | null }[];
   users: number;
+  votes: number;
 } {
   const candidates = index.query(`
   SELECT roads.osm_id, roads.name, roads.geometry
@@ -114,6 +140,7 @@ export function seedRoadRatingsMnisek(app: Database, index: Database): {
   });
   if (groups.size < ROAD_COUNT) throw new Error(`Only found ${groups.size} road groups in Mníšek`);
 
+  let votes = 0;
   app.exec('BEGIN');
   try {
   app.query('DELETE FROM road_ratings WHERE ip LIKE ?').run(`${SEED_IP_PREFIX}%`);
@@ -151,12 +178,12 @@ export function seedRoadRatingsMnisek(app: Database, index: Database): {
       `).run(group.wayId, osmWayId);
     });
 
-    const voteCount = 1 + Math.floor(pseudoRandom(roadIndex + 100) * USER_COUNT);
+    const voteCount = VOTE_COUNTS[Math.floor(roadIndex / BIKE_TYPES.length)];
     for (let userIndex = 0; userIndex < voteCount; userIndex += 1) {
-      const rating = vote(roadIndex * USER_COUNT + userIndex);
+      const rating = vote(roadIndex * USER_COUNT + userIndex, roadIndex, userIndex);
       app.query(`
-        INSERT INTO road_ratings (way_id, ip, type, subtypes, multiplier, comment)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO road_ratings (way_id, ip, type, subtypes, multiplier, comment, minimum_bike)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         group.wayId,
         `${SEED_IP_PREFIX}${userIndex + 1}`,
@@ -164,8 +191,10 @@ export function seedRoadRatingsMnisek(app: Database, index: Database): {
         JSON.stringify(rating.subtypes),
         rating.multiplier,
         rating.comment,
+        rating.minimumBike,
       );
     }
+    votes += voteCount;
     });
     app.exec('COMMIT');
   } catch (error) {
@@ -175,6 +204,7 @@ export function seedRoadRatingsMnisek(app: Database, index: Database): {
   return {
     roads: [...groups.values()].map((group) => ({ wayId: group.wayId, name: group.name })),
     users: USER_COUNT,
+    votes,
   };
 }
 
@@ -182,6 +212,8 @@ if (import.meta.main) {
   const index = new Database(ROAD_INDEX_PATH, { readonly: true });
   const app = new Database(APP_DB_PATH);
   try {
+    app.exec('PRAGMA foreign_keys = ON');
+    app.exec('PRAGMA busy_timeout = 5000');
     console.log(JSON.stringify(seedRoadRatingsMnisek(app, index), null, 2));
   } finally {
     app.close();

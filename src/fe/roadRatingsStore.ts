@@ -1,5 +1,6 @@
 import { createRoot, createSignal, type Accessor } from 'solid-js';
 import type {
+  BikeType,
   RoadRatingAggregate,
   RoadRatingSubtype,
   RoadRatingType,
@@ -14,6 +15,7 @@ export interface RoadRatingSelection {
   type: RoadRatingAggregate['type'];
   counts: RoadRatingAggregate['counts'];
   commentsCount: number;
+  bikeRecommendation: RoadRatingAggregate['bikeRecommendation'] | null;
   mine: RoadRatingAggregate['mine'];
 }
 
@@ -123,6 +125,7 @@ export async function saveRoadRating(input: {
   type: RoadRatingType;
   subtypes: RoadRatingSubtype[];
   comment?: string;
+  minimumBike?: BikeType;
 }): Promise<RoadRatingAggregate> {
   const { data, error } = await treaty.api['road-ratings'].post(input);
   if (error) throw new Error(errorMessage(error, 'Uložení hodnocení cesty selhalo'));

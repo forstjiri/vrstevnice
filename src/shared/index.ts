@@ -117,6 +117,20 @@ export interface RouteRequest {
   shadowDateTime?: string;
   /** Apply community road ratings to routing */
   useRoadRatings?: boolean;
+  bikeType?: BikeType;
+}
+
+export const BIKE_TYPES = ['road', 'gravel', 'mtb', 'freeride'] as const;
+export type BikeType = typeof BIKE_TYPES[number];
+
+export function isBikeType(value: string | null | undefined): value is BikeType {
+  return BIKE_TYPES.some((bike) => bike === value);
+}
+
+export interface BikeRecommendationSummary {
+  total: number;
+  minimum: BikeType | null;
+  counts: Record<BikeType, number>;
 }
 
 export type RoadRatingType = 'prefer' | 'demote';
@@ -210,7 +224,13 @@ export interface RoadRatingAggregate {
     subtypes: Record<RoadRatingSubtype, number>;
   };
   commentsCount: number;
-  mine: { type: RoadRatingType; subtypes: RoadRatingSubtype[]; comment: string | null } | null;
+  bikeRecommendation: BikeRecommendationSummary;
+  mine: {
+    type: RoadRatingType;
+    subtypes: RoadRatingSubtype[];
+    comment: string | null;
+    minimumBike: BikeType | null;
+  } | null;
 }
 
 export interface RoadRatingComment {

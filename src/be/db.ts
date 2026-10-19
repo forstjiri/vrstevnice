@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm/sql';
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { BIKE_TYPES } from '@vrstevnice/shared';
 import {
   sqliteTable, text, real, integer, unique,
 } from 'drizzle-orm/sqlite-core';
@@ -131,6 +132,12 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
       // while FK enforcement remains enabled for this connection.
       sqliteHandle.exec('PRAGMA defer_foreign_keys = ON');
       ensureColumn(sqliteHandle, 'road_ratings', 'comment', 'TEXT');
+      ensureColumn(
+        sqliteHandle,
+        'road_ratings',
+        'minimum_bike',
+        "TEXT CHECK (minimum_bike IN ('road', 'gravel', 'mtb', 'freeride'))",
+      );
       sqliteHandle.exec(`
        CREATE TABLE rated_roads_new (
          way_id INTEGER PRIMARY KEY,
@@ -153,8 +160,9 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
          type TEXT NOT NULL,
          subtypes TEXT NOT NULL,
          multiplier REAL NOT NULL,
-         comment TEXT,
-         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          comment TEXT,
+          minimum_bike TEXT CHECK (minimum_bike IN ('road', 'gravel', 'mtb', 'freeride')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
          UNIQUE (way_id, ip)
        );
        INSERT INTO rated_roads_new
@@ -162,7 +170,8 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
        INSERT INTO rated_road_members_new
          SELECT rated_way_id, osm_way_id FROM rated_road_members;
        INSERT INTO road_ratings_new
-         SELECT id, way_id, ip, type, subtypes, multiplier, comment, updated_at FROM road_ratings;
+          SELECT id, way_id, ip, type, subtypes, multiplier, comment, minimum_bike, updated_at
+          FROM road_ratings;
         DROP TABLE road_ratings; DROP TABLE rated_road_members; DROP TABLE rated_roads;
         ALTER TABLE rated_roads_new RENAME TO rated_roads;
         ALTER TABLE rated_road_members_new RENAME TO rated_road_members;
@@ -176,6 +185,13 @@ export function initializeRoadRatingSchema(sqliteHandle: Database): void {
   };
 
   enforceRoadRatingConstraints();
+
+  ensureColumn(
+    sqliteHandle,
+    'road_ratings',
+    'minimum_bike',
+    "TEXT CHECK (minimum_bike IN ('road', 'gravel', 'mtb', 'freeride'))",
+  );
 
   // Drop the polygon-era geometry_version column (no longer part of the schema).
   const column = sqliteHandle.query(
@@ -241,4 +257,5 @@ export const roadRatings = sqliteTable('road_ratings', {
   multiplier: real('multiplier').notNull(),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
   comment: text('comment'),
+  minimumBike: text('minimum_bike', { enum: BIKE_TYPES }),
 });

@@ -38,6 +38,7 @@ import {
 import {
   bucketizeRoads,
   createRatingThrottle,
+  validateMinimumBike,
   validateSubtypes,
 } from './road-ratings-core';
 
@@ -109,6 +110,10 @@ function checkRatingThrottle(ip: string): { ok: boolean; retryAfterSec: number }
   return ratingThrottle(ip);
 }
 
+const bikeTypeSchema = t.Union([
+  t.Literal('road'), t.Literal('gravel'), t.Literal('mtb'), t.Literal('freeride'),
+]);
+
 const roadRatingResponseSchema = t.Object({
   wayId: t.Number(),
   name: t.Nullable(t.String()),
@@ -130,6 +135,13 @@ const roadRatingResponseSchema = t.Object({
     }),
   }),
   commentsCount: t.Number(),
+  bikeRecommendation: t.Object({
+    total: t.Number(),
+    minimum: t.Nullable(bikeTypeSchema),
+    counts: t.Object({
+      road: t.Number(), gravel: t.Number(), mtb: t.Number(), freeride: t.Number(),
+    }),
+  }),
   mine: t.Nullable(t.Object({
     type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
     subtypes: t.Array(t.Union([
@@ -141,6 +153,7 @@ const roadRatingResponseSchema = t.Object({
       t.Literal('bad_terrain'),
     ])),
     comment: t.Nullable(t.String()),
+    minimumBike: t.Nullable(bikeTypeSchema),
   })),
 });
 
@@ -342,6 +355,9 @@ export const app = new Elysia({ prefix: '/api' })
       if (!validateSubtypes(body.type, body.subtypes)) {
         return ratingErrorResponse('Neplatné podtypy hodnocení.', 400);
       }
+      if (!validateMinimumBike(body.type, body.minimumBike)) {
+        return ratingErrorResponse('U doporučení vyberte minimální doporučené kolo.', 400);
+      }
       const ip = server?.requestIP(request)?.address ?? 'unknown';
       const throttle = checkRatingThrottle(ip);
       if (!throttle.ok) {
@@ -370,6 +386,7 @@ export const app = new Elysia({ prefix: '/api' })
         type: t.Union([t.Literal('prefer'), t.Literal('demote')]),
         subtypes: t.Array(t.String()),
         comment: t.Optional(t.String({ maxLength: 1000 })),
+        minimumBike: t.Optional(bikeTypeSchema),
       }),
       response: roadRatingResponseSchema,
     },
@@ -583,6 +600,7 @@ export const app = new Elysia({ prefix: '/api' })
         cyclewayCoefficient,
         showPOI = false,
         useRoadRatings = false,
+        bikeType = 'gravel',
       } = body;
 
       pino.info(
@@ -601,7 +619,7 @@ export const app = new Elysia({ prefix: '/api' })
         // Community routing is opt-in: never silently substitute an unrated
         // route when its persisted data, database, or model preparation fails.
         try {
-          const votedRoads = await getVotedRoadsInCorridor(stops);
+          const votedRoads = await getVotedRoadsInCorridor(stops, 200, bikeType);
           roadRatingBuckets = bucketizeRoads(votedRoads);
           pino.debug({ roadCount: votedRoads.length }, 'Community road ratings loaded');
         } catch (ratingErr) {
@@ -745,6 +763,7 @@ export const app = new Elysia({ prefix: '/api' })
         showPOI: t.Optional(t.Boolean()),
         shadowDateTime: t.Optional(t.String()),
         useRoadRatings: t.Optional(t.Boolean()),
+        bikeType: t.Optional(bikeTypeSchema),
       }),
       response: t.Object({
         geometry: t.Array(t.Array(t.Number())),

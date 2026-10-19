@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="#171717" stroke-linecap="round" stroke-linejoin="round">
+  <title>Široká horská řídítka</title>
+  <path d="M4 19 16 20C23 20 24 25 32 25S41 20 48 20L60 19" stroke-width="5" />
+  <path d="m4 19 9 1m38 0 9-1" stroke-width="7" />
+  <path d="M15 22V27L7 29M49 22V27L57 29" stroke-width="2.8" />
+  <path d="M17 26C24 27 27 35 32 49M47 26C40 27 37 35 32 49" stroke-width="1.5" />
+  <path d="M32 28V53" stroke-width="6" />
+  <rect x="28" y="22" width="8" height="9" rx="1.5" fill="#171717" stroke="none" />
+  <path d="M13 17V22M51 17V22" stroke="#fff" stroke-width="1" />
+  <g fill="#fff" stroke="none">
+    <circle cx="30" cy="24" r=".8" />
+    <circle cx="34" cy="24" r=".8" />
+    <circle cx="30" cy="29" r=".8" />
+    <circle cx="34" cy="29" r=".8" />
+  </g>
+</svg>

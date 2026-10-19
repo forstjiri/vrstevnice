@@ -4,6 +4,7 @@ import {
 } from 'drizzle-orm';
 
 import type {
+  BikeType,
   RoadRatingAggregate,
   RoadRatingComment,
   RoadRatingSubtype,
@@ -21,10 +22,12 @@ import {
 import { resolve } from 'node:path';
 import {
   aggregateRatings,
+  bikeAwareMultiplier,
   corridorBounds,
-  medianOf,
   perUserMultiplier,
   planMemberBackfill,
+  summarizeBikeRecommendations,
+  validateMinimumBike,
 } from './road-ratings-core';
 import type {
   MemberBackfillPlan,
@@ -262,11 +265,13 @@ function makeAggregate(
       total: ratings.length, prefer, demote, subtypes: subtypeCounts,
     },
     commentsCount: ratings.filter((rating) => Boolean(rating.comment?.trim())).length,
+    bikeRecommendation: summarizeBikeRecommendations(ratings),
     mine: mineRow
       ? {
         type: mineRow.type as RoadRatingType,
         subtypes: parseSubtypes(mineRow.subtypes),
         comment: mineRow.comment,
+        minimumBike: mineRow.minimumBike,
       }
       : null,
   };
@@ -549,6 +554,7 @@ export async function saveRating(input: {
   type: RoadRatingType;
   subtypes: RoadRatingSubtype[];
   comment?: string;
+  minimumBike?: BikeType;
   ip: string;
 }): Promise<RoadRatingAggregate> {
   const group = resolveRoadGroup(input.wayId);
@@ -577,6 +583,7 @@ export function applySaveRating(
     type: RoadRatingType;
     subtypes: RoadRatingSubtype[];
     comment?: string;
+    minimumBike?: BikeType;
     ip: string;
   },
   geometry: {
@@ -586,6 +593,9 @@ export function applySaveRating(
   anchor: [number, number],
   failDuringApply?: () => never,
 ): void {
+  if (!validateMinimumBike(input.type, input.minimumBike)) {
+    throw new Error('U doporučení vyberte minimální kolo; u negativního hodnocení jej neuvádějte.');
+  }
   const comment = input.comment?.trim() || null;
   const multiplier = perUserMultiplier(input.type, input.subtypes);
   sqlite.transaction(() => {
@@ -641,15 +651,26 @@ export function applySaveRating(
     });
 
     sqlite.query(`
-      INSERT INTO road_ratings (way_id, ip, type, subtypes, multiplier, comment, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO road_ratings (
+        way_id, ip, type, subtypes, multiplier, comment, minimum_bike, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(way_id, ip) DO UPDATE SET
         type = excluded.type,
         subtypes = excluded.subtypes,
         multiplier = excluded.multiplier,
         comment = excluded.comment,
+        minimum_bike = excluded.minimum_bike,
         updated_at = excluded.updated_at
-    `).run(group.wayId, input.ip, input.type, JSON.stringify(input.subtypes), multiplier, comment);
+    `).run(
+      group.wayId,
+      input.ip,
+      input.type,
+      JSON.stringify(input.subtypes),
+      multiplier,
+      comment,
+      input.minimumBike ?? null,
+    );
 
     if (failDuringApply) failDuringApply();
   })();
@@ -691,6 +712,7 @@ export async function getAggregatesInBbox(
 export async function getVotedRoadsInCorridor(
   stops: Stop[],
   limit = 200,
+  bikeType: BikeType = 'gravel',
 ): Promise<{ wayId: number; multiplier: number; memberIds: number[] }[]> {
   const bounds = corridorBounds(stops);
   const roads = await db.select().from(ratedRoads).where(and(
@@ -748,7 +770,7 @@ export async function getVotedRoadsInCorridor(
     }
     return [{
       wayId: road.wayId,
-      multiplier: medianOf(multipliers),
+      multiplier: bikeAwareMultiplier(wayRatings, bikeType),
       memberIds,
     }];
   });
