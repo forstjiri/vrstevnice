@@ -1,6 +1,9 @@
 # Vrstevnice — uživatelská dokumentace
 
 Cyklistický plánovač tras s 3D terénem, vrstevnicemi, profilovým grafem a animací jízdy. Všechna data jsou lokální — žádné cloud API, žádné externí závislosti.
+---- --
+Tohle repo vzniklo spoluprací s Codex kde jsem já nastavil jakou architekturu bude mít a iterativně jsem dělal vylepšení a refaktoring.
+Všechno ale zdaleka není čisté jak bych si přál, do budu spíše než nové funkce znovu procházet existující kod a hledat vylepšení tak aby se v tom vyznal každý.
 
 <p>
   <a href="media/main_planning.png"><img src="media/main_planning.png" width="200" alt="Hlavní plánování trasy"></a>
