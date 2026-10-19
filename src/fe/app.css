@@ -586,6 +586,7 @@ body {
 
 .map-legend-swatch[style*="--legend-dash:1"]::before,
 .map-legend-route {
+  background-color: transparent;
   background-image: repeating-linear-gradient(90deg, var(--legend-line) 0 6px, transparent 6px 10px);
 }
 

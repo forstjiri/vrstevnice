@@ -1373,6 +1373,28 @@ export default function Map() {
         },
       }, 'road_major_label');
 
+      // Larger lakes can carry their names on centerlines instead of points.
+      m.addLayer({
+        id: 'water-body-line-label',
+        type: 'symbol',
+        source: 'openmaptiles',
+        'source-layer': 'water_name',
+        minzoom: 8,
+        filter: ['==', '$type', 'LineString'],
+        layout: {
+          'symbol-placement': 'line-center',
+          'text-field': ['coalesce', ['get', 'name:cs'], ['get', 'name'], ['get', 'name:latin']],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 16, 14],
+          'text-max-width': 8,
+        },
+        paint: {
+          'text-color': '#356b8c',
+          'text-halo-color': 'rgba(255,255,255,0.85)',
+          'text-halo-width': 1,
+        },
+      }, 'road_major_label');
+
       // ── Transit: railway lines (visible from z10) ──
       try {
         m.addLayer(
