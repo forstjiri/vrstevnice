@@ -434,14 +434,16 @@ else
   FAIL=1
 fi
 
-info "HTTPS: howevil.eu"
-HTTPS_STATUS=$(runc "curl -sI --max-time 10 https://howevil.eu 2>/dev/null | head -1")
-if echo "$HTTPS_STATUS" | grep -q "200"; then
-  ok "HTTPS OK — $HTTPS_STATUS"
-else
-  warn "HTTPS — $HTTPS_STATUS (certifikát se může ještě stahovat, zkus za 30s)"
-  FAIL=1
-fi
+for domain in howevil.eu vrstevnice.eu; do
+  info "HTTPS: $domain"
+  HTTPS_STATUS=$(runc "curl -sI --max-time 10 https://$domain 2>/dev/null | head -1") || HTTPS_STATUS=""
+  if echo "$HTTPS_STATUS" | grep -q "200"; then
+    ok "HTTPS OK — $HTTPS_STATUS"
+  else
+    warn "HTTPS $domain — $HTTPS_STATUS (certifikát se může ještě stahovat, zkus za 30s)"
+    FAIL=1
+  fi
+done
 info "RAM"
 USED_MB=$(runc 'awk "/MemTotal/{t=\$2} /MemAvailable/{a=\$2} END{print int((t-a)/1024)}" /proc/meminfo')
 AVAIL_MB=$(runc 'awk "/MemAvailable/{print int(\$2/1024)}" /proc/meminfo')

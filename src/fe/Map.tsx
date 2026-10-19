@@ -1306,6 +1306,7 @@ export default function Map() {
       } catch {}
 
       // ── Contour lines ──
+      // Keep contours and elevation labels below water, buildings and roads.
       try {
         m.addSource('contours', {
           type: 'vector',
@@ -1324,7 +1325,7 @@ export default function Map() {
               'line-width': ['match', ['get', 'level'], 1, 1, 0.4],
             },
           },
-          'road_major_label',
+          'water',
         );
         m.addLayer(
           {
@@ -1345,11 +1346,32 @@ export default function Map() {
               'text-halo-width': 1,
             },
           },
-          'road_major_label',
+          'water',
         );
         contoursReady = true;
         syncDynamicLayers(m);
       } catch {}
+
+      // ── Water body names from local vector tiles ──
+      m.addLayer({
+        id: 'water-body-label',
+        type: 'symbol',
+        source: 'openmaptiles',
+        'source-layer': 'water_name',
+        minzoom: 8,
+        filter: ['==', '$type', 'Point'],
+        layout: {
+          'text-field': ['coalesce', ['get', 'name:cs'], ['get', 'name'], ['get', 'name:latin']],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 16, 14],
+          'text-max-width': 8,
+        },
+        paint: {
+          'text-color': '#356b8c',
+          'text-halo-color': 'rgba(255,255,255,0.85)',
+          'text-halo-width': 1,
+        },
+      }, 'road_major_label');
 
       // ── Transit: railway lines (visible from z10) ──
       try {

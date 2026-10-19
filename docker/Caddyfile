@@ -1,4 +1,4 @@
-howevil.eu {
+howevil.eu, vrstevnice.eu {
 	@tiles path /styles/* /data/* /fonts/* /sprite/*
 	reverse_proxy @tiles localhost:2323
 	reverse_proxy localhost:3002
