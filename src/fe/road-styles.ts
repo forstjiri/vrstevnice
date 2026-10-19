@@ -339,7 +339,11 @@ export function buildRoadLayers(): maplibregl.LineLayerSpecification[] {
       ...shared,
       id: 'cycling-major-road-outline',
       layout: { ...shared.layout, 'line-cap': 'butt' },
-      filter: ['all', ['==', '$type', 'LineString'], ['in', 'class', 'motorway', 'trunk', 'primary', 'secondary']],
+      filter: [
+        'all',
+        ['==', '$type', 'LineString'],
+        ['in', 'class', 'motorway', 'trunk', 'primary', 'secondary'],
+      ],
       paint: {
         'line-color': '#909090',
         'line-opacity': 1,

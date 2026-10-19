@@ -89,10 +89,9 @@ export function BikeRecommendationScale(props: {
   summary: BikeRecommendationSummary;
 }) {
   return (
-    <div class="bike-recommendation">
-      <Show when={props.summary.minimum} fallback={<span>Typ kola zatím nikdo neuvedl.</span>}>
+      <Show when={props.summary.minimum}>
         {(minimum) => (
-          <>
+          <div class="bike-recommendation">
             <span>
               Minimum: <strong>{BIKE_LABELS[minimum()]}</strong> · {props.summary.total} doporučení
             </span>
@@ -115,12 +114,12 @@ export function BikeRecommendationScale(props: {
               )}</For>
             </div>
             <span class="bike-recommendation-note">
-              Minimum je medián hlasů. Vliv na plánování od 5 doporučení;
-              silné potlačení od 10 při většinové shodě, že kolo nestačí.
+              Minimum vychází z alespoň 5 doporučení s dvoutřetinovou shodou pro daný typ
+              nebo náročnější kolo. U silnice musí dvě třetiny hlasovat přímo pro silnici.
+              Silné potlačení nevhodné cesty při plánování od 10 doporučení.
             </span>
-          </>
+          </div>
         )}
       </Show>
-    </div>
   );
 }

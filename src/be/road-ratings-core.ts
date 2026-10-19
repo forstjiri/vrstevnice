@@ -55,31 +55,37 @@ export function summarizeBikeRecommendations(
   const counts: Record<BikeType, number> = {
     road: 0, gravel: 0, mtb: 0, freeride: 0,
   };
-  const indices = votes.flatMap((vote) => {
-    if (vote.type !== 'prefer' || !isBikeType(vote.minimumBike)) return [];
+  let total = 0;
+  votes.forEach((vote) => {
+    if (vote.type !== 'prefer' || !isBikeType(vote.minimumBike)) return;
     counts[vote.minimumBike] += 1;
-    return [BIKE_TYPES.indexOf(vote.minimumBike)];
+    total += 1;
   });
-  return {
-    total: indices.length,
-    minimum: indices.length > 0 ? BIKE_TYPES[Math.ceil(medianOf(indices))] : null,
-    counts,
-  };
+  let minimum: BikeType | null = null;
+  if (total >= 5) {
+    const required = Math.ceil((2 * total) / 3);
+    let support = 0;
+    minimum = [...BIKE_TYPES].reverse().find((bike) => {
+      support += counts[bike];
+      // Road+ includes every bike, so road requires explicit road votes instead.
+      return (bike === 'road' ? counts.road : support) >= required;
+    }) ?? null;
+  }
+  return { total, minimum, counts };
 }
 
 /** Bike evidence starts at five explicit recommendations; legacy votes stay general. */
 export function bikeAwareMultiplier(votes: BikeRatingVote[], bikeType: BikeType): number {
   const summary = summarizeBikeRecommendations(votes);
-  if (summary.total < 5) return medianOf(votes.map((vote) => vote.multiplier));
+  const base = medianOf(votes.map((vote) => vote.multiplier));
+  if (summary.minimum == null) return base;
   const selectedIndex = BIKE_TYPES.indexOf(bikeType);
-  const isUnsuitable = (vote: BikeRatingVote) => vote.type === 'prefer'
-    && isBikeType(vote.minimumBike) && BIKE_TYPES.indexOf(vote.minimumBike) > selectedIndex;
-  // Incompatible endorsements are neutral, never a boost for the selected bike.
-  const base = medianOf(votes.map((vote) => (isUnsuitable(vote) ? 1 : vote.multiplier)));
-  const agreement = votes.filter(isUnsuitable).length / summary.total;
-  if (agreement <= 0.5) return base;
-  // A strict majority must agree the selected bike is insufficient. Strong
-  // avoidance needs ten explicit votes and scales with their agreement.
+  if (selectedIndex >= BIKE_TYPES.indexOf(summary.minimum)) return base;
+  const unsuitable = BIKE_TYPES.slice(selectedIndex + 1)
+    .reduce((sum, bike) => sum + summary.counts[bike], 0);
+  const agreement = unsuitable / summary.total;
+  // The same two-thirds consensus gates both display and bike-specific routing.
+  // Strong avoidance still needs ten explicit votes and scales with agreement.
   const penalty = summary.total >= 10 ? 0.2 + (1 - agreement) * 0.6 : 0.8;
   return Math.min(base, penalty);
 }

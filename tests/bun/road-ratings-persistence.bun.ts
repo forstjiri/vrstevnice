@@ -277,7 +277,7 @@ describe('road-rating SQLite persistence', () => {
         minLat: 49, maxLat: 51, minLng: 13, maxLng: 15,
       }, 'ip-0');
       expect(aggregate.bikeRecommendation).toMatchObject({
-        total: count, minimum: 'mtb', counts: { mtb: count },
+        total: count, minimum: count >= 5 ? 'mtb' : null, counts: { mtb: count },
       });
       expect(aggregate.mine?.minimumBike).toBe('mtb');
       const [road] = await getVotedRoadsInCorridor(corridor, 200, 'road');

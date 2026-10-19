@@ -129,6 +129,7 @@ export function isBikeType(value: string | null | undefined): value is BikeType 
 
 export interface BikeRecommendationSummary {
   total: number;
+  /** Highest minimum supported by two thirds of at least five explicit recommendations. */
   minimum: BikeType | null;
   counts: Record<BikeType, number>;
 }

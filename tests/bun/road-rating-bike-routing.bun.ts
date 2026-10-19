@@ -146,14 +146,14 @@ describe('minimum-bike SQLite → custom model → GraphHopper routing', () => {
     }
   });
 
-  it('reroutes with a six-of-ten majority, less strongly than unanimity', async () => {
-    saveVotes([...Array<BikeType>(6).fill('mtb'), ...Array<BikeType>(4).fill('gravel')]);
+  it('reroutes with a seven-of-ten consensus, less strongly than unanimity', async () => {
+    saveVotes([...Array<BikeType>(7).fill('mtb'), ...Array<BikeType>(3).fill('gravel')]);
     const route = await routeFor('gravel');
-    expect(route.buckets).toEqual([{ multiplier: 0.44, wayIds: [1001] }]);
+    expect(route.buckets).toEqual([{ multiplier: 0.38, wayIds: [1001] }]);
     expectDetour(route.ids);
   });
 
-  it.each([4, 5])('does not strongly avoid MTB with only %i of ten votes', async (count) => {
+  it.each([4, 5, 6])('ignores bike-specific avoidance with only %i of ten votes', async (count) => {
     saveVotes([
       ...Array<BikeType>(count).fill('mtb'), ...Array<BikeType>(10 - count).fill('gravel'),
     ]);
