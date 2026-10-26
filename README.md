@@ -5,6 +5,9 @@ Cyklistický plánovač tras s 3D terénem, vrstevnicemi, profilovým grafem a a
 Tohle repo vzniklo spoluprací s Codex kde jsem já nastavil jakou architekturu bude mít a iterativně jsem dělal vylepšení a refaktoring.
 Všechno ale zdaleka není čisté jak bych si přál, do budu spíše než nové funkce znovu procházet existující kod a hledat vylepšení tak aby se v tom vyznal každý.
 
+Pokud narazíte na chybu, budu vděčný za repport do `Issues`. 
+Hlašte klidně i návrhy na zlepšení trasování, takový report by měl obsahovat počáteční a konečný bod, vybrané parametry a navrženou vs požadovanou trasu.
+
 <p>
   <a href="media/main_planning.png"><img src="media/main_planning.png" width="200" alt="Hlavní plánování trasy"></a>
   <a href="media/height_profile_graph.png"><img src="media/height_profile_graph.png" width="200" alt="Profilový graf"></a>
